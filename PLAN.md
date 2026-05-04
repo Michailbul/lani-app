@@ -4,19 +4,26 @@
 
 ## Current state — 2026-05-05
 
-- Repo created at `~/work/laniameda/backlot/`
-- Genesis docs in place (README, PRD, PLAN, CLAUDE.md, NAMING)
-- 1code source forked in (next commit)
-- No app builds yet, no schema migrations yet, no UI changes yet
+Three commits in:
+1. `genesis` — PRD, plan, CLAUDE.md, naming, license attribution
+2. `fork` — 1code source imported as Apache-2.0 substrate
+3. `rename` — cosmetic 1code/21st → Backlot branding pass
+
+App has not been built or run yet. Next concrete step is `bun install && bun run dev` and seeing it boot under the Backlot identity.
+
+Open work for Week 1: strip the 21st.dev integrations (separate commit), strip the routers we don't need, apply the schema delta. Then boot.
 
 ## Week 1 — Backbone fork
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING
-- [ ] Fork 1code source into the repo (commit "fork: import 1code")
-- [ ] Rename pass: `1code` → `backlot`, `~/.21st` → `~/.backlot`, package.json name + productName, electron-builder appId/productName, app window title
-- [ ] Strip non-essential routers: `ollama`, `voice`, `plugins`, `sandbox-import`, `agents` (Claude-agent registry), `claude-code` if redundant
-- [ ] Strip 21st.dev desktop-auth coupling; keep raw Anthropic OAuth
+- [x] Fork 1code source into the repo (commit "fork: import 1code")
+- [x] Cosmetic rename pass: `1code` → `backlot`, `~/.21st` → `~/.backlot`, package.json/productName/appId, app window title, About panel, CLI install dialogs
+- [ ] **Strip 21st.dev integrations** — `getBaseUrl`/`getAppUrl` phone-home, `auth-manager.ts` desktop-auth coupling, `analytics.ts` PostHog under 1code project, `remote-trpc.ts`/`remote-api.ts`, `features/agents/*` (whole feature)
+- [ ] Strip non-essential routers: `ollama`, `voice`, `plugins`, `sandbox-import`, `agents`
+- [ ] Strip the 21st-only mentions in CSP `connect-src` of `index.html`
+- [ ] Update OAuth `CLIENT_NAME` story — register Backlot's own OAuth client with Anthropic, or document the keep-`1code`-for-now decision
 - [ ] Apply schema delta migration (artifacts table, kind/canonical, agent_backend, sandboxMode, approvalPolicy, artifactPath; remove plan/agent mode field)
+- [ ] Replace logo SVG with a Backlot mark (placeholder OK for v1, brand pass refines)
 - [ ] `bun install`, `bun run dev` — confirm app boots, can OAuth into Anthropic, can create a chat in a worktree, can stream a Claude reply
 - [ ] First green-path screenshot saved to `docs/screenshots/v1-week1.png`
 
