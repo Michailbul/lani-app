@@ -1,0 +1,12 @@
+Backlot
+Copyright 2026 Michael Buloichyk
+
+This product includes software developed by 1code
+(https://github.com/1code-app/1code), licensed under the Apache License,
+Version 2.0. The original LICENSE file is preserved at the root of this
+repository.
+
+Backlot adapts 1code's Electron + tRPC + Drizzle + git-worktree substrate
+for screenplay and AI-filmmaking workflows. Net-new modules — including the
+screenplay editor, preview pane, direction tree, and MCP tools — are
+original work by the Backlot project.
