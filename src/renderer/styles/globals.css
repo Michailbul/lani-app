@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Darker+Grotesque:wght@500;600;700&display=swap");
 @import "./agents-styles.css";
 
 @source "../../../node_modules/streamdown/dist/*.js";
@@ -6,72 +7,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════
+   BACKLOT — Tailwind / shadcn token layer mapped to the
+   Laniameda Studio brand palette. Source of truth lives at
+   ~/work/laniameda/laniameda-hq/studio/brand/tokens.css
+
+   Tier 1 base palette (untouchable):
+     --coral      #F26157   4 86% 64%
+     --carbon     #191919   0 0% 10%
+     --teal       #79B791   139 28% 60%
+     --linen      #FFF4EA   27 100% 96%
+
+   Tier 2 surfaces:
+     --obsidian   #0A0805   24 33% 3%
+     --bone       #F0EBE8   24 27% 92%
+     --graphite   #3A3A3A   0 0% 23%
+
+   Brand mark / primary action:
+     --ember      #FF8C42   21 100% 63%
+     --vermillion #E23D28   7 76% 52%
+   ═══════════════════════════════════════════════════════ */
+
 @layer base {
+  /* Light theme — Linen surface, Coral primary, Vermillion destructive. */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 228 100% 50%;
-    /* #0034FF - same for all themes */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --input-background: 240 4.8% 95.9%;
-    --ring: 228 100% 50%;
-    /* Same as primary - blue focus ring */
-    --selection: 228 100% 50% / 0.25;
-    /* Text selection background - primary at 25% */
+    --background: 27 100% 96%;          /* Linen */
+    --foreground: 0 0% 10%;             /* Carbon */
+    --card: 27 100% 98%;
+    --card-foreground: 0 0% 10%;
+    --popover: 27 100% 98%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 4 86% 64%;               /* Coral */
+    --primary-foreground: 27 100% 96%;
+    --secondary: 24 27% 92%;            /* Bone */
+    --secondary-foreground: 0 0% 10%;
+    --muted: 24 27% 92%;
+    --muted-foreground: 0 0% 30%;
+    --accent: 24 35% 88%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 7 76% 52%;           /* Vermillion */
+    --destructive-foreground: 27 100% 96%;
+    --border: 24 20% 85%;
+    --input: 24 20% 88%;
+    --input-background: 24 35% 92%;
+    --ring: 21 100% 63%;                /* Ember focus ring */
+    --selection: 21 100% 63% / 0.28;
     --radius: 0.5rem;
-    /* Plan Mode Colors */
-    --plan-mode: 33 83% 67%;
-    --plan-mode-foreground: 0 0% 8%;
-    /* Timeline/Content background */
-    --tl-background: 0 0% 98%;
+    /* Plan Mode (kept for upstream compatibility; recolored to Amber.) */
+    --plan-mode: 38 80% 56%;
+    --plan-mode-foreground: 0 0% 10%;
+    --tl-background: 27 100% 98%;
   }
 
+  /* Dark theme — Obsidian surface, Ember primary. Studio default. */
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 240 4.8% 95.9%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    /* #171717 */
-    --popover-foreground: 0 0% 98%;
-    --primary: 228 100% 50%;
-    /* #0034FF - same for all themes */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 5.9% 10%;
-    --muted-foreground: 240 4.4% 58%;
-    --accent: 240 5.9% 10%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    /* #30302E - matches Claude input color */
-    --input-background: 60 2% 18%;
-    --ring: 228 100% 50%;
-    /* Same as primary - blue focus ring */
-    --selection: 228 100% 50% / 0.3;
-    /* Text selection background - primary at 30% */
-    /* Plan Mode Colors */
-    --plan-mode: 33 83% 67%;
-    --plan-mode-foreground: 0 0% 8%;
-    /* Timeline/Content background - matches Claude input color #30302E */
-    --tl-background: 60 2% 18%;
+    --background: 24 33% 3%;            /* Obsidian */
+    --foreground: 27 100% 96%;          /* Linen */
+    --card: 0 0% 8%;
+    --card-foreground: 27 100% 96%;
+    --popover: 0 0% 10%;                /* Carbon */
+    --popover-foreground: 27 100% 96%;
+    --primary: 21 100% 63%;             /* Ember */
+    --primary-foreground: 0 0% 10%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 27 100% 96%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 27 30% 70%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 27 100% 96%;
+    --destructive: 7 76% 52%;           /* Vermillion */
+    --destructive-foreground: 27 100% 96%;
+    --border: 0 0% 17%;
+    --input: 0 0% 14%;
+    --input-background: 0 0% 12%;
+    --ring: 21 100% 63%;                /* Ember */
+    --selection: 21 100% 63% / 0.32;
+    /* Plan Mode (kept for upstream compatibility; recolored to Amber.) */
+    --plan-mode: 38 80% 56%;
+    --plan-mode-foreground: 0 0% 10%;
+    --tl-background: 0 0% 8%;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Typography — Inter (body), JetBrains Mono (code), and
+   Darker Grotesque (display, used sparingly for headings
+   and the wordmark).
+   ═══════════════════════════════════════════════════════ */
+@layer base {
+  :root {
+    --font-display: "Darker Grotesque", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  html, body {
+    font-family: var(--font-body);
+    font-feature-settings: "cv11" on, "ss01" on, "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, kbd, pre, samp, .font-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "calt" 0;
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
   }
 }
 
