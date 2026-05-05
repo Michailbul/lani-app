@@ -20,6 +20,7 @@ import { discoverPluginMcpServers } from "../../plugins"
 import { getEnabledPlugins, getApprovedPluginMcpServers } from "./claude-settings"
 import { getExistingClaudeCredentials, refreshClaudeToken, isTokenExpired } from "../../claude-token"
 import { chats, claudeCodeCredentials, getDatabase, subChats } from "../../db"
+import { ensurePrimaryArtifact, PRIMARY_ARTIFACT_FILENAME } from "./artifacts"
 import { createRollbackStash } from "../../git/stash"
 import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStatus, startMcpOAuth, type McpToolInfo } from "../../mcp-auth"
 import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
@@ -1287,13 +1288,40 @@ ${prompt}
               console.log('[Ollama] Context prefix added to prompt')
             }
 
-            // System prompt config - use preset for both Claude and Ollama
-            // If AGENTS.md exists, append its content to the system prompt
-            const systemPromptConfig = agentsMdContent
+            // Backlot: seed the primary screenplay artifact in the worktree
+            // before the agent's turn. The system prompt below directs the
+            // agent to Edit/Write this file rather than paste screenplay
+            // content into the chat — without the seed file, the very first
+            // turn would force the agent into Write (creating the file from
+            // scratch); seeding lets it Edit in place from turn one.
+            let backlotArtifactNote = ""
+            try {
+              const artifact = await ensurePrimaryArtifact(input.cwd)
+              backlotArtifactNote = artifact.path
+                ? `\n\n# BACKLOT — SCREENPLAY ARTIFACT\n\nYou are working inside a Backlot direction. The user's screenplay artifact for this direction is:\n\n  ${artifact.path}\n\n(relative to the working directory: ${PRIMARY_ARTIFACT_FILENAME})\n\nWhen the user asks you to write, draft, revise, expand, rework, or otherwise change a scene, beat, line of dialogue, action, or any screenplay content — DO NOT paste the screenplay into the chat. Use the Edit or Write tool on the artifact above. Backlot's editor pane reads this file and shows the result; the chat is for direction, intent, questions, and small explanations.\n\nFormat: Fountain screenplay format. Scene headings as INT./EXT. LOCATION — TIME. Character names in CAPS, centered logically as Fountain auto-detects. Dialogue under character names. Parentheticals in (parens) below the character name. Action lines in normal sentence case. Title page metadata at the very top with \`Title:\`, \`Credit:\`, \`Author:\` keys.\n\nIn chat, your replies should be concise: a one-line summary of what you changed, followed by any questions or notes. Save full screenplay content for the artifact.`
+              } else {
+                console.warn(`[claude] No worktree path; skipping Backlot artifact seed.`)
+              }
+            } catch (artifactErr) {
+              console.warn(`[claude] Failed to seed primary artifact:`, artifactErr)
+            }
+
+            // System prompt config - use preset for both Claude and Ollama.
+            // Layered append: AGENTS.md (if present) + Backlot screenplay note.
+            const systemPromptAppend = [
+              agentsMdContent
+                ? `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`
+                : "",
+              backlotArtifactNote,
+            ]
+              .filter(Boolean)
+              .join("")
+
+            const systemPromptConfig = systemPromptAppend
               ? {
                   type: "preset" as const,
                   preset: "claude_code" as const,
-                  append: `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`,
+                  append: systemPromptAppend,
                 }
               : {
                   type: "preset" as const,

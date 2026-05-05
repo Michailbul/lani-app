@@ -33,15 +33,15 @@ const ASSISTANT_RAIL_OPEN_ATOM = atomWithStorage("backlot:assistant-rail-open", 
 const RAIL_WIDTH = 420 // px — wide enough for chat bubbles + tool chips, narrow enough that the screenplay still breathes
 
 interface ScreenplayWorkspaceProps {
+  chatId: string | null
   directionName?: string | null
-  artifactPath?: string | null
   /** The existing 1code <ChatView /> goes here. */
   assistant: ReactNode
 }
 
 export function ScreenplayWorkspace({
+  chatId,
   directionName,
-  artifactPath,
   assistant,
 }: ScreenplayWorkspaceProps) {
   const [railOpen, setRailOpen] = useAtom(ASSISTANT_RAIL_OPEN_ATOM)
@@ -50,10 +50,7 @@ export function ScreenplayWorkspace({
     <div className="flex h-full w-full overflow-hidden">
       {/* Center — screenplay artifact */}
       <div className="flex-1 min-w-0 relative">
-        <ScreenplayPane
-          directionName={directionName}
-          artifactPath={artifactPath}
-        />
+        <ScreenplayPane chatId={chatId} directionName={directionName} />
 
         {/* Toggle handle (only visible when rail is closed). */}
         {!railOpen && (

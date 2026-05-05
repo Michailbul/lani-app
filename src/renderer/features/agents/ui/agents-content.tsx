@@ -964,8 +964,8 @@ export function AgentsContent() {
             // canvas; the existing 1code <ChatView /> is preserved verbatim
             // and slotted into the assistant rail on the right.
             <ScreenplayWorkspace
+              chatId={selectedChatId}
               directionName={chatData?.name ?? null}
-              artifactPath={null}
               assistant={
                 <ChatView
                   key={`${chatSourceMode}-${selectedChatId}`}
