@@ -1,11 +1,17 @@
+import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { promisify } from "node:util"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
 import { z } from "zod"
 import { chats, getDatabase } from "../../db"
 import { publicProcedure, router } from "../index"
+
+const execFileAsync = promisify(execFile)
 
 /**
  * Backlot artifact router.
@@ -261,7 +267,7 @@ export const artifactsRouter = router({
       if (isUntracked) {
         // Brand-new file the agent created. Delete it.
         try {
-          await import("node:fs/promises").then((fs) => fs.unlink(fullPath))
+          await unlink(fullPath)
         } catch (err) {
           console.warn("[artifacts.reject] unlink failed:", err)
         }
@@ -271,7 +277,131 @@ export const artifactsRouter = router({
       await git.checkout(["HEAD", "--", PRIMARY_ARTIFACT])
       return { reverted: true, kind: "reverted" as const }
     }),
+
+  /**
+   * Accept a single hunk. Cursor-style — the user reviewed change N and
+   * wants to keep just that one. We regenerate the unified diff, slice
+   * the requested hunk + the diff's file headers into a synthetic
+   * single-hunk patch, `git apply --cached` to stage just that hunk,
+   * then commit. Other hunks stay unstaged in the working tree, ready
+   * for their own decision.
+   */
+  acceptHunk: publicProcedure
+    .input(z.object({ chatId: z.string(), hunkIndex: z.number().int().min(0) }))
+    .mutation(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) {
+        throw new Error("Chat has no worktree.")
+      }
+      const patch = await buildSingleHunkPatch(
+        lookup.worktreePath,
+        input.hunkIndex,
+      )
+      const tmp = join(tmpdir(), `backlot-hunk-${randomUUID()}.patch`)
+      await writeFile(tmp, patch, "utf-8")
+      try {
+        await execFileAsync("git", ["apply", "--cached", "--whitespace=nowarn", tmp], {
+          cwd: lookup.worktreePath,
+        })
+        const git = simpleGit(lookup.worktreePath)
+        const result = await git.commit(
+          `Backlot: accept hunk ${input.hunkIndex + 1} (${new Date().toISOString()})`,
+          [PRIMARY_ARTIFACT],
+        )
+        return { commitHash: result.commit }
+      } finally {
+        await unlink(tmp).catch(() => {})
+      }
+    }),
+
+  /**
+   * Reject a single hunk. Synthesise the same single-hunk patch as
+   * acceptHunk, but apply it `--reverse` to the working tree — the
+   * region for that hunk reverts to HEAD while every other hunk stays
+   * pending. Untracked files have no HEAD to revert to per-hunk; for
+   * those, dismissal is "delete the whole file" (use the global
+   * `reject` procedure).
+   */
+  rejectHunk: publicProcedure
+    .input(z.object({ chatId: z.string(), hunkIndex: z.number().int().min(0) }))
+    .mutation(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) {
+        throw new Error("Chat has no worktree.")
+      }
+      const patch = await buildSingleHunkPatch(
+        lookup.worktreePath,
+        input.hunkIndex,
+      )
+      const tmp = join(tmpdir(), `backlot-hunk-${randomUUID()}.patch`)
+      await writeFile(tmp, patch, "utf-8")
+      try {
+        await execFileAsync(
+          "git",
+          ["apply", "--reverse", "--whitespace=nowarn", tmp],
+          { cwd: lookup.worktreePath },
+        )
+        return { reverted: true }
+      } finally {
+        await unlink(tmp).catch(() => {})
+      }
+    }),
 })
+
+/**
+ * Build a synthetic single-hunk patch suitable for `git apply`. We
+ * regenerate the unified diff at call time (rather than relying on a
+ * stale cached diff from the renderer) so hunk indices match what the
+ * user is currently looking at — the screenplay pane refetches every 2s
+ * so the index is from the most recent diff render.
+ */
+async function buildSingleHunkPatch(
+  worktreePath: string,
+  hunkIndex: number,
+): Promise<string> {
+  const git = simpleGit(worktreePath)
+  const unified = await git.diff([
+    "--no-color",
+    "--unified=3",
+    "--",
+    PRIMARY_ARTIFACT,
+  ])
+  if (!unified.trim()) {
+    throw new Error("No pending changes to slice — diff is empty.")
+  }
+
+  // Split file-header (everything before the first @@) from hunks. Each
+  // hunk starts with `@@ -X,Y +A,B @@` and runs until the next `@@` or
+  // end of input.
+  const firstHunkAt = unified.indexOf("\n@@")
+  if (firstHunkAt < 0) {
+    throw new Error("Diff has no hunks.")
+  }
+  const fileHeader = unified.slice(0, firstHunkAt).trimEnd()
+  const hunkBlock = unified.slice(firstHunkAt + 1)
+
+  const hunkStarts: number[] = []
+  for (let i = 0; i < hunkBlock.length; i++) {
+    if (
+      (i === 0 || hunkBlock[i - 1] === "\n") &&
+      hunkBlock.startsWith("@@", i)
+    ) {
+      hunkStarts.push(i)
+    }
+  }
+  if (hunkIndex < 0 || hunkIndex >= hunkStarts.length) {
+    throw new Error(
+      `Hunk index ${hunkIndex} out of range (${hunkStarts.length} hunks).`,
+    )
+  }
+  const start = hunkStarts[hunkIndex]
+  const end =
+    hunkIndex + 1 < hunkStarts.length ? hunkStarts[hunkIndex + 1] : hunkBlock.length
+  const singleHunk = hunkBlock.slice(start, end)
+
+  // git apply requires a trailing newline.
+  return `${fileHeader}\n${singleHunk}${singleHunk.endsWith("\n") ? "" : "\n"}`
+}
 
 // ────────────────────────────────────────────────────────────────────────
 // Diff parsing — minimal hand-rolled unified-diff reader for one file.

@@ -23,6 +23,7 @@ import {
   FileText,
   Save,
   Undo2,
+  X,
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import { trpc } from "../../lib/trpc"
@@ -92,6 +93,34 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
 
   const accept = trpc.artifacts.accept.useMutation({ onSuccess: refreshAll })
   const reject = trpc.artifacts.reject.useMutation({ onSuccess: refreshAll })
+
+  // Per-hunk approve / dismiss. Only available for "modified" diffs —
+  // untracked files have no per-hunk granularity (the global Accept /
+  // Revert covers them). Track the busy hunk index so the rest of the
+  // diff doesn't reflow under the user mid-decision.
+  const [busyHunkIndex, setBusyHunkIndex] = useState<number | null>(null)
+  const acceptHunk = trpc.artifacts.acceptHunk.useMutation({
+    onSettled: () => {
+      setBusyHunkIndex(null)
+      refreshAll()
+    },
+  })
+  const rejectHunk = trpc.artifacts.rejectHunk.useMutation({
+    onSettled: () => {
+      setBusyHunkIndex(null)
+      refreshAll()
+    },
+  })
+  const onAcceptHunk = (hunkIndex: number) => {
+    if (!chatId) return
+    setBusyHunkIndex(hunkIndex)
+    acceptHunk.mutate({ chatId, hunkIndex })
+  }
+  const onRejectHunk = (hunkIndex: number) => {
+    if (!chatId) return
+    setBusyHunkIndex(hunkIndex)
+    rejectHunk.mutate({ chatId, hunkIndex })
+  }
 
   const content = artifact.data?.content ?? null
   const exists = artifact.data?.exists ?? false
@@ -231,14 +260,26 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
           viewMode === "split" ? (
             <div className="grid grid-cols-2 h-full">
               <div className="border-r border-border min-h-0 overflow-auto">
-                <DiffSurface hunks={hunks} />
+                <DiffSurface
+              hunks={hunks}
+              perHunkEnabled={diffStatus === "modified"}
+              onAcceptHunk={onAcceptHunk}
+              onRejectHunk={onRejectHunk}
+              busyHunkIndex={busyHunkIndex}
+            />
               </div>
               <div className="min-h-0 overflow-auto">
                 <PreviewSurface content={content} />
               </div>
             </div>
           ) : (
-            <DiffSurface hunks={hunks} />
+            <DiffSurface
+              hunks={hunks}
+              perHunkEnabled={diffStatus === "modified"}
+              onAcceptHunk={onAcceptHunk}
+              onRejectHunk={onRejectHunk}
+              busyHunkIndex={busyHunkIndex}
+            />
           )
         ) : viewMode === "preview" ? (
           <PreviewSurface content={content} />
@@ -295,30 +336,83 @@ function EditorSurface({ content }: { content: string | null }) {
   )
 }
 
-function DiffSurface({ hunks }: { hunks: DiffHunk[] }) {
+interface DiffSurfaceProps {
+  hunks: DiffHunk[]
+  perHunkEnabled: boolean
+  onAcceptHunk: (index: number) => void
+  onRejectHunk: (index: number) => void
+  busyHunkIndex: number | null
+}
+
+function DiffSurface({
+  hunks,
+  perHunkEnabled,
+  onAcceptHunk,
+  onRejectHunk,
+  busyHunkIndex,
+}: DiffSurfaceProps) {
   if (hunks.length === 0) {
     return <BlankCanvas />
   }
   return (
     <div className="h-full">
       <div className="w-full max-w-[920px] mx-auto px-6 py-8 space-y-6">
-        {hunks.map((hunk, hi) => (
-          <div
-            key={hi}
-            className="rounded-lg border border-border overflow-hidden bg-card/40"
-          >
-            <div className="px-3 py-1.5 bg-secondary/40 border-b border-border text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              {hunk.header.replace(/^@@\s*|\s*@@$/g, "")}
+        {hunks.map((hunk, hi) => {
+          const busy = busyHunkIndex === hi
+          return (
+            <div
+              key={hi}
+              className="rounded-lg border border-border overflow-hidden bg-card/40"
+            >
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-secondary/40 border-b border-border">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  {hunk.header.replace(/^@@\s*|\s*@@$/g, "")}
+                </span>
+                {perHunkEnabled && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onRejectHunk(hi)}
+                      disabled={busy || busyHunkIndex !== null}
+                      title="Dismiss this hunk (revert to HEAD just here)"
+                      className={cn(
+                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                        "border border-border bg-background hover:bg-rose-500/10",
+                        "text-foreground/70 hover:text-rose-700 dark:hover:text-rose-300",
+                        "transition-colors disabled:opacity-50 disabled:cursor-progress",
+                      )}
+                    >
+                      <X className="h-3 w-3" />
+                      Dismiss
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAcceptHunk(hi)}
+                      disabled={busy || busyHunkIndex !== null}
+                      title="Approve this hunk (commit just this change)"
+                      className={cn(
+                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                        "border border-border bg-background hover:bg-emerald-500/10",
+                        "text-foreground/70 hover:text-emerald-700 dark:hover:text-emerald-300",
+                        "transition-colors disabled:opacity-50 disabled:cursor-progress",
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                      Approve
+                    </button>
+                  </div>
+                )}
+              </div>
+              <table className="w-full font-mono text-[13px] leading-6">
+                <tbody>
+                  {hunk.lines.map((line, li) => (
+                    <DiffLineRow key={li} line={line} />
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <table className="w-full font-mono text-[13px] leading-6">
-              <tbody>
-                {hunk.lines.map((line, li) => (
-                  <DiffLineRow key={li} line={line} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
