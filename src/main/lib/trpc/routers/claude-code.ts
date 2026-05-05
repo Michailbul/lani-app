@@ -1,9 +1,10 @@
+import { spawn } from "node:child_process"
 import { eq, sql } from "drizzle-orm"
 import { safeStorage, shell } from "electron"
 import { z } from "zod"
-import { getAuthManager } from "../../../index"
+import { getAuthManager, startClaudeCredentialPolling } from "../../../index"
 import { getClaudeShellEnvironment } from "../../claude"
-import { getExistingClaudeToken, runClaudeSetupToken } from "../../claude-token"
+import { getExistingClaudeToken } from "../../claude-token"
 import { getApiUrl } from "../../config"
 import {
   anthropicAccounts,
@@ -169,31 +170,72 @@ export const claudeCodeRouter = router({
   }),
 
   /**
-   * Refresh Claude credentials directly via the bundled `claude` binary's
-   * setup-token flow. Backlot does not run a 21st.dev-mediated sandbox —
-   * `claude setup-token` opens its own browser, runs a localhost callback,
-   * writes the new credential to the OS keychain, and exits. We then read
-   * straight from the keychain on the next chat turn.
+   * Refresh Claude credentials by opening Terminal.app with `claude /login`
+   * pre-typed. Anthropic's CLI does not expose a non-interactive login
+   * command (setup-token requires existing valid auth; /login is a REPL
+   * slash command). 1code's workaround is a cloud sandbox emulating a TTY
+   * — Backlot delegates to the user's real Terminal instead.
    *
-   * Returns sandbox-shaped metadata so the existing ClaudeLoginModal does
-   * not need a parallel patch — the values are sentinels that pollStatus
-   * recognises and short-circuits.
+   * After this kicks off, the Claude binary in the spawned Terminal opens
+   * its own browser, captures the OAuth redirect on a localhost callback,
+   * and writes the new credential into the OS keychain. We re-arm the
+   * credential poller so the running Backlot picks it up the moment it
+   * lands.
+   *
+   * Returns BACKLOT_DIRECT sentinels so the existing modal flow closes
+   * cleanly via the pollStatus short-circuit.
    */
   startAuth: publicProcedure.mutation(async () => {
-    const result = await runClaudeSetupToken((status) => {
-      console.log("[claude-code] setup-token:", status)
-    })
+    const platform = process.platform
 
-    if (!result.success) {
-      throw new Error(
-        result.error ||
-          "Failed to refresh Claude credentials. Open a terminal and run `claude /login` manually.",
-      )
+    if (platform === "darwin") {
+      // macOS: AppleScript opens Terminal.app, runs the command, focuses
+      // the window so the user knows where to look.
+      const script = [
+        'tell application "Terminal"',
+        '  activate',
+        '  do script "claude /login"',
+        'end tell',
+      ].join("\n")
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("osascript", ["-e", script])
+        child.on("error", reject)
+        child.on("close", (code) =>
+          code === 0
+            ? resolve()
+            : reject(new Error(`osascript exited with code ${code}`)),
+        )
+      })
+    } else if (platform === "win32") {
+      spawn("cmd.exe", ["/c", "start", "cmd.exe", "/k", "claude /login"], {
+        detached: true,
+        stdio: "ignore",
+      }).unref()
+    } else {
+      // Linux: best-effort — try common terminal emulators.
+      const candidates = [
+        ["x-terminal-emulator", "-e", "claude /login"],
+        ["gnome-terminal", "--", "bash", "-c", "claude /login; exec bash"],
+        ["konsole", "-e", "claude /login"],
+        ["xterm", "-e", "claude /login"],
+      ]
+      let lastErr: Error | null = null
+      for (const [cmd, ...args] of candidates) {
+        try {
+          spawn(cmd, args, { detached: true, stdio: "ignore" }).unref()
+          lastErr = null
+          break
+        } catch (e) {
+          lastErr = e as Error
+        }
+      }
+      if (lastErr) throw lastErr
     }
 
-    // Sentinel values consumed by pollStatus / submitCode below — they
-    // recognise BACKLOT_DIRECT and return success synthetically so the
-    // modal closes cleanly without a server round-trip.
+    // Re-arm the credential poller — it will detect the new keychain
+    // entry on the next 2s tick after `claude /login` writes it.
+    startClaudeCredentialPolling()
+
     return {
       sandboxId: "BACKLOT_DIRECT",
       sandboxUrl: "BACKLOT_DIRECT",

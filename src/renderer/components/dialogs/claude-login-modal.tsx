@@ -164,7 +164,12 @@ export function ClaudeLoginModal() {
       try {
         const result = await startAuthMutation.mutateAsync()
         if (result.sandboxId === "BACKLOT_DIRECT") {
-          triggerAuthRetry()
+          // Backlot opened a Terminal window with `claude /login`. The user
+          // needs to complete sign-in there before retrying the message —
+          // do NOT call triggerAuthRetry, that would resend before the
+          // keychain has fresh credentials and bounce us right back into
+          // this modal. Closing the modal also clears pendingAuthRetry,
+          // so the user manually re-sends when they're back.
           setOpen(false)
           return
         }
@@ -293,7 +298,7 @@ export function ClaudeLoginModal() {
                 Refresh Claude credentials
               </h1>
               <p className="text-sm text-muted-foreground">
-                Your Claude session expired. Click Refresh — Backlot will run <code className="px-1 py-0.5 rounded bg-muted text-xs">claude setup-token</code> for you, your browser will open, sign in, and you’re back.
+                Your Claude session expired. Click below — Backlot opens Terminal with <code className="px-1 py-0.5 rounded bg-muted text-xs">claude /login</code> ready to run. Sign in there, come back, and send your message again.
               </p>
             </div>
           </div>
