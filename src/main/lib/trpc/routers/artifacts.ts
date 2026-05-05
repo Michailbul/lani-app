@@ -105,13 +105,8 @@ export const artifactsRouter = router({
       if (!lookup?.worktreePath) {
         return { path: null, created: false }
       }
-      const fullPath = resolveArtifactPath(lookup.worktreePath)
-      if (existsSync(fullPath)) {
-        return { path: fullPath, created: false }
-      }
-      await mkdir(dirname(fullPath), { recursive: true })
-      await writeFile(fullPath, ARTIFACT_PLACEHOLDER, "utf-8")
-      return { path: fullPath, created: true }
+      const result = await ensurePrimaryArtifact(lookup.worktreePath)
+      return { path: result.path, created: result.created }
     }),
 
   /**
@@ -391,6 +386,13 @@ function parseUnifiedDiff(unified: string): DiffHunk[] {
  * a turn fires. Ensures the agent's first Edit call has a real file to
  * land on. Mirrors `ensure` but callable from server code without going
  * through tRPC.
+ *
+ * If the worktree is a git repo, the seeded placeholder is committed so
+ * it becomes the review baseline. Without this, the very first call to
+ * artifacts.diff() returns the entire placeholder as an "untracked"
+ * all-add hunk and the user sees a phantom "pending changes" review
+ * before the agent has done anything. Committing makes the next real
+ * agent edit the first thing the user reviews.
  */
 export async function ensurePrimaryArtifact(
   worktreePath: string,
@@ -401,6 +403,25 @@ export async function ensurePrimaryArtifact(
   }
   await mkdir(dirname(fullPath), { recursive: true })
   await writeFile(fullPath, ARTIFACT_PLACEHOLDER, "utf-8")
+
+  try {
+    const git = simpleGit(worktreePath)
+    const isRepo = await git.checkIsRepo()
+    if (isRepo) {
+      await git.add([PRIMARY_ARTIFACT])
+      await git.commit(
+        "Backlot: seed primary screenplay artifact",
+        [PRIMARY_ARTIFACT],
+        ["--allow-empty"],
+      )
+    }
+  } catch (err) {
+    console.warn(
+      "[artifacts] Could not commit seed artifact (worktree may not be a git repo):",
+      err,
+    )
+  }
+
   return { path: fullPath, relativePath: PRIMARY_ARTIFACT, created: true }
 }
 
