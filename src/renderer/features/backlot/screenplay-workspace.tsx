@@ -24,7 +24,7 @@
 import { type ReactNode, useEffect } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
-import { ChevronLeft, ChevronRight, MessageSquare, Plus, Sparkles } from "lucide-react"
+import { ChevronLeft, ChevronRight, GitBranch, MessageSquare, Plus, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { ScreenplayPane } from "./screenplay-pane"
 import {
@@ -85,9 +85,10 @@ export function ScreenplayWorkspace({
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Center — Direction tabs + screenplay artifact */}
+      {/* Center — Direction tabs + lineage breadcrumb + screenplay */}
       <div className="flex-1 min-w-0 relative flex flex-col">
         <DirectionTabs />
+        <LineageBreadcrumb />
         <div className="flex-1 min-h-0">
           <ScreenplayPane chatId={chatId} directionName={directionName} />
         </div>
@@ -321,6 +322,89 @@ function DirectionTabs() {
         )}
         Try another way
       </button>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Lineage breadcrumb — Layer 2.
+//
+// Shows the chain from root → current Direction:
+//   "main draft  ›  alex rewrite  ›  alex flashback try"
+//
+// Each segment is clickable and switches the active chat to that
+// ancestor. Hidden entirely when the active Direction has no parent
+// (root case) — no point dedicating a row of vertical space to a
+// single label.
+// ────────────────────────────────────────────────────────────────────────
+
+function LineageBreadcrumb() {
+  const project = useAtomValue(selectedProjectAtom)
+  const [activeChatId, setActiveChatId] = useAtom(selectedAgentChatIdAtom)
+
+  const directions = trpc.chats.directionsForProject.useQuery(
+    { projectId: project?.id ?? "" },
+    { enabled: !!project?.id, refetchInterval: 5000 },
+  )
+
+  const chain = (() => {
+    const list = directions.data ?? []
+    if (!activeChatId) return [] as typeof list
+    const byId = new Map(list.map((d) => [d.id, d]))
+    const out: typeof list = []
+    let cursor = byId.get(activeChatId)
+    let safety = 32 // guard against unexpected cycles in the parentChatId chain
+    while (cursor && safety-- > 0) {
+      out.unshift(cursor)
+      cursor = cursor.parentChatId ? byId.get(cursor.parentChatId) : undefined
+    }
+    return out
+  })()
+
+  // Hide when there's nothing meaningful to show — root Direction or
+  // pre-mount (active chat not yet in the directions list).
+  if (chain.length <= 1) return null
+
+  return (
+    <div className="flex items-center gap-1 h-6 px-3 border-b border-border bg-card/20 select-none shrink-0 overflow-hidden">
+      <GitBranch className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+      <div className="flex items-center gap-1 text-[11px] font-mono tabular-nums truncate">
+        {chain.map((d, idx) => {
+          const isCurrent = d.id === activeChatId
+          const color = d.directionColor || fallbackColor(d.id)
+          return (
+            <div key={d.id} className="flex items-center gap-1 min-w-0">
+              {idx > 0 && (
+                <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveChatId(d.id)}
+                className={cn(
+                  "flex items-center gap-1.5 px-1.5 py-0.5 rounded truncate",
+                  "transition-colors",
+                  isCurrent
+                    ? "text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
+                )}
+                title={
+                  d.forkedAtCommit
+                    ? `${d.name ?? "Untitled"} — forked at ${d.forkedAtCommit.slice(0, 7)}`
+                    : d.name ?? "Untitled"
+                }
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="truncate max-w-[200px]">
+                  {d.name ?? "Untitled"}
+                </span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
