@@ -325,36 +325,40 @@ function DiffSurface({ hunks }: { hunks: DiffHunk[] }) {
 }
 
 function DiffLineRow({ line }: { line: DiffLine }) {
+  // Dual-tone palette: dark text on tinted-light bg in light mode, light
+  // text on tinted-dark bg in dark mode. Sigil column uses saturated
+  // emerald-700/rose-700 (light) or emerald-300/rose-300 (dark) and is
+  // semibold so the +/− reads unambiguously against the row bg.
   const bg =
     line.kind === "add"
-      ? "bg-emerald-500/10"
+      ? "bg-emerald-500/15 dark:bg-emerald-500/15"
       : line.kind === "del"
-        ? "bg-rose-500/10"
+        ? "bg-rose-500/15 dark:bg-rose-500/15"
         : ""
   const sigil =
     line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "
   const sigilColor =
     line.kind === "add"
-      ? "text-emerald-500"
+      ? "text-emerald-700 dark:text-emerald-300"
       : line.kind === "del"
-        ? "text-rose-500"
+        ? "text-rose-700 dark:text-rose-300"
         : "text-muted-foreground/40"
   const textColor =
-    line.kind === "del"
-      ? "text-rose-300/80 line-through decoration-rose-500/40"
-      : line.kind === "add"
-        ? "text-emerald-100"
-        : "text-foreground/70"
+    line.kind === "add"
+      ? "text-emerald-900 dark:text-emerald-100"
+      : line.kind === "del"
+        ? "text-rose-900 dark:text-rose-100 line-through decoration-rose-500/50"
+        : "text-foreground/80"
 
   return (
-    <tr className={cn(bg, "hover:bg-foreground/[0.02]")}>
-      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/50 font-mono tabular-nums pt-0.5">
+    <tr className={cn(bg, "hover:bg-foreground/[0.04]")}>
+      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/60 font-mono tabular-nums pt-0.5">
         {line.oldNo ?? ""}
       </td>
-      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/50 font-mono tabular-nums pt-0.5">
+      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/60 font-mono tabular-nums pt-0.5">
         {line.newNo ?? ""}
       </td>
-      <td className={cn("select-none w-5 text-center align-top", sigilColor)}>
+      <td className={cn("select-none w-5 text-center align-top font-semibold", sigilColor)}>
         {sigil}
       </td>
       <td className={cn("pr-4 align-top whitespace-pre-wrap break-words", textColor)}>
