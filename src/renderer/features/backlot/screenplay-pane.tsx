@@ -126,10 +126,12 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
   }
 
   // Per-line dismiss — the finest granularity. Each + or - line in the
-  // diff gets a hover-revealed × button. Server synthesises a 1-line
-  // --unidiff-zero patch and applies it --reverse; other lines stay
-  // pending so the user can review them next.
+  // diff gets a × button. Server does direct working-tree surgery; loud
+  // error if the line moved under us so we can surface it to the user.
+  const [lineError, setLineError] = useState<string | null>(null)
   const dismissLine = trpc.artifacts.dismissLine.useMutation({
+    onSuccess: () => setLineError(null),
+    onError: (err) => setLineError(err.message),
     onSettled: refreshAll,
   })
   const onDismissLine = (line: DiffLine) => {
@@ -214,6 +216,23 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
           </button>
         </div>
       </div>
+
+      {/* Per-line operation error — surfaces stale-diff or surgery failures */}
+      {lineError && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-rose-500/10">
+          <div className="flex items-center gap-2 text-xs">
+            <X className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span className="text-rose-900 dark:text-rose-100">{lineError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLineError(null)}
+            className="text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 text-xs"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Pending-changes review bar — only when the file differs from HEAD */}
       {hasPending && (

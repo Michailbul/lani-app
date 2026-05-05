@@ -480,15 +480,21 @@ export const artifactsRouter = router({
   /**
    * Dismiss a single line — the finest review granularity.
    *
-   * For a "+" line: build a 1-line --unidiff-zero patch describing that
-   * line being added at newNo, then `git apply --reverse` removes it.
-   * For a "-" line: same shape but describing that line being removed
-   * from oldNo; --reverse re-inserts it. Other pending lines stay put.
+   * Direct working-tree string surgery rather than `git apply
+   * --unidiff-zero`. The patch-and-apply path was brittle: the renderer
+   * supplies oldNo/newNo from a diff snapshot, but every successful
+   * dismiss shifts subsequent line numbers in the working tree, so a
+   * second click within the 2 s refetch window would silently fail
+   * because git couldn't locate the patch's anchor.
    *
-   * Inputs are the line's oldNo / newNo / text from the most recent
-   * artifacts.diff() result — the renderer sends them when the user
-   * clicks the per-line × button. The 2s refetchInterval keeps these
-   * values fresh; the server doesn't try to validate or re-derive them.
+   * The surgery is text-based and content-anchored:
+   *   - Verify the line exists at the expected line-number first.
+   *   - If not, fall back to a content match (text equality, trimmed)
+   *     so a stale line number can still find its target.
+   *   - For "add" dismiss: splice the line out of the working tree.
+   *   - For "del" dismiss: insert HEAD's deleted line back into the
+   *     working tree at a position derived from the surrounding HEAD
+   *     context that still matches the working tree.
    */
   dismissLine: publicProcedure
     .input(
@@ -505,47 +511,87 @@ export const artifactsRouter = router({
       if (!lookup?.worktreePath) {
         throw new Error("Chat has no worktree.")
       }
-      const fileHeader = `--- a/${PRIMARY_ARTIFACT}\n+++ b/${PRIMARY_ARTIFACT}`
+      const fullPath = resolveArtifactPath(lookup.worktreePath)
+      const wtRaw = await readFile(fullPath, "utf-8")
+      const wtLines = wtRaw.split("\n")
 
-      let hunkHeader: string
-      let body: string
       if (input.kind === "add") {
         if (input.newNo == null) {
-          throw new Error("Add line requires newNo.")
+          throw new Error("Add-line dismissal requires newNo.")
         }
-        // -X,0 +Y,1 → "Y is the location of one new added line"
-        const oldAnchor = input.oldNo ?? Math.max(0, input.newNo - 1)
-        hunkHeader = `@@ -${oldAnchor},0 +${input.newNo},1 @@`
-        body = `+${input.text}`
-      } else {
-        if (input.oldNo == null) {
-          throw new Error("Del line requires oldNo.")
+        // First try the diff's reported position; fall back to content
+        // match if line numbers have shifted since the diff was fetched.
+        const expectedIdx = input.newNo - 1
+        let targetIdx = -1
+        if (
+          expectedIdx >= 0 &&
+          expectedIdx < wtLines.length &&
+          wtLines[expectedIdx] === input.text
+        ) {
+          targetIdx = expectedIdx
+        } else {
+          targetIdx = wtLines.findIndex((l) => l === input.text)
+          if (targetIdx < 0) {
+            // Last resort: trimmed match (handles whitespace-only diffs).
+            targetIdx = wtLines.findIndex(
+              (l) => l.trim() === input.text.trim() && l.trim().length > 0,
+            )
+          }
         }
-        // -X,1 +Y,0 → "X is the location of one removed line"
-        const newAnchor = input.newNo ?? Math.max(0, input.oldNo - 1)
-        hunkHeader = `@@ -${input.oldNo},1 +${newAnchor},0 @@`
-        body = `-${input.text}`
+        if (targetIdx < 0) {
+          throw new Error(
+            "Could not locate the added line in the working tree — it may have already been dismissed or modified.",
+          )
+        }
+        wtLines.splice(targetIdx, 1)
+        await writeFile(fullPath, wtLines.join("\n"), "utf-8")
+        return { dismissed: true, kind: "removed-add" as const }
       }
 
-      const patch = `${fileHeader}\n${hunkHeader}\n${body}\n`
-      const tmp = join(tmpdir(), `backlot-line-${randomUUID()}.patch`)
-      await writeFile(tmp, patch, "utf-8")
-      try {
-        await execFileAsync(
-          "git",
-          [
-            "apply",
-            "--reverse",
-            "--unidiff-zero",
-            "--whitespace=nowarn",
-            tmp,
-          ],
-          { cwd: lookup.worktreePath },
-        )
-        return { dismissed: true }
-      } finally {
-        await unlink(tmp).catch(() => {})
+      // kind === "del" → restore the deleted line back into the working tree.
+      if (input.oldNo == null) {
+        throw new Error("Del-line dismissal requires oldNo.")
       }
+      const git = simpleGit(lookup.worktreePath)
+      let headContent: string
+      try {
+        headContent = await git.raw([
+          "show",
+          `HEAD:${PRIMARY_ARTIFACT}`,
+        ])
+      } catch (err) {
+        throw new Error(`Could not read HEAD version of the artifact: ${err}`)
+      }
+      const headLines = headContent.split("\n")
+      const expectedHeadIdx = input.oldNo - 1
+      if (
+        expectedHeadIdx < 0 ||
+        expectedHeadIdx >= headLines.length ||
+        (headLines[expectedHeadIdx] !== input.text &&
+          headLines[expectedHeadIdx].trim() !== input.text.trim())
+      ) {
+        throw new Error(
+          "HEAD content has drifted — could not verify the deleted line's source position. Refresh the diff and try again.",
+        )
+      }
+
+      // Insertion point in the working tree: walk HEAD forward from the
+      // deleted line, find the first subsequent HEAD line that still
+      // exists in the working tree (a stable anchor), and insert before
+      // that anchor's working-tree position. Falls back to end-of-file.
+      let insertAt = wtLines.length
+      for (let i = expectedHeadIdx + 1; i < headLines.length; i++) {
+        const candidate = headLines[i]
+        if (!candidate.trim()) continue // skip blank-line anchors (ambiguous)
+        const wtIdx = wtLines.indexOf(candidate)
+        if (wtIdx >= 0) {
+          insertAt = wtIdx
+          break
+        }
+      }
+      wtLines.splice(insertAt, 0, input.text)
+      await writeFile(fullPath, wtLines.join("\n"), "utf-8")
+      return { dismissed: true, kind: "restored-del" as const }
     }),
 })
 
