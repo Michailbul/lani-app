@@ -499,6 +499,27 @@ function DiffLineRow({
       <td className={cn("pr-4 align-top whitespace-pre-wrap break-words", textColor)}>
         {line.text || " "}
       </td>
+      <td className="select-none w-7 align-top pt-0.5 pr-1">
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            title={
+              line.kind === "add"
+                ? "Dismiss this added line"
+                : "Restore this removed line"
+            }
+            className={cn(
+              "opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity",
+              "flex items-center justify-center w-5 h-5 rounded",
+              "text-muted-foreground hover:text-rose-700 dark:hover:text-rose-300",
+              "hover:bg-rose-500/15",
+            )}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </td>
     </tr>
   )
 }
