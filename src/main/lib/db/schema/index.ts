@@ -51,8 +51,24 @@ export const chats = sqliteTable("chats", {
   // PR tracking fields
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
+  // ── Backlot Direction tree (forking) ──────────────────────────────
+  // The Direction this one was forked from. NULL means a root Direction
+  // (the "main draft"). The tree is built by walking parentChatId chains
+  // up to a NULL parent.
+  parentChatId: text("parent_chat_id"),
+  // Git commit hash on the parent's worktree at the moment of fork —
+  // the new worktree's branch is created off this commit.
+  forkedAtCommit: text("forked_at_commit"),
+  // How many of the parent's sub-chat messages were copied into the new
+  // Direction. Lets us show "forked at message N of 47" in the tree
+  // viz, and lets us re-derive what was inherited if needed.
+  forkedAtMessageIndex: integer("forked_at_message_index"),
+  // Hex colour for tree-viz badges. Picked from a small palette on
+  // create so siblings stay distinguishable.
+  directionColor: text("direction_color"),
 }, (table) => [
   index("chats_worktree_path_idx").on(table.worktreePath),
+  index("chats_parent_chat_id_idx").on(table.parentChatId),
 ])
 
 export const chatsRelations = relations(chats, ({ one, many }) => ({
