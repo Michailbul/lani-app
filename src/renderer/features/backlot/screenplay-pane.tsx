@@ -21,6 +21,8 @@ import {
   FileEdit,
   FileQuestion,
   FileText,
+  History,
+  RotateCcw,
   Save,
   Undo2,
   X,
@@ -46,7 +48,7 @@ type DiffHunk = {
   lines: DiffLine[]
 }
 
-type ViewMode = "editor" | "preview" | "split"
+type ViewMode = "editor" | "preview" | "split" | "history"
 
 interface ScreenplayPaneProps {
   chatId?: string | null
@@ -57,6 +59,7 @@ const VIEW_TABS: { id: ViewMode; label: string; icon: typeof FileText }[] = [
   { id: "editor", label: "Editor", icon: FileEdit },
   { id: "preview", label: "Preview", icon: Eye },
   { id: "split", label: "Split", icon: Columns },
+  { id: "history", label: "History", icon: History },
 ]
 
 const REFETCH_INTERVAL_MS = 2000 // poll while user is on the pane; cheap and avoids needing a watcher subscription for v1
@@ -272,6 +275,8 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
             onEnsure={() => chatId && ensure.mutate({ chatId })}
             isEnsuring={ensure.isPending}
           />
+        ) : viewMode === "history" ? (
+          <HistorySurface chatId={chatId} onRestored={refreshAll} />
         ) : hasPending && viewMode !== "preview" ? (
           // While there are pending changes, the editor view shows the
           // green/red diff. Preview still renders the current full content
@@ -534,6 +539,164 @@ function PreviewSurface({ content }: { content: string | null }) {
     <div className="h-full bg-secondary/20">
       <div className="max-w-[700px] mx-auto px-12 py-14 font-mono text-sm leading-7 text-foreground/90 whitespace-pre-wrap select-text">
         {content}
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// History — time-travel through the screenplay's commits
+// ────────────────────────────────────────────────────────────────────────
+
+function HistorySurface({
+  chatId,
+  onRestored,
+}: {
+  chatId: string
+  onRestored: () => void
+}) {
+  const history = trpc.artifacts.history.useQuery(
+    { chatId, limit: 80 },
+    { refetchOnWindowFocus: true },
+  )
+  const [selectedHash, setSelectedHash] = useState<string | null>(null)
+
+  // Auto-select the most recent commit when history loads.
+  if (
+    history.data &&
+    history.data.length > 0 &&
+    selectedHash === null
+  ) {
+    setSelectedHash(history.data[0].hash)
+  }
+
+  const versionAt = trpc.artifacts.versionAt.useQuery(
+    { chatId, commitHash: selectedHash ?? "" },
+    { enabled: !!selectedHash },
+  )
+
+  const restore = trpc.artifacts.restore.useMutation({
+    onSettled: () => onRestored(),
+  })
+
+  const commits = history.data ?? []
+
+  if (history.isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+        Loading history…
+      </div>
+    )
+  }
+
+  if (commits.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center px-8">
+        <div className="max-w-md text-center space-y-3">
+          <div className="mx-auto w-12 h-12 rounded-full bg-secondary/60 border border-border/60 flex items-center justify-center">
+            <History className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+            No history yet.
+          </h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            History fills in as you Accept or Approve agent edits — each
+            commit becomes a snapshot you can browse or restore.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-[300px_1fr] h-full">
+      {/* Timeline */}
+      <div className="border-r border-border overflow-auto">
+        <div className="px-3 py-2 border-b border-border bg-card/40 sticky top-0 z-10">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+            Timeline · {commits.length} commit{commits.length === 1 ? "" : "s"}
+          </div>
+        </div>
+        <ol className="divide-y divide-border">
+          {commits.map((c) => {
+            const isSelected = c.hash === selectedHash
+            return (
+              <li key={c.hash}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedHash(c.hash)}
+                  className={cn(
+                    "w-full text-left px-3 py-2.5 transition-colors",
+                    "hover:bg-secondary/40",
+                    isSelected && "bg-primary/10 hover:bg-primary/10",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                    <span className="text-sm font-medium text-foreground/90 truncate">
+                      {c.subject || "(no message)"}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums shrink-0">
+                      {c.shortHash}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    <span>{c.relativeDate}</span>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
+                      +{c.additions}
+                    </span>
+                    <span className="text-rose-700 dark:text-rose-400 font-mono tabular-nums">
+                      −{c.deletions}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
+
+      {/* Selected version reader */}
+      <div className="overflow-auto bg-secondary/10">
+        {!selectedHash ? (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            Pick a commit on the left to preview.
+          </div>
+        ) : versionAt.isLoading ? (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            Loading snapshot…
+          </div>
+        ) : (
+          <>
+            <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 border-b border-border bg-card/80 backdrop-blur">
+              <div className="text-xs font-mono text-muted-foreground">
+                {commits.find((c) => c.hash === selectedHash)?.shortHash}
+                <span className="mx-2 text-muted-foreground/40">·</span>
+                {commits.find((c) => c.hash === selectedHash)?.relativeDate}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  restore.mutate({ chatId, commitHash: selectedHash })
+                }
+                disabled={restore.isPending}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
+                  "bg-primary text-primary-foreground hover:opacity-90",
+                  "disabled:opacity-50 disabled:cursor-progress",
+                )}
+                title="Copy this snapshot into the working tree as a pending change"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {restore.isPending ? "Restoring…" : "Restore this version"}
+              </button>
+            </div>
+            <pre className="px-10 py-10 font-mono text-sm leading-7 text-foreground/90 whitespace-pre-wrap break-words select-text">
+              {versionAt.data?.content ?? ""}
+            </pre>
+          </>
+        )}
       </div>
     </div>
   )

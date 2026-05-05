@@ -348,6 +348,136 @@ export const artifactsRouter = router({
     }),
 
   /**
+   * History — list commits that touched the primary screenplay artifact.
+   * Powers the "time travel" view: each entry is a snapshot the user can
+   * preview or restore.
+   *
+   * `git log --follow` traces the artifact across renames so a future
+   * "rename screenplay.fountain to act-1.fountain" wouldn't cut off the
+   * timeline.
+   */
+  history: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        limit: z.number().int().min(1).max(200).default(80),
+      }),
+    )
+    .query(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) return []
+      const git = simpleGit(lookup.worktreePath)
+
+      const sep = "" // unit separator — safe inside commit subjects
+      const recordSep = ""
+      try {
+        const log = await git.raw([
+          "log",
+          "--follow",
+          `--format=%H${sep}%h${sep}%s${sep}%an${sep}%aI${sep}%ar${recordSep}`,
+          `-${input.limit}`,
+          "--",
+          PRIMARY_ARTIFACT,
+        ])
+        const records = log.split(recordSep).map((s) => s.trim()).filter(Boolean)
+        const commits = records.map((r) => {
+          const [hash, shortHash, subject, author, isoDate, relativeDate] = r.split(sep)
+          return {
+            hash,
+            shortHash,
+            subject,
+            author,
+            isoDate,
+            relativeDate,
+            additions: 0,
+            deletions: 0,
+          }
+        })
+
+        // Enrich with +/- numstat per commit. Separate call so the format
+        // string stays simple.
+        try {
+          const numstat = await git.raw([
+            "log",
+            "--follow",
+            "--numstat",
+            "--format=__BACKLOT_COMMIT__:%H",
+            `-${input.limit}`,
+            "--",
+            PRIMARY_ARTIFACT,
+          ])
+          let currentHash = ""
+          for (const line of numstat.split("\n")) {
+            if (line.startsWith("__BACKLOT_COMMIT__:")) {
+              currentHash = line.slice("__BACKLOT_COMMIT__:".length).trim()
+            } else {
+              const m = /^(\d+|-)\s+(\d+|-)\s+/.exec(line)
+              if (m && currentHash) {
+                const c = commits.find((c) => c.hash === currentHash)
+                if (c) {
+                  c.additions = m[1] === "-" ? 0 : parseInt(m[1], 10)
+                  c.deletions = m[2] === "-" ? 0 : parseInt(m[2], 10)
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[artifacts.history] numstat enrichment failed:", e)
+        }
+        return commits
+      } catch (err) {
+        console.warn("[artifacts.history] git log failed:", err)
+        return []
+      }
+    }),
+
+  /**
+   * Snapshot of the screenplay at a specific commit. `git show <hash>:path`.
+   */
+  versionAt: publicProcedure
+    .input(z.object({ chatId: z.string(), commitHash: z.string().min(7) }))
+    .query(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) return { content: null as string | null }
+      const git = simpleGit(lookup.worktreePath)
+      try {
+        const content = await git.raw([
+          "show",
+          `${input.commitHash}:${PRIMARY_ARTIFACT}`,
+        ])
+        return { content }
+      } catch (err) {
+        console.warn("[artifacts.versionAt] git show failed:", err)
+        return { content: null }
+      }
+    }),
+
+  /**
+   * Restore the working tree to a historical commit's version of the
+   * screenplay. Doesn't auto-commit — the restoration shows up as a
+   * pending diff against current HEAD, so the user can review the time
+   * travel like any other edit and Accept (which records a new commit
+   * pointing back to the snapshot) or Revert (returns to the previous
+   * head, dismissing the time travel).
+   */
+  restore: publicProcedure
+    .input(z.object({ chatId: z.string(), commitHash: z.string().min(7) }))
+    .mutation(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) {
+        throw new Error("Chat has no worktree.")
+      }
+      const git = simpleGit(lookup.worktreePath)
+      const content = await git.raw([
+        "show",
+        `${input.commitHash}:${PRIMARY_ARTIFACT}`,
+      ])
+      const fullPath = resolveArtifactPath(lookup.worktreePath)
+      await writeFile(fullPath, content, "utf-8")
+      return { restored: true, commitHash: input.commitHash }
+    }),
+
+  /**
    * Dismiss a single line — the finest review granularity.
    *
    * For a "+" line: build a 1-line --unidiff-zero patch describing that
