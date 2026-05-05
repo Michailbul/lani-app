@@ -19,17 +19,23 @@ export function useAutoImport() {
   const setChatSourceMode = useSetAtom(chatSourceModeAtom)
   const utils = trpc.useUtils()
 
-  const importMutation = trpc.sandboxImport.importSandboxChat.useMutation({
-    onSuccess: (result) => {
-      toast.success("Opened locally")
-      setChatSourceMode("local")
-      setSelectedChatId(result.chatId)
-      utils.chats.list.invalidate()
+  // Backlot: sandboxImport router was stripped (no codesandbox import in v1).
+  // Stubbing the mutation shape so the hook stays callable; remote-agent
+  // affordances that call `autoImport` will surface a toast and no-op.
+  void setSelectedChatId
+  void setChatSourceMode
+  void utils
+  const importMutation = {
+    mutate: (_args: {
+      sandboxId: string
+      remoteChatId: string
+      projectId: string
+      chatName: string
+    }) => {
+      toast.error("Sandbox import is not available in Backlot.")
     },
-    onError: (error) => {
-      toast.error(`Import failed: ${error.message}`)
-    },
-  })
+    isPending: false,
+  }
 
   const getMatchingProjects = useCallback(
     (projects: Project[], remoteChat: RemoteChat): Project[] => {

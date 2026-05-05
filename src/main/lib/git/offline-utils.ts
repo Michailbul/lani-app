@@ -1,27 +1,12 @@
-import { checkInternetConnection } from '../ollama'
-
 /**
- * Warns if a git command requires internet connection and we're offline.
- * Returns a warning message if the command will likely fail, null otherwise.
+ * Offline-mode utilities.
+ *
+ * Backlot is online-only — the upstream 1code internet check used the
+ * Ollama detector module that has been stripped. Returning null means
+ * "no warning" — git/gh commands run as normal and surface their own
+ * network errors if connectivity is missing.
  */
-export async function warnIfOfflineGitOperation(command: string): Promise<string | null> {
-  const requiresInternet = [
-    'git push',
-    'git pull',
-    'git fetch',
-    'git clone',
-    'gh pr',
-    'gh issue',
-    'gh repo',
-  ].some(cmd => command.includes(cmd))
 
-  if (requiresInternet) {
-    const hasInternet = await checkInternetConnection()
-
-    if (!hasInternet) {
-      return `⚠️ Warning: "${command}" requires internet connection and will likely fail.`
-    }
-  }
-
+export async function warnIfOfflineGitOperation(_command: string): Promise<string | null> {
   return null
 }

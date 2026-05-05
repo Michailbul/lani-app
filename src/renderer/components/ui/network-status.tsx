@@ -1,6 +1,5 @@
 import { useAtomValue } from "jotai"
 import { showOfflineModeFeaturesAtom } from "../../lib/atoms"
-import { trpc } from "../../lib/trpc"
 
 const LightningIcon = ({ className }: { className?: string }) => (
   <svg
@@ -18,11 +17,8 @@ const LightningIcon = ({ className }: { className?: string }) => (
 
 export function NetworkStatus() {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const { data } = trpc.ollama.getStatus.useQuery(undefined, {
-    refetchInterval: showOfflineFeatures ? 30000 : false,
-    enabled: showOfflineFeatures, // Only query when offline mode is enabled
-  })
-
+  // Backlot: ollama integration stripped — assume online, no offline indicator.
+  const data: undefined | { internet: { online: boolean } } = undefined
   const online = data?.internet.online ?? true
 
   // Don't show anything when online or when offline features are disabled

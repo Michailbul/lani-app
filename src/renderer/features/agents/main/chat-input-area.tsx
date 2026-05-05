@@ -87,13 +87,15 @@ import {
 import { getResolvedHotkey } from "../../../lib/hotkeys"
 import { customHotkeysAtom } from "../../../lib/atoms"
 
-// Hook to get available models (including offline models if Ollama is available and debug enabled)
+// Hook to get available models. Backlot: Ollama integration stripped, so the
+// offline-models branch is unreachable. Kept structurally to minimise diff against
+// the upstream useAvailableModels hook.
 function useAvailableModels() {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const { data: ollamaStatus } = trpc.ollama.getStatus.useQuery(undefined, {
-    refetchInterval: showOfflineFeatures ? 30000 : false,
-    enabled: showOfflineFeatures, // Only query Ollama when offline mode is enabled
-  })
+  const ollamaStatus: undefined | {
+    internet: { online: boolean }
+    ollama: { available: boolean; models: string[]; recommendedModel?: string | null }
+  } = undefined
 
   const baseModels = CLAUDE_MODELS
 

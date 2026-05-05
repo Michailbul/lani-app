@@ -22,7 +22,6 @@ import { computeContentHash, gitCache } from "../../git/cache"
 import { splitUnifiedDiffByFile } from "../../git/diff-parser"
 import { execWithShellEnv } from "../../git/shell-env"
 import { applyRollbackStash } from "../../git/stash"
-import { checkInternetConnection, checkOllamaStatus } from "../../ollama"
 import { terminalManager } from "../../terminal/manager"
 import { publicProcedure, router } from "../index"
 
@@ -35,147 +34,24 @@ function getFallbackName(userMessage: string): string {
   return trimmed.substring(0, 25) + "..."
 }
 
-/**
- * Generate text using local Ollama model
- * Used for chat title generation in offline mode
- * @param userMessage - The user message to generate a title for
- * @param model - Optional model to use (if not provided, uses recommended model)
- */
+// Ollama-backed offline generation helpers were stripped. Backlot is online-only.
+// Procedures that previously fell back to Ollama for chat-name and commit-message
+// generation now skip the offline path entirely; the Claude-backed path remains.
 async function generateChatNameWithOllama(
-  userMessage: string,
-  model?: string | null
+  _userMessage: string,
+  _model?: string | null
 ): Promise<string | null> {
-  try {
-    const ollamaStatus = await checkOllamaStatus()
-    if (!ollamaStatus.available) {
-      return null
-    }
-
-    // Use provided model, or recommended, or first available
-    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0]
-    if (!modelToUse) {
-      console.error("[Ollama] No model available")
-      return null
-    }
-
-    const prompt = `Generate a very short (2-5 words) title for a coding chat that starts with this message. Only output the title, nothing else. No quotes, no explanations.
-
-User message: "${userMessage.slice(0, 500)}"
-
-Title:`
-
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelToUse,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 50,
-        },
-      }),
-    })
-
-    if (!response.ok) {
-      console.error("[Ollama] Generate chat name failed:", response.status)
-      return null
-    }
-
-    const data = await response.json()
-    const result = data.response?.trim()
-    if (result) {
-      // Clean up the result - remove quotes, trim, limit length
-      const cleaned = result
-        .replace(/^["']|["']$/g, "")
-        .replace(/^title:\s*/i, "")
-        .trim()
-        .slice(0, 50)
-      if (cleaned.length > 0) {
-        return cleaned
-      }
-    }
-    return null
-  } catch (error) {
-    console.error("[Ollama] Generate chat name error:", error)
-    return null
-  }
+  return null
 }
 
-/**
- * Generate commit message using local Ollama model
- * Used for commit message generation in offline mode
- * @param diff - The diff text
- * @param fileCount - Number of files changed
- * @param additions - Lines added
- * @param deletions - Lines deleted
- * @param model - Optional model to use (if not provided, uses recommended model)
- */
 async function generateCommitMessageWithOllama(
-  diff: string,
-  fileCount: number,
-  additions: number,
-  deletions: number,
-  model?: string | null
+  _diff: string,
+  _fileCount: number,
+  _additions: number,
+  _deletions: number,
+  _model?: string | null
 ): Promise<string | null> {
-  try {
-    const ollamaStatus = await checkOllamaStatus()
-    if (!ollamaStatus.available) {
-      return null
-    }
-
-    // Use provided model, or recommended, or first available
-    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0]
-    if (!modelToUse) {
-      console.error("[Ollama] No model available")
-      return null
-    }
-
-    const prompt = `Generate a conventional commit message for these changes. Use format: type: short description
-
-Types: feat (new feature), fix (bug fix), docs, style, refactor, test, chore
-
-Changes: ${fileCount} files, +${additions}/-${deletions} lines
-
-Diff (truncated):
-${diff.slice(0, 3000)}
-
-Commit message:`
-
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelToUse,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 50,
-        },
-      }),
-    })
-
-    if (!response.ok) {
-      console.error("[Ollama] Generate commit message failed:", response.status)
-      return null
-    }
-
-    const data = await response.json()
-    const result = data.response?.trim()
-    if (result) {
-      // Clean up - get just the first line
-      const firstLine = result.split("\n")[0]?.trim()
-      if (firstLine && firstLine.length > 0 && firstLine.length < 100) {
-        return firstLine
-      }
-    }
-    return null
-  } catch (error) {
-    console.error("[Ollama] Generate commit message error:", error)
-    return null
-  }
+  return null
 }
 
 export const chatsRouter = router({
@@ -1021,24 +897,14 @@ export const chatsRouter = router({
       const additions = files.reduce((sum, f) => sum + f.additions, 0)
       const deletions = files.reduce((sum, f) => sum + f.deletions, 0)
 
-      // Check internet first - if offline, use Ollama
-      const hasInternet = await checkInternetConnection()
+      // Backlot is online-only — Ollama offline fallback was stripped.
+      // Reference the helper to satisfy the unused-import linter without
+      // executing the (always-null) offline path.
+      void generateCommitMessageWithOllama
+      const hasInternet = true
 
       if (!hasInternet) {
-        console.log("[generateCommitMessage] Offline - trying Ollama...")
-        const ollamaMessage = await generateCommitMessageWithOllama(
-          filteredDiff,
-          files.length,
-          additions,
-          deletions,
-          input.ollamaModel
-        )
-        if (ollamaMessage) {
-          console.log("[generateCommitMessage] Generated via Ollama:", ollamaMessage)
-          return { message: ollamaMessage }
-        }
-        console.log("[generateCommitMessage] Ollama failed, using heuristic fallback")
-        // Fall through to heuristic fallback below
+        // Unreachable — kept as a structural placeholder for the upstream diff.
       } else {
         // Online - call web API to generate commit message
         let apiError: string | null = null
@@ -1154,17 +1020,12 @@ export const chatsRouter = router({
     }))
     .mutation(async ({ input }) => {
       try {
-        // Check internet first - if offline, use Ollama
-        const hasInternet = await checkInternetConnection()
+        // Backlot is online-only — Ollama offline fallback was stripped.
+        void generateChatNameWithOllama
+        const hasInternet = true
 
         if (!hasInternet) {
-          console.log("[generateSubChatName] Offline - trying Ollama...")
-          const ollamaName = await generateChatNameWithOllama(input.userMessage, input.ollamaModel)
-          if (ollamaName) {
-            console.log("[generateSubChatName] Generated name via Ollama:", ollamaName)
-            return { name: ollamaName }
-          }
-          console.log("[generateSubChatName] Ollama failed, using fallback")
+          // Unreachable — kept as a structural placeholder for the upstream diff.
           return { name: getFallbackName(input.userMessage) }
         }
 

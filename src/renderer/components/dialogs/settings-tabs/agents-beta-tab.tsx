@@ -104,11 +104,12 @@ export function AgentsBetaTab() {
     }
   }
 
-  // Get Ollama status
-  const { data: ollamaStatus } = trpc.ollama.getStatus.useQuery(undefined, {
-    refetchInterval: showOfflineFeatures ? 30000 : false, // Only poll when feature is enabled
-    enabled: showOfflineFeatures,
-  })
+  // Backlot: Ollama integration stripped — settings panel still renders the
+  // offline-mode section but the status is permanently "not running".
+  const ollamaStatus: undefined | {
+    internet: { online: boolean }
+    ollama: { available: boolean; models: string[]; recommendedModel?: string | null }
+  } = undefined
 
   const handleCopy = () => {
     navigator.clipboard.writeText(`ollama pull ${RECOMMENDED_MODEL}`)

@@ -5,7 +5,6 @@ import { claudeRouter } from "./claude"
 import { claudeCodeRouter } from "./claude-code"
 import { claudeSettingsRouter } from "./claude-settings"
 import { anthropicAccountsRouter } from "./anthropic-accounts"
-import { ollamaRouter } from "./ollama"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
 import { filesRouter } from "./files"
@@ -13,7 +12,6 @@ import { debugRouter } from "./debug"
 import { skillsRouter } from "./skills"
 import { agentsRouter } from "./agents"
 import { worktreeConfigRouter } from "./worktree-config"
-import { sandboxImportRouter } from "./sandbox-import"
 import { commandsRouter } from "./commands"
 import { voiceRouter } from "./voice"
 import { pluginsRouter } from "./plugins"
@@ -23,6 +21,10 @@ import { BrowserWindow } from "electron"
 /**
  * Create the main app router
  * Uses getter pattern to avoid stale window references
+ *
+ * Stripped from upstream 1code: ollama (offline LLM fallback) and
+ * sandboxImport (CodeSandbox import) — Backlot is online-only and
+ * not a sandbox-clone tool.
  */
 export function createAppRouter(getWindow: () => BrowserWindow | null) {
   return router({
@@ -32,7 +34,6 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     claudeCode: claudeCodeRouter,
     claudeSettings: claudeSettingsRouter,
     anthropicAccounts: anthropicAccountsRouter,
-    ollama: ollamaRouter,
     terminal: terminalRouter,
     external: externalRouter,
     files: filesRouter,
@@ -40,7 +41,6 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     skills: skillsRouter,
     agents: agentsRouter,
     worktreeConfig: worktreeConfigRouter,
-    sandboxImport: sandboxImportRouter,
     commands: commandsRouter,
     voice: voiceRouter,
     plugins: pluginsRouter,

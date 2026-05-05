@@ -53,55 +53,37 @@ export function OpenLocallyDialog({
   // Mutations
   const locateMutation = trpc.projects.locateAndAddProject.useMutation()
 
-  const importMutation = trpc.sandboxImport.importSandboxChat.useMutation({
-    onSuccess: async (result) => {
-      toast.success("Opened locally")
-
-      // 1. Clear stale Chat instances from cache
-      agentChatStore.clear()
-
-      // 2. Invalidate list queries
-      utils.chats.list.invalidate()
-      utils.projects.list.invalidate()
-
-      // 3. Prefetch: Wait for chat data to be in cache before switching
-      await utils.chats.get.fetch({ id: result.chatId })
-
-      // 4. Now safe to switch - data is ready
-      setChatSourceMode("local")
-      setSelectedChatId(result.chatId)
-      onClose()
+  // Backlot: sandboxImport router was stripped — the codesandbox-clone /
+  // sandbox-import affordances are dead. Mutations stubbed with toast-only
+  // failure to keep this dialog renderable; the dialog will be removed in a
+  // follow-up "strip remote-agents UI" pass.
+  const importMutation = {
+    mutate: (_args: {
+      sandboxId: string
+      remoteChatId: string
+      projectId: string
+      chatName: string
+    }) => {
+      toast.error("Sandbox import is not available in Backlot.")
     },
-    onError: (error) => {
-      toast.error(`Import failed: ${error.message}`)
-    },
-  })
+    isPending: false,
+  }
 
   const pickDestMutation = trpc.projects.pickCloneDestination.useMutation()
 
-  const cloneMutation = trpc.sandboxImport.cloneFromSandbox.useMutation({
-    onSuccess: async (result) => {
-      toast.success("Cloned and opened locally")
-
-      // 1. Clear stale Chat instances from cache
-      agentChatStore.clear()
-
-      // 2. Invalidate list queries
-      utils.projects.list.invalidate()
-      utils.chats.list.invalidate()
-
-      // 3. Prefetch: Wait for chat data to be in cache before switching
-      await utils.chats.get.fetch({ id: result.chatId })
-
-      // 4. Now safe to switch - data is ready
-      setChatSourceMode("local")
-      setSelectedChatId(result.chatId)
-      onClose()
+  const cloneMutation = {
+    mutate: (_args: {
+      sandboxId: string
+      remoteChatId: string
+      destinationPath: string
+      chatName: string
+    }) => {
+      toast.error("Sandbox clone is not available in Backlot.")
     },
-    onError: (error) => {
-      toast.error(`Clone failed: ${error.message}`)
-    },
-  })
+    isPending: false,
+  } as unknown as { mutate: (args: unknown) => void; isPending: boolean }
+  void cloneMutation
+  void agentChatStore
 
   const isAnyLoading = importMutation.isPending || locateMutation.isPending ||
     pickDestMutation.isPending || cloneMutation.isPending

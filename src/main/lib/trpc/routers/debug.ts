@@ -3,7 +3,10 @@ import { getDatabase, projects, chats, subChats } from "../../db"
 import { app, shell } from "electron"
 import { getAuthManager } from "../../../index"
 import { z } from "zod"
-import { clearNetworkCache } from "../../ollama/network-detector"
+
+// Ollama network-cache stub — Ollama integration was stripped; this no-op
+// preserves call sites that wanted to invalidate a cache that no longer exists.
+function clearNetworkCache(): void {}
 
 // Protocol constant (must match main/index.ts)
 const IS_DEV = !!process.env.ELECTRON_RENDERER_URL
