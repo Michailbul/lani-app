@@ -1023,13 +1023,36 @@ export const claudeRouter = router({
               console.error(`[claude] Failed to setup isolated config dir:`, mkdirErr)
             }
 
-            // Check if user has existing API key or proxy configured in their shell environment
-            // If so, use that instead of OAuth (allows using custom API proxies)
-            // Based on PR #29 by @sa4hnd
-            const hasExistingApiConfig = !!(claudeEnv.ANTHROPIC_API_KEY || claudeEnv.ANTHROPIC_BASE_URL)
+            // Check if user has a real custom API config in their shell — meaning:
+            //   - ANTHROPIC_API_KEY (custom direct API auth), or
+            //   - ANTHROPIC_AUTH_TOKEN (custom proxy auth), or
+            //   - ANTHROPIC_BASE_URL pointing somewhere OTHER than api.anthropic.com
+            //     (a real custom proxy, e.g. an internal LiteLLM gateway)
+            //
+            // Upstream 1code treated ANY ANTHROPIC_BASE_URL as "custom" and skipped
+            // injecting CLAUDE_CODE_OAUTH_TOKEN — but the macOS Claude.app and
+            // various tools export ANTHROPIC_BASE_URL=https://api.anthropic.com
+            // (the default), which silently disabled OAuth and made the SDK run
+            // with zero auth. Narrow the predicate so only genuine custom configs
+            // override OAuth.
+            const customBaseUrl =
+              claudeEnv.ANTHROPIC_BASE_URL &&
+              !/(^|\/\/)(api\.)?anthropic\.com/.test(claudeEnv.ANTHROPIC_BASE_URL)
+
+            const hasExistingApiConfig = !!(
+              claudeEnv.ANTHROPIC_API_KEY ||
+              claudeEnv.ANTHROPIC_AUTH_TOKEN ||
+              customBaseUrl
+            )
 
             if (hasExistingApiConfig) {
-              console.log(`[claude] Using existing CLI config - API_KEY: ${claudeEnv.ANTHROPIC_API_KEY ? "set" : "not set"}, BASE_URL: ${claudeEnv.ANTHROPIC_BASE_URL || "default"}`)
+              console.log(
+                `[claude] Using existing CLI config - API_KEY: ${claudeEnv.ANTHROPIC_API_KEY ? "set" : "not set"}, AUTH_TOKEN: ${claudeEnv.ANTHROPIC_AUTH_TOKEN ? "set" : "not set"}, BASE_URL: ${claudeEnv.ANTHROPIC_BASE_URL || "default"}`,
+              )
+            } else if (claudeEnv.ANTHROPIC_BASE_URL) {
+              console.log(
+                `[claude] ANTHROPIC_BASE_URL is the default (${claudeEnv.ANTHROPIC_BASE_URL}); injecting OAuth token as normal.`,
+              )
             }
 
             // Build final env - only add OAuth token if we have one AND no existing API config
