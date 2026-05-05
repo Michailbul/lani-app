@@ -37,6 +37,7 @@ import { NewChatForm } from "../main/new-chat-form"
 import { KanbanView } from "../../kanban"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
+import { ScreenplayWorkspace } from "../../backlot"
 import { api } from "../../../lib/mock-api"
 import { trpc } from "../../../lib/trpc"
 import { useIsMobile } from "../../../lib/hooks/use-mobile"
@@ -959,16 +960,23 @@ export function AgentsContent() {
           ) : betaAutomationsEnabled && desktopView === "inbox" ? (
             <InboxView />
           ) : selectedChatId ? (
-            <div className="h-full flex flex-col relative overflow-hidden">
-              <ChatView
-                key={`${chatSourceMode}-${selectedChatId}`}
-                chatId={selectedChatId}
-                isSidebarOpen={sidebarOpen}
-                onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-                selectedTeamName={selectedTeam?.name}
-                selectedTeamImageUrl={selectedTeam?.image_url}
-              />
-            </div>
+            // Backlot screenwriter shape: the screenplay artifact owns the
+            // canvas; the existing 1code <ChatView /> is preserved verbatim
+            // and slotted into the assistant rail on the right.
+            <ScreenplayWorkspace
+              directionName={chatData?.name ?? null}
+              artifactPath={null}
+              assistant={
+                <ChatView
+                  key={`${chatSourceMode}-${selectedChatId}`}
+                  chatId={selectedChatId}
+                  isSidebarOpen={sidebarOpen}
+                  onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+                  selectedTeamName={selectedTeam?.name}
+                  selectedTeamImageUrl={selectedTeam?.image_url}
+                />
+              }
+            />
           ) : selectedDraftId || showNewChatForm ? (
             <div className="h-full flex flex-col relative overflow-hidden">
               <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
