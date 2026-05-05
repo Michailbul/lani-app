@@ -134,6 +134,44 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
     onError: (err) => setLineError(err.message),
     onSettled: refreshAll,
   })
+
+  // Inline edit-in-diff — click a + or context line to type a replacement.
+  // Saves the whole file via artifacts.write, which the diff refetch
+  // reflects as a new pending change replacing the original.
+  const writeArtifact = trpc.artifacts.write.useMutation({
+    onSettled: refreshAll,
+  })
+  const commitLineEdit = async (
+    line: DiffLine,
+    newValue: string,
+  ): Promise<void> => {
+    if (!chatId) return
+    if (newValue === line.text) return // no-op
+    if (line.newNo == null) {
+      setLineError("Cannot edit a removed line. Click × to restore it instead.")
+      return
+    }
+    const current = content ?? ""
+    const lines = current.split("\n")
+    const idx = line.newNo - 1
+    let targetIdx = -1
+    if (idx >= 0 && idx < lines.length && lines[idx] === line.text) {
+      targetIdx = idx
+    } else {
+      targetIdx = lines.findIndex((l) => l === line.text)
+    }
+    if (targetIdx < 0) {
+      setLineError(
+        "Couldn't find the line in the working tree — it may have shifted. Refresh and try again.",
+      )
+      return
+    }
+    lines[targetIdx] = newValue
+    await writeArtifact.mutateAsync({
+      chatId,
+      content: lines.join("\n"),
+    })
+  }
   const onDismissLine = (line: DiffLine) => {
     if (!chatId) return
     if (line.kind === "ctx") return
@@ -311,6 +349,7 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
               busyHunkIndex={busyHunkIndex}
               perLineEnabled={diffStatus === "modified"}
               onDismissLine={onDismissLine}
+              onCommitLineEdit={commitLineEdit}
             />
               </div>
               <div className="min-h-0 overflow-auto">
@@ -326,6 +365,7 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
               busyHunkIndex={busyHunkIndex}
               perLineEnabled={diffStatus === "modified"}
               onDismissLine={onDismissLine}
+              onCommitLineEdit={commitLineEdit}
             />
           )
         ) : viewMode === "preview" ? (
@@ -466,6 +506,7 @@ interface DiffSurfaceProps {
   busyHunkIndex: number | null
   perLineEnabled: boolean
   onDismissLine: (line: DiffLine) => void
+  onCommitLineEdit: (line: DiffLine, newValue: string) => Promise<void>
 }
 
 function DiffSurface({
@@ -476,6 +517,7 @@ function DiffSurface({
   busyHunkIndex,
   perLineEnabled,
   onDismissLine,
+  onCommitLineEdit,
 }: DiffSurfaceProps) {
   if (hunks.length === 0) {
     return <BlankCanvas />
@@ -533,11 +575,16 @@ function DiffSurface({
                 <tbody>
                   {hunk.lines.map((line, li) => (
                     <DiffLineRow
-                      key={li}
+                      key={`${hi}-${li}`}
                       line={line}
                       onDismiss={
                         perLineEnabled && line.kind !== "ctx"
                           ? () => onDismissLine(line)
+                          : undefined
+                      }
+                      onCommitEdit={
+                        perLineEnabled && line.kind !== "del"
+                          ? (newValue) => onCommitLineEdit(line, newValue)
                           : undefined
                       }
                     />
@@ -555,10 +602,51 @@ function DiffSurface({
 function DiffLineRow({
   line,
   onDismiss,
+  onCommitEdit,
 }: {
   line: DiffLine
   onDismiss?: () => void
+  onCommitEdit?: (newValue: string) => Promise<void>
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(line.text)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Sync draft with prop changes when not actively editing.
+  useEffect(() => {
+    if (!editing) setDraft(line.text)
+  }, [line.text, editing])
+
+  // Focus + select-all when entering edit mode.
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  const finishEdit = async (commit: boolean) => {
+    if (commit && onCommitEdit && draft !== line.text) {
+      try {
+        await onCommitEdit(draft)
+      } catch {
+        /* error surfaces via mutation toast */
+      }
+    } else if (!commit) {
+      setDraft(line.text)
+    }
+    setEditing(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      finishEdit(true)
+    } else if (e.key === "Escape") {
+      e.preventDefault()
+      finishEdit(false)
+    }
+  }
   // Dual-tone palette: dark text on tinted-light bg in light mode, light
   // text on tinted-dark bg in dark mode. Sigil column uses saturated
   // emerald-700/rose-700 (light) or emerald-300/rose-300 (dark) and is
@@ -595,8 +683,34 @@ function DiffLineRow({
       <td className={cn("select-none w-5 text-center align-top font-semibold", sigilColor)}>
         {sigil}
       </td>
-      <td className={cn("pr-4 align-top whitespace-pre-wrap break-words", textColor)}>
-        {line.text || " "}
+      <td
+        className={cn(
+          "pr-4 align-top whitespace-pre-wrap break-words",
+          textColor,
+          onCommitEdit && !editing && "cursor-text hover:outline hover:outline-1 hover:outline-primary/30",
+        )}
+        onClick={() => {
+          if (onCommitEdit && !editing) setEditing(true)
+        }}
+        title={onCommitEdit && !editing ? "Click to edit this line" : undefined}
+      >
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => finishEdit(true)}
+            className={cn(
+              "w-full bg-background/70 px-1 py-0 -my-0.5",
+              "font-mono text-[13px] leading-6",
+              "outline outline-2 outline-primary rounded-sm",
+              textColor,
+            )}
+          />
+        ) : (
+          (line.text || "\u00A0")
+        )}
       </td>
       <td className="select-none w-7 align-top pt-0.5 pr-1">
         {onDismiss && (
