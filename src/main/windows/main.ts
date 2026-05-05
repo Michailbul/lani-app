@@ -286,10 +286,15 @@ function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle("auth:start-flow", (event) => {
+  ipcMain.handle("auth:start-flow", async (event) => {
     if (!validateSender(event)) return
     const win = getWindowFromEvent(event)
-    getAuthManager().startAuthFlow(win)
+    // Backlot: ensure the credential poller is armed for the duration of
+    // the sign-in flow. The poller is idempotent — re-arm is a no-op if
+    // it was already running.
+    const { startClaudeCredentialPolling } = await import("../index")
+    startClaudeCredentialPolling()
+    await getAuthManager().startAuthFlow(win)
   })
 
   ipcMain.handle("auth:submit-code", async (event, code: string) => {

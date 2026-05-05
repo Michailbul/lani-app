@@ -4,28 +4,38 @@
 
 ## Current state — 2026-05-05
 
-Three commits in:
+v1 scope locked: **UI in place, auth in place, chat in the UI of Backlot.** Ship the screenwriter-specific surface (Fountain editor, preview, direction tree, MCP tools) in v1.5+.
+
+Six commits in:
 1. `genesis` — PRD, plan, CLAUDE.md, naming, license attribution
 2. `fork` — 1code source imported as Apache-2.0 substrate
-3. `rename` — cosmetic 1code/21st → Backlot branding pass
+3. `rename` — cosmetic 1code/21st → Backlot branding
+4. `plan` — Week 1 list refined
+5. `strip` — ollama + sandbox-import removed, online-only stubs in place
+6. `oauth` — MCP client name flipped to Backlot
 
-App has not been built or run yet. Next concrete step is `bun install && bun run dev` and seeing it boot under the Backlot identity.
+`bun install` running. Once green, `bun run dev` is the boot attempt.
 
-Open work for Week 1: strip the 21st.dev integrations (separate commit), strip the routers we don't need, apply the schema delta. Then boot.
-
-## Week 1 — Backbone fork
+## Week 1 — v1 backbone (UI + auth + chat)
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING
-- [x] Fork 1code source into the repo (commit "fork: import 1code")
-- [x] Cosmetic rename pass: `1code` → `backlot`, `~/.21st` → `~/.backlot`, package.json/productName/appId, app window title, About panel, CLI install dialogs
-- [ ] **Strip 21st.dev integrations** — `getBaseUrl`/`getAppUrl` phone-home, `auth-manager.ts` desktop-auth coupling, `analytics.ts` PostHog under 1code project, `remote-trpc.ts`/`remote-api.ts`, `features/agents/*` (whole feature)
-- [ ] Strip non-essential routers: `ollama`, `voice`, `plugins`, `sandbox-import`, `agents`
-- [ ] Strip the 21st-only mentions in CSP `connect-src` of `index.html`
-- [ ] Update OAuth `CLIENT_NAME` story — register Backlot's own OAuth client with Anthropic, or document the keep-`1code`-for-now decision
-- [ ] Apply schema delta migration (artifacts table, kind/canonical, agent_backend, sandboxMode, approvalPolicy, artifactPath; remove plan/agent mode field)
-- [ ] Replace logo SVG with a Backlot mark (placeholder OK for v1, brand pass refines)
-- [ ] `bun install`, `bun run dev` — confirm app boots, can OAuth into Anthropic, can create a chat in a worktree, can stream a Claude reply
+- [x] Fork 1code source into the repo
+- [x] Cosmetic rename pass (1code/21st → Backlot, paths, package metadata)
+- [x] Strip ollama + sandbox-import routers, lib, callers (per scope: keep voice, agents, skills, plugins)
+- [x] Flip OAuth `CLIENT_NAME` for MCP servers to `'Backlot'` with `'Claude Code'` fallback
+- [ ] `bun install` — running
+- [ ] `bun run dev` — boot the app, confirm it renders the Backlot identity
+- [ ] OAuth into Anthropic via the existing flow (still routes through 21st.dev backend; acceptable for v1 boot, strip after baseline)
+- [ ] Create a project, a chat (worktree), send a Claude message, see it stream
 - [ ] First green-path screenshot saved to `docs/screenshots/v1-week1.png`
+
+## v1 hardening (after first boot is green)
+
+- [ ] Strip the 21st.dev backend coupling — `getBaseUrl`/`getAppUrl`, `auth-manager.ts` proxy auth, analytics phone-home, remote-trpc / remote-api
+- [ ] Decide remote-agents UI fate (`features/agents/`): leave dead, hide behind a feature flag, or rewrite for native Anthropic auth
+- [ ] Tighten `index.html` CSP `connect-src` once 21st.dev is gone
+- [ ] Replace logo SVG with a Backlot mark (placeholder OK for v1, brand pass refines)
+- [ ] Apply schema delta migration (artifacts table, kind/canonical, agent_backend, sandboxMode, approvalPolicy, artifactPath; remove plan/agent mode field) — preparation for the screenwriter UI on top
 
 ## Week 2 — Screenplay editor + preview
 

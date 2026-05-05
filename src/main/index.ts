@@ -92,6 +92,71 @@ export function getAuthManager(): AuthManager {
   return getAuthManagerFromModule() || authManager
 }
 
+// ─── Backlot: Anthropic-direct credential watcher ───────────────────────────
+//
+// Backlot does not run its own auth backend. "Signed in" = "the bundled Claude
+// binary has written credentials to the OS keychain (via `claude /login`)."
+// While the login window is up we poll auth-manager.isAuthenticated() (which
+// reads the keychain on every call) and, on the false→true transition,
+// broadcast auth:success and reload all windows to the main UI.
+//
+// This replaces 1code's deep-link/exchangeCode flow that brokered through
+// the 21st.dev backend.
+
+let claudeCredPollTimer: NodeJS.Timeout | null = null
+let lastSeenAuthState = false
+
+function broadcastAuthSuccess(): void {
+  const user = authManager.getUser()
+  console.log("[Auth] Claude credentials detected — broadcasting auth:success.")
+
+  for (const win of getAllWindows()) {
+    try {
+      if (win.isDestroyed()) continue
+      win.webContents.send("auth:success", user)
+
+      const stableId = windowManager.getStableId(win)
+
+      if (process.env.ELECTRON_RENDERER_URL) {
+        const url = new URL(process.env.ELECTRON_RENDERER_URL)
+        url.searchParams.set("windowId", stableId)
+        win.loadURL(url.toString())
+      } else {
+        win.loadFile(join(__dirname, "../renderer/index.html"), {
+          hash: `windowId=${stableId}`,
+        })
+      }
+    } catch (error) {
+      console.warn("[Auth] Failed to reload window:", error)
+    }
+  }
+  getAllWindows()[0]?.focus()
+}
+
+export function startClaudeCredentialPolling(): void {
+  if (claudeCredPollTimer) return
+  lastSeenAuthState = authManager?.isAuthenticated() ?? false
+  console.log("[Auth] Starting Claude credential poller (interval 2s).")
+  claudeCredPollTimer = setInterval(() => {
+    const now = authManager?.isAuthenticated() ?? false
+    if (now && !lastSeenAuthState) {
+      lastSeenAuthState = true
+      stopClaudeCredentialPolling()
+      broadcastAuthSuccess()
+    } else {
+      lastSeenAuthState = now
+    }
+  }, 2000)
+}
+
+export function stopClaudeCredentialPolling(): void {
+  if (claudeCredPollTimer) {
+    clearInterval(claudeCredPollTimer)
+    claudeCredPollTimer = null
+    console.log("[Auth] Claude credential poller stopped.")
+  }
+}
+
 // Handle auth code from deep link (exported for IPC handlers)
 export async function handleAuthCode(code: string): Promise<void> {
   console.log("[Auth] Handling auth code:", code.slice(0, 8) + "...")
@@ -817,6 +882,12 @@ if (gotTheLock) {
         identify(user.id, { email: user.email })
         console.log("[Analytics] User identified from saved session:", user.id)
       }
+    } else {
+      // Backlot: poll for Claude credentials in the background. If the user
+      // already ran `claude /login` in a terminal — or runs it later from
+      // outside the app — Backlot detects the keychain entry and reloads
+      // straight into the workspace.
+      startClaudeCredentialPolling()
     }
 
     // Track app opened (now with correct user ID if authenticated)
