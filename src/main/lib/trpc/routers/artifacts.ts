@@ -387,42 +387,83 @@ function parseUnifiedDiff(unified: string): DiffHunk[] {
  * land on. Mirrors `ensure` but callable from server code without going
  * through tRPC.
  *
- * If the worktree is a git repo, the seeded placeholder is committed so
- * it becomes the review baseline. Without this, the very first call to
- * artifacts.diff() returns the entire placeholder as an "untracked"
- * all-add hunk and the user sees a phantom "pending changes" review
- * before the agent has done anything. Committing makes the next real
- * agent edit the first thing the user reviews.
+ * Also ensures the worktree is a git repo. The diff/accept/revert review
+ * surface needs a HEAD baseline to compare against; without git, every
+ * agent edit looks "clean" and the user never sees the green/red hunks.
+ * If the directory is not yet a repo we `git init` it, set a local
+ * identity (so commits don't fail when user has no global git config),
+ * and commit the screenplay artifact as the baseline. Other files in
+ * the directory are NOT auto-staged — only screenplay.fountain — so
+ * the user's existing tree stays under their control.
  */
 export async function ensurePrimaryArtifact(
   worktreePath: string,
 ): Promise<{ path: string; relativePath: string; created: boolean }> {
   const fullPath = resolveArtifactPath(worktreePath)
-  if (existsSync(fullPath)) {
-    return { path: fullPath, relativePath: PRIMARY_ARTIFACT, created: false }
+  const fileExisted = existsSync(fullPath)
+
+  if (!fileExisted) {
+    await mkdir(dirname(fullPath), { recursive: true })
+    await writeFile(fullPath, ARTIFACT_PLACEHOLDER, "utf-8")
   }
-  await mkdir(dirname(fullPath), { recursive: true })
-  await writeFile(fullPath, ARTIFACT_PLACEHOLDER, "utf-8")
 
   try {
     const git = simpleGit(worktreePath)
-    const isRepo = await git.checkIsRepo()
-    if (isRepo) {
-      await git.add([PRIMARY_ARTIFACT])
-      await git.commit(
-        "Backlot: seed primary screenplay artifact",
-        [PRIMARY_ARTIFACT],
-        ["--allow-empty"],
+    let isRepo = await git.checkIsRepo()
+
+    if (!isRepo) {
+      console.log(
+        `[artifacts] Initialising git repo at ${worktreePath} so the diff review surface has a baseline.`,
       )
+      await git.init()
+      // Local identity — only used when global config is missing so commits
+      // don't fail. Doesn't touch the user's global gitconfig.
+      try {
+        await git.raw(["config", "--local", "user.email", "backlot@local"])
+        await git.raw(["config", "--local", "user.name", "Backlot"])
+      } catch {
+        /* ignore — identity may already exist globally */
+      }
+      isRepo = true
+    }
+
+    if (isRepo) {
+      // Commit screenplay.fountain so HEAD has a baseline. Idempotent —
+      // if there's nothing to stage (file unchanged from last commit) we
+      // make an --allow-empty commit only when there's no HEAD yet.
+      await git.add([PRIMARY_ARTIFACT])
+      let hasHead = true
+      try {
+        await git.raw(["rev-parse", "--verify", "HEAD"])
+      } catch {
+        hasHead = false
+      }
+      const status = await git.raw([
+        "status",
+        "--porcelain",
+        "--",
+        PRIMARY_ARTIFACT,
+      ])
+      const hasStaged = status.trim().length > 0
+      if (!hasHead || hasStaged) {
+        await git.commit(
+          fileExisted
+            ? "Backlot: baseline screenplay artifact"
+            : "Backlot: seed primary screenplay artifact",
+          [PRIMARY_ARTIFACT],
+          ["--allow-empty"],
+        )
+      }
     }
   } catch (err) {
-    console.warn(
-      "[artifacts] Could not commit seed artifact (worktree may not be a git repo):",
-      err,
-    )
+    console.warn("[artifacts] git init / baseline commit failed:", err)
   }
 
-  return { path: fullPath, relativePath: PRIMARY_ARTIFACT, created: true }
+  return {
+    path: fullPath,
+    relativePath: PRIMARY_ARTIFACT,
+    created: !fileExisted,
+  }
 }
 
 export const PRIMARY_ARTIFACT_FILENAME = PRIMARY_ARTIFACT
