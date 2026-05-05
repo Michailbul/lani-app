@@ -478,6 +478,243 @@ export const artifactsRouter = router({
     }),
 
   /**
+   * Fountain outline — parse the current screenplay into a tree of
+   * sections (`#`, `##`, `###`) and scenes (`INT./EXT.` headings, plus
+   * forced `.` headings per the Fountain spec).
+   *
+   * The frontend uses this to render an expand-button next to every
+   * section / scene header. Each node carries its 1-indexed line range
+   * (startLine inclusive → endLine inclusive) so `partHistory` /
+   * `restorePart` can locate the part both in the current working tree
+   * and across historical commits.
+   *
+   * Identity across commits is by (kind, label, occurrence) — the
+   * `occurrence` field disambiguates two parts that share a heading
+   * (two `INT. CAR - DAY`, two `# Act I`, etc).
+   */
+  outline: publicProcedure
+    .input(z.object({ chatId: z.string() }))
+    .query(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) {
+        return { tree: [] as OutlineNode[], flat: [] as OutlineNode[] }
+      }
+      const fullPath = resolveArtifactPath(lookup.worktreePath)
+      if (!existsSync(fullPath)) {
+        return { tree: [], flat: [] }
+      }
+      const content = await readFile(fullPath, "utf-8")
+      return parseFountainOutline(content)
+    }),
+
+  /**
+   * Part history — git versioning at the section/scene/range level.
+   *
+   * For `kind: "section" | "scene"` the matcher is content-based: at
+   * each commit we re-parse the file and find the part with the same
+   * (label, occurrence) pair. This means the trail follows the part
+   * through unrelated edits to the rest of the screenplay — you can
+   * scroll the history of "Scene 3: INT. WAREHOUSE - NIGHT" without
+   * polluting it with revisions to other scenes. The trade-off: if the
+   * heading text was renamed, the trail breaks at that commit (v1
+   * limitation; doc'd in CLAUDE).
+   *
+   * For `kind: "range"` we slice the same line range out of each
+   * historical snapshot. Naive — line numbers shift across commits —
+   * but useful for "what did these lines look like before?" when the
+   * range doesn't align with a section/scene boundary. Out-of-range
+   * snapshots are skipped.
+   *
+   * Dedupe: consecutive commits where the part's content is identical
+   * collapse to a single entry, and we keep the OLDEST commit in each
+   * run (the one that actually introduced that state). So the user
+   * sees one revision per real change to that part, not one revision
+   * per file commit.
+   *
+   * Returns newest-first.
+   */
+  partHistory: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        kind: z.enum(["section", "scene", "range"]),
+        label: z.string().optional(),
+        occurrence: z.number().int().min(0).default(0),
+        startLine: z.number().int().min(1).optional(),
+        endLine: z.number().int().min(1).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) return [] as PartRevision[]
+      const git = simpleGit(lookup.worktreePath)
+
+      const SEP = "" // unit separator
+      let log = ""
+      try {
+        log = await git.raw([
+          "log",
+          "--follow",
+          `--format=%H${SEP}%h${SEP}%s${SEP}%an${SEP}%aI${SEP}%ar`,
+          // Pull more than `limit` so we can dedupe runs of identical
+          // content and still return up to `limit` real changes. 4× is
+          // plenty for screenplays where most commits touch *some*
+          // part — we can always raise.
+          `-${input.limit * 4}`,
+          "--",
+          PRIMARY_ARTIFACT,
+        ])
+      } catch (err) {
+        console.warn("[artifacts.partHistory] git log failed:", err)
+        return []
+      }
+
+      interface CommitRow {
+        hash: string
+        shortHash: string
+        subject: string
+        author: string
+        isoDate: string
+        relativeDate: string
+      }
+      const commits: CommitRow[] = log
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [hash, shortHash, subject, author, isoDate, relativeDate] =
+            line.split(SEP)
+          return { hash, shortHash, subject, author, isoDate, relativeDate }
+        })
+
+      const raw: PartRevision[] = []
+
+      for (const commit of commits) {
+        let snapshot: string
+        try {
+          snapshot = await git.raw([
+            "show",
+            `${commit.hash}:${PRIMARY_ARTIFACT}`,
+          ])
+        } catch {
+          // File didn't exist at this commit — skip.
+          continue
+        }
+
+        let partContent: string | null = null
+        let pStartLine = 0
+        let pEndLine = 0
+        let labelMatched: "exact" | "fallback" | null = null
+
+        if (input.kind === "range") {
+          if (input.startLine == null || input.endLine == null) continue
+          const snapLines = snapshot.split("\n")
+          if (input.startLine > snapLines.length) continue
+          const start = Math.max(1, Math.min(input.startLine, snapLines.length))
+          const end = Math.max(start, Math.min(input.endLine, snapLines.length))
+          partContent = snapLines.slice(start - 1, end).join("\n")
+          pStartLine = start
+          pEndLine = end
+        } else {
+          const { flat } = parseFountainOutline(snapshot)
+          const sameKind = flat.filter(
+            (p) => p.kind === input.kind && p.label === input.label,
+          )
+          if (sameKind.length === 0) continue
+          // Prefer same occurrence index; fall back to first match if the
+          // occurrence shifted (e.g. an earlier scene of the same name was
+          // deleted/inserted before this one). Mark fallback so the UI can
+          // hint at the uncertainty.
+          const exact = sameKind[input.occurrence]
+          const match = exact ?? sameKind[0]
+          const snapLines = snapshot.split("\n")
+          partContent = snapLines
+            .slice(match.startLine - 1, match.endLine)
+            .join("\n")
+          pStartLine = match.startLine
+          pEndLine = match.endLine
+          labelMatched = exact ? "exact" : "fallback"
+        }
+
+        if (partContent == null) continue
+
+        raw.push({
+          hash: commit.hash,
+          shortHash: commit.shortHash,
+          subject: commit.subject,
+          author: commit.author,
+          isoDate: commit.isoDate,
+          relativeDate: commit.relativeDate,
+          content: partContent,
+          startLine: pStartLine,
+          endLine: pEndLine,
+          match: labelMatched,
+        })
+      }
+
+      // Dedupe runs of identical content — keep the OLDEST commit in each
+      // run (the one that introduced that version of the part). Walking
+      // newest-first: drop entry i if entry i+1 (older) has the same
+      // content; the older entry will represent the run.
+      const deduped: PartRevision[] = []
+      for (let i = 0; i < raw.length; i++) {
+        const next = raw[i + 1]
+        if (next && next.content === raw[i].content) continue
+        deduped.push(raw[i])
+        if (deduped.length >= input.limit) break
+      }
+      return deduped
+    }),
+
+  /**
+   * Restore a historical version of a part into the working tree.
+   *
+   * Splice surgery: replace lines [startLine..endLine] (1-indexed
+   * inclusive — the part's CURRENT line range in the working tree) with
+   * the supplied content. Doesn't auto-commit; the change shows up as a
+   * normal pending diff so the user reviews the time-travel via the
+   * existing per-line review surface and accepts/dismisses like any
+   * other edit.
+   *
+   * Caller is responsible for sourcing `content` from `partHistory`.
+   * `startLine` / `endLine` should be the part's range in the *current*
+   * working tree (NOT the historical snapshot's range — those line
+   * numbers wouldn't line up with the current file).
+   */
+  restorePart: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        startLine: z.number().int().min(1),
+        endLine: z.number().int().min(1),
+        content: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const lookup = lookupWorktree(input.chatId)
+      if (!lookup?.worktreePath) {
+        throw new Error("Chat has no worktree.")
+      }
+      const fullPath = resolveArtifactPath(lookup.worktreePath)
+      const wtRaw = await readFile(fullPath, "utf-8")
+      const wtLines = wtRaw.split("\n")
+      const start = Math.max(1, Math.min(input.startLine, wtLines.length + 1))
+      const end = Math.max(start, Math.min(input.endLine, wtLines.length))
+
+      const replacement = input.content.split("\n")
+      const before = wtLines.slice(0, start - 1)
+      const after = wtLines.slice(end)
+      const next = [...before, ...replacement, ...after].join("\n")
+      await writeFile(fullPath, next, "utf-8")
+      return {
+        restored: true,
+        startLine: start,
+        endLine: start + replacement.length - 1,
+      }
+    }),
+
+  /**
    * Dismiss a single line — the finest review granularity.
    *
    * Direct working-tree string surgery rather than `git apply
@@ -844,3 +1081,202 @@ export async function ensurePrimaryArtifact(
 }
 
 export const PRIMARY_ARTIFACT_FILENAME = PRIMARY_ARTIFACT
+
+// ────────────────────────────────────────────────────────────────────────
+// Fountain outline parser — sections (`#`/`##`/`###`) and scenes
+// (`INT./EXT./EST./I/E.` and forced `.HEADING`). Returns both a tree
+// (sections nest, scenes attach to their containing section) and a flat
+// list (every part in document order, with line ranges) — the renderer
+// gutter uses the tree, the partHistory matcher uses the flat list.
+//
+// We deliberately avoid dragging in a full Fountain parser: the OS app
+// already does title-page + dialogue rendering; here we only need part
+// boundaries for the history feature. Keep the surface narrow.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface OutlineNode {
+  /** Stable id for React keys + history queries: `<kind>:<label>:<occurrence>`. */
+  id: string
+  kind: "section" | "scene"
+  /** Heading text without the `#`/`##`/`###` prefix (or leading `.` for forced scenes). */
+  label: string
+  /** Original heading line, raw — useful for the gutter UI. */
+  rawHeading: string
+  /** 1/2/3 for sections; 0 for scenes. */
+  depth: number
+  /** 1-indexed line number of the heading. */
+  startLine: number
+  /** 1-indexed last line of this part (inclusive). */
+  endLine: number
+  /** 0-based index of this (kind, label) within the document. */
+  occurrence: number
+  /** Sections nest by depth; scenes are leaves attached to the deepest containing section (or root). */
+  children: OutlineNode[]
+}
+
+interface FountainOutline {
+  tree: OutlineNode[]
+  /** Same nodes as the tree, depth-first / document-order — easy iteration for matchers. */
+  flat: OutlineNode[]
+}
+
+const SCENE_PREFIX_RE = /^(INT\.\/EXT\.|I\/E\.|INT\.|EXT\.|EST\.)/i
+
+function parseFountainOutline(content: string): FountainOutline {
+  const lines = content.split("\n")
+
+  interface RawHeading {
+    lineIdx: number // 0-indexed
+    kind: "section" | "scene"
+    depth: number
+    label: string
+    raw: string
+  }
+  const headings: RawHeading[] = []
+
+  // Skip the title-page block — `Key: Value` lines until first blank.
+  // We only enter this mode if the first line is a recognised Fountain
+  // title-page key, otherwise lines like `FADE IN:` would be eaten as
+  // title-page entries.
+  let i = 0
+  const TITLE_PAGE_KEY_RE =
+    /^(Title|Credit|Author|Authors|Source|Notes|Draft date|Date|Contact|Copyright|Revision):/i
+  if (lines.length > 0 && TITLE_PAGE_KEY_RE.test(lines[0])) {
+    while (i < lines.length && lines[i].trim() !== "") i++
+  }
+
+  for (; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    const sec = /^(#{1,3})\s+(.+?)\s*$/.exec(line)
+    if (sec) {
+      headings.push({
+        lineIdx: i,
+        kind: "section",
+        depth: sec[1].length,
+        label: sec[2].trim(),
+        raw: line,
+      })
+      continue
+    }
+
+    if (SCENE_PREFIX_RE.test(trimmed)) {
+      headings.push({
+        lineIdx: i,
+        kind: "scene",
+        depth: 0,
+        label: trimmed,
+        raw: line,
+      })
+      continue
+    }
+
+    // Forced scene heading per the Fountain spec: a line starting with `.`
+    // (but not `..` which is a synopsis marker for sections — and also not
+    // a line that's just dots).
+    if (
+      trimmed.startsWith(".") &&
+      !trimmed.startsWith("..") &&
+      trimmed.length > 1
+    ) {
+      headings.push({
+        lineIdx: i,
+        kind: "scene",
+        depth: 0,
+        label: trimmed.slice(1).trim(),
+        raw: line,
+      })
+      continue
+    }
+  }
+
+  // Compute end-lines (1-indexed inclusive).
+  //   - Scene: ends on the line before the next heading of any kind, or EOF.
+  //   - Section: ends on the line before the next section at depth ≤ self,
+  //     or EOF. Subordinate sections + scenes nested inside stay inside.
+  const occMap = new Map<string, number>()
+  const flat: OutlineNode[] = headings.map((h, idx) => {
+    let endLineExclusive: number // 0-indexed, exclusive
+    if (h.kind === "scene") {
+      const next = headings[idx + 1]
+      endLineExclusive = next ? next.lineIdx : lines.length
+    } else {
+      let bound = lines.length
+      for (let j = idx + 1; j < headings.length; j++) {
+        const hj = headings[j]
+        if (hj.kind === "section" && hj.depth <= h.depth) {
+          bound = hj.lineIdx
+          break
+        }
+      }
+      endLineExclusive = bound
+    }
+    const endLine = Math.max(h.lineIdx + 1, endLineExclusive) // 1-indexed inclusive
+
+    const key = `${h.kind}:${h.label}`
+    const occurrence = occMap.get(key) ?? 0
+    occMap.set(key, occurrence + 1)
+
+    return {
+      id: `${h.kind}:${h.label}:${occurrence}`,
+      kind: h.kind,
+      label: h.label,
+      rawHeading: h.raw,
+      depth: h.depth,
+      startLine: h.lineIdx + 1,
+      endLine,
+      occurrence,
+      children: [],
+    }
+  })
+
+  // Build the tree. Sections nest by depth; scenes attach to the deepest
+  // containing section in the stack (or root if none).
+  const tree: OutlineNode[] = []
+  const stack: OutlineNode[] = []
+  for (const node of flat) {
+    if (node.kind === "section") {
+      while (stack.length > 0) {
+        const top = stack[stack.length - 1]
+        if (top.kind === "section" && top.depth < node.depth) break
+        stack.pop()
+      }
+      ;(stack.length === 0 ? tree : stack[stack.length - 1].children).push(node)
+      stack.push(node)
+    } else {
+      // Scene — attach to deepest containing section (or root).
+      let parent: OutlineNode | null = null
+      for (let s = stack.length - 1; s >= 0; s--) {
+        if (stack[s].kind === "section") {
+          parent = stack[s]
+          break
+        }
+      }
+      ;(parent ? parent.children : tree).push(node)
+      // Don't push scenes onto the stack — they don't contain sections.
+    }
+  }
+
+  return { tree, flat }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Part history — one revision of a part at a single commit.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface PartRevision {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  isoDate: string
+  relativeDate: string
+  /** The part's content at this commit (lines joined by `\n`, no trailing newline). */
+  content: string
+  /** Where the part lived in this commit's snapshot — informational. */
+  startLine: number
+  endLine: number
+  /** "exact" if (label, occurrence) matched directly; "fallback" if only label matched; null for ranges. */
+  match: "exact" | "fallback" | null
+}

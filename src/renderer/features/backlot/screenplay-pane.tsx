@@ -15,13 +15,19 @@
  */
 
 import {
+  ArrowLeftRight,
+  BookOpen,
   Check,
+  ChevronRight,
+  Clock,
   Columns,
   Eye,
   FileEdit,
   FileQuestion,
   FileText,
+  Film,
   History,
+  ListTree,
   RotateCcw,
   Save,
   Undo2,
@@ -49,6 +55,47 @@ type DiffHunk = {
 }
 
 type ViewMode = "editor" | "preview" | "split" | "history"
+
+// Mirrors the OutlineNode shape returned by artifacts.outline. Recursive
+// structure for the gutter tree.
+type OutlineNode = {
+  id: string
+  kind: "section" | "scene"
+  label: string
+  rawHeading: string
+  depth: number
+  startLine: number
+  endLine: number
+  occurrence: number
+  children: OutlineNode[]
+}
+
+// What part the user clicked the history chevron on. Persists in
+// ScreenplayPane state so the drawer survives viewMode toggles.
+type PartHistoryTarget = {
+  kind: "section" | "scene" | "range"
+  label?: string
+  occurrence: number
+  /** The part's CURRENT line range in the working tree — used by restorePart. */
+  startLine: number
+  endLine: number
+  /** Display name for the drawer header. */
+  displayName: string
+}
+
+// Mirrors PartRevision from artifacts.ts.
+type PartRevision = {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  isoDate: string
+  relativeDate: string
+  content: string
+  startLine: number
+  endLine: number
+  match: "exact" | "fallback" | null
+}
 
 interface ScreenplayPaneProps {
   chatId?: string | null
@@ -184,9 +231,38 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
     })
   }
 
+  // Outline + part-history. The gutter renders the outline tree; clicking
+  // the history chevron on a node sets `partHistoryTarget`, which opens
+  // the drawer. Drawer state lives at this level so it survives viewMode
+  // toggles (you can open history for Scene 3 in editor mode, click into
+  // history view, and the drawer is still there when you come back).
+  const outline = trpc.artifacts.outline.useQuery(
+    { chatId: chatId ?? "" },
+    {
+      enabled: !!chatId,
+      refetchInterval: REFETCH_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
+  )
+  const [partHistoryTarget, setPartHistoryTarget] =
+    useState<PartHistoryTarget | null>(null)
+  const onOpenPartHistory = (node: OutlineNode) => {
+    setPartHistoryTarget({
+      kind: node.kind,
+      label: node.label,
+      occurrence: node.occurrence,
+      startLine: node.startLine,
+      endLine: node.endLine,
+      displayName: node.rawHeading.trim() || node.label,
+    })
+  }
+  const closePartHistory = () => setPartHistoryTarget(null)
+
   const content = artifact.data?.content ?? null
   const exists = artifact.data?.exists ?? false
   const relativePath = artifact.data?.relativePath ?? "screenplay.fountain"
+  const outlineTree = (outline.data?.tree ?? []) as OutlineNode[]
+  const outlineFlat = (outline.data?.flat ?? []) as OutlineNode[]
 
   const diffStatus = diff.data?.status ?? "missing"
   const hunks = (diff.data?.hunks ?? []) as DiffHunk[]
@@ -323,8 +399,9 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
         </div>
       )}
 
-      {/* Surface */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      {/* Surface — `relative` lets the part-history drawer overlay anchor here */}
+      <div className="flex-1 min-h-0 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-auto">
         {!chatId ? (
           <NoChatState />
         ) : !exists ? (
@@ -377,6 +454,9 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
                 content={content}
                 chatId={chatId ?? null}
                 onSaved={refreshAll}
+                outline={outlineTree}
+                outlineFlat={outlineFlat}
+                onOpenPartHistory={onOpenPartHistory}
               />
             </div>
             <div className="min-h-0 overflow-auto">
@@ -388,6 +468,23 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
             content={content}
             chatId={chatId ?? null}
             onSaved={refreshAll}
+            outline={outlineTree}
+            outlineFlat={outlineFlat}
+            onOpenPartHistory={onOpenPartHistory}
+          />
+        )}
+        </div>
+
+        {/* Part history drawer — overlays the right side of the surface. */}
+        {partHistoryTarget && chatId && (
+          <PartHistoryDrawer
+            chatId={chatId}
+            target={partHistoryTarget}
+            onClose={closePartHistory}
+            onRestored={() => {
+              closePartHistory()
+              refreshAll()
+            }}
           />
         )}
       </div>
@@ -416,6 +513,12 @@ interface EditorSurfaceProps {
   chatId: string | null
   /** Called whenever the user-typed buffer is flushed to disk. */
   onSaved?: () => void
+  /** Outline tree (sections + scenes) to render in the left gutter. */
+  outline?: OutlineNode[]
+  /** Same outline in document order — used to flatten when needed. */
+  outlineFlat?: OutlineNode[]
+  /** Click handler on a node's history chevron — opens the drawer. */
+  onOpenPartHistory?: (node: OutlineNode) => void
 }
 
 /**
@@ -432,8 +535,20 @@ interface EditorSurfaceProps {
  * settle window) at which point the next server sync wins. For v1 this
  * race is acceptable — collaborative editing with operational transform
  * is deferred.
+ *
+ * Layout: a narrow OutlineGutter on the left (table-of-contents style,
+ * with expand-history chevrons next to each section/scene), the
+ * centered textarea on the right. The gutter hides itself when the
+ * outline is empty so a fresh screenplay still gets full width.
  */
-function EditorSurface({ content, chatId, onSaved }: EditorSurfaceProps) {
+function EditorSurface({
+  content,
+  chatId,
+  onSaved,
+  outline,
+  outlineFlat,
+  onOpenPartHistory,
+}: EditorSurfaceProps) {
   const [value, setValue] = useState<string>(content ?? "")
   const lastTypedRef = useRef<number>(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -473,27 +588,39 @@ function EditorSurface({ content, chatId, onSaved }: EditorSurfaceProps) {
     return <BlankCanvas />
   }
 
+  const hasOutline = (outlineFlat?.length ?? 0) > 0
+
   return (
-    <div className="h-full flex justify-center">
-      <textarea
-        value={value}
-        onChange={onChange}
-        spellCheck
-        autoCorrect="off"
-        autoCapitalize="off"
-        wrap="soft"
-        className={cn(
-          "w-full max-w-[820px] mx-auto px-10 py-12",
-          "font-mono text-sm leading-7 text-foreground/90",
-          "bg-transparent border-0 outline-none resize-none",
-          "select-text",
-          "min-h-full",
-          // Subtle ring on focus instead of the default browser outline.
-          "focus:outline-none focus:ring-0",
-          "caret-primary",
-        )}
-        placeholder="Start typing your screenplay, or ask the assistant on the right to draft it."
-      />
+    <div className="h-full flex">
+      {hasOutline && onOpenPartHistory && (
+        <OutlineGutter
+          tree={outline ?? []}
+          onOpenHistory={onOpenPartHistory}
+        />
+      )}
+      <div className="flex-1 min-w-0 overflow-auto">
+        <div className="h-full flex justify-center">
+          <textarea
+            value={value}
+            onChange={onChange}
+            spellCheck
+            autoCorrect="off"
+            autoCapitalize="off"
+            wrap="soft"
+            className={cn(
+              "w-full max-w-[820px] mx-auto px-10 py-12",
+              "font-mono text-sm leading-7 text-foreground/90",
+              "bg-transparent border-0 outline-none resize-none",
+              "select-text",
+              "min-h-full",
+              // Subtle ring on focus instead of the default browser outline.
+              "focus:outline-none focus:ring-0",
+              "caret-primary",
+            )}
+            placeholder="Start typing your screenplay, or ask the assistant on the right to draft it."
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -983,6 +1110,339 @@ function NoArtifactState({
         </button>
       </div>
     </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Outline gutter — sections + scenes in document order, each with a
+// history chevron that opens the PartHistoryDrawer for that part.
+// ────────────────────────────────────────────────────────────────────────
+
+interface OutlineGutterProps {
+  tree: OutlineNode[]
+  onOpenHistory: (node: OutlineNode) => void
+}
+
+function OutlineGutter({ tree, onOpenHistory }: OutlineGutterProps) {
+  return (
+    <aside className="w-64 shrink-0 border-r border-border bg-card/40 overflow-auto">
+      <div className="px-3 py-3 border-b border-border bg-card/60 sticky top-0 z-10">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+          <ListTree className="h-3 w-3" />
+          Outline
+        </div>
+      </div>
+      <div className="py-2">
+        {tree.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-muted-foreground/60">
+            Add a `# Section` or an `INT./EXT.` scene heading to populate the
+            outline.
+          </div>
+        ) : (
+          tree.map((node) => (
+            <OutlineNodeRow
+              key={node.id}
+              node={node}
+              onOpenHistory={onOpenHistory}
+            />
+          ))
+        )}
+      </div>
+    </aside>
+  )
+}
+
+interface OutlineNodeRowProps {
+  node: OutlineNode
+  onOpenHistory: (node: OutlineNode) => void
+}
+
+function OutlineNodeRow({ node, onOpenHistory }: OutlineNodeRowProps) {
+  const Icon = node.kind === "section" ? BookOpen : Film
+  const indent =
+    node.kind === "section" ? (node.depth - 1) * 10 : (node.depth) * 10 + 14
+  return (
+    <div>
+      <div
+        className={cn(
+          "group flex items-center gap-1.5 pl-3 pr-2 py-1 text-xs",
+          "hover:bg-secondary/60 transition-colors",
+        )}
+        style={{ paddingLeft: 12 + indent }}
+      >
+        <Icon
+          className={cn(
+            "h-3 w-3 shrink-0",
+            node.kind === "section"
+              ? "text-primary/80"
+              : "text-muted-foreground/70",
+          )}
+        />
+        <span
+          className={cn(
+            "truncate flex-1 min-w-0",
+            node.kind === "section"
+              ? "font-medium text-foreground"
+              : "text-foreground/80 font-mono text-[11px]",
+          )}
+          title={node.label}
+        >
+          {node.label}
+        </span>
+        <button
+          type="button"
+          onClick={() => onOpenHistory(node)}
+          className={cn(
+            "shrink-0 p-1 rounded opacity-0 group-hover:opacity-100",
+            "hover:bg-primary/15 hover:text-primary transition-colors",
+            "text-muted-foreground",
+          )}
+          aria-label={`Open history of ${node.label}`}
+          title="Open part history"
+        >
+          <Clock className="h-3 w-3" />
+        </button>
+      </div>
+      {node.children.length > 0 && (
+        <div>
+          {node.children.map((child) => (
+            <OutlineNodeRow
+              key={child.id}
+              node={child}
+              onOpenHistory={onOpenHistory}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Part history drawer — overlays the surface, listing every revision of
+// a single section/scene/range with a "Swap into current" action.
+// ────────────────────────────────────────────────────────────────────────
+
+interface PartHistoryDrawerProps {
+  chatId: string
+  target: PartHistoryTarget
+  onClose: () => void
+  onRestored: () => void
+}
+
+function PartHistoryDrawer({
+  chatId,
+  target,
+  onClose,
+  onRestored,
+}: PartHistoryDrawerProps) {
+  const history = trpc.artifacts.partHistory.useQuery({
+    chatId,
+    kind: target.kind,
+    label: target.label,
+    occurrence: target.occurrence,
+    startLine: target.startLine,
+    endLine: target.endLine,
+  })
+  const restorePart = trpc.artifacts.restorePart.useMutation({
+    onSuccess: onRestored,
+  })
+
+  // Esc-to-close
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [onClose])
+
+  const revisions = (history.data ?? []) as PartRevision[]
+
+  return (
+    <>
+      {/* Backdrop — click to close, transparent so the editor stays visible. */}
+      <div
+        className="absolute inset-0 bg-background/40 backdrop-blur-[1px] z-20"
+        onClick={onClose}
+      />
+
+      {/* Drawer panel */}
+      <div
+        className={cn(
+          "absolute inset-y-0 right-0 w-[460px] z-30",
+          "bg-card border-l border-border shadow-2xl",
+          "flex flex-col overflow-hidden",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 h-11 px-4 border-b border-border bg-card/80">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <History className="h-3.5 w-3.5 text-primary shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+                History — {target.kind}
+              </div>
+              <div
+                className="text-xs font-medium text-foreground truncate"
+                title={target.displayName}
+              >
+                {target.displayName}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Close history"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body — list of revisions */}
+        <div className="flex-1 min-h-0 overflow-auto">
+          {history.isPending ? (
+            <div className="p-6 text-xs text-muted-foreground">
+              Walking commits…
+            </div>
+          ) : revisions.length === 0 ? (
+            <div className="p-6 text-xs text-muted-foreground">
+              No prior versions of this part. Once changes are accepted, every
+              revision lives here.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {revisions.map((rev, idx) => (
+                <RevisionRow
+                  key={rev.hash}
+                  rev={rev}
+                  isLatest={idx === 0}
+                  isCurrent={idx === 0}
+                  pending={
+                    restorePart.isPending && restorePart.variables?.content === rev.content
+                  }
+                  onSwap={() =>
+                    restorePart.mutate({
+                      chatId,
+                      // Restore at the part's CURRENT line range — that's
+                      // where the splice happens. The historical line
+                      // range is informational only.
+                      startLine: target.startLine,
+                      endLine: target.endLine,
+                      content: rev.content,
+                    })
+                  }
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer — error surface */}
+        {restorePart.error && (
+          <div className="px-4 py-2 border-t border-border bg-rose-500/10 text-xs text-rose-900 dark:text-rose-100">
+            {restorePart.error.message}
+          </div>
+        )}
+        <div className="px-4 py-2 border-t border-border text-[10px] text-muted-foreground/70 font-mono uppercase tracking-wider">
+          Swapping a version creates a pending diff — review &amp; accept like
+          any other edit.
+        </div>
+      </div>
+    </>
+  )
+}
+
+interface RevisionRowProps {
+  rev: PartRevision
+  isLatest: boolean
+  isCurrent: boolean
+  pending: boolean
+  onSwap: () => void
+}
+
+function RevisionRow({ rev, isLatest, pending, onSwap }: RevisionRowProps) {
+  const [expanded, setExpanded] = useState(isLatest)
+  return (
+    <li className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[11px] flex-wrap">
+            <span className="font-mono text-foreground/90">
+              {rev.shortHash}
+            </span>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="text-muted-foreground">{rev.relativeDate}</span>
+            {isLatest && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">
+                Latest
+              </span>
+            )}
+            {rev.match === "fallback" && (
+              <span
+                className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium"
+                title="Same heading text but a different occurrence index — verify before swapping."
+              >
+                Fuzzy
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-foreground/80 mt-1 line-clamp-2">
+            {rev.subject}
+          </div>
+          <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+            {rev.author}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className={cn(
+              "p-1.5 rounded text-muted-foreground hover:text-foreground",
+              "hover:bg-secondary transition-colors",
+            )}
+            title={expanded ? "Collapse preview" : "Expand preview"}
+          >
+            <ChevronRight
+              className={cn(
+                "h-3.5 w-3.5 transition-transform",
+                expanded && "rotate-90",
+              )}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={onSwap}
+            disabled={pending}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+              "border border-border bg-background hover:bg-primary hover:text-primary-foreground",
+              "transition-colors",
+              "disabled:opacity-50 disabled:cursor-progress",
+            )}
+            title="Replace the current version with this one. Surfaces as a pending diff for review."
+          >
+            <ArrowLeftRight className="h-3 w-3" />
+            Swap
+          </button>
+        </div>
+      </div>
+      {expanded && (
+        <pre
+          className={cn(
+            "mt-2 p-2 rounded border border-border bg-background/60",
+            "text-[11px] leading-5 font-mono text-foreground/90",
+            "whitespace-pre-wrap break-words max-h-72 overflow-auto",
+          )}
+        >
+          {rev.content || "(empty)"}
+        </pre>
+      )}
+    </li>
   )
 }
 
