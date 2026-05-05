@@ -27,7 +27,7 @@ import {
   Undo2,
   X,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 
@@ -314,14 +314,22 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
         ) : viewMode === "split" ? (
           <div className="grid grid-cols-2 h-full">
             <div className="border-r border-border min-h-0 overflow-auto">
-              <EditorSurface content={content} />
+              <EditorSurface
+                content={content}
+                chatId={chatId ?? null}
+                onSaved={refreshAll}
+              />
             </div>
             <div className="min-h-0 overflow-auto">
               <PreviewSurface content={content} />
             </div>
           </div>
         ) : (
-          <EditorSurface content={content} />
+          <EditorSurface
+            content={content}
+            chatId={chatId ?? null}
+            onSaved={refreshAll}
+          />
         )}
       </div>
 
@@ -344,22 +352,89 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
 // Surfaces
 // ────────────────────────────────────────────────────────────────────────
 
-function EditorSurface({ content }: { content: string | null }) {
-  if (!content || content.trim().length === 0) {
+interface EditorSurfaceProps {
+  content: string | null
+  chatId: string | null
+  /** Called whenever the user-typed buffer is flushed to disk. */
+  onSaved?: () => void
+}
+
+/**
+ * EditorSurface — direct in-place editing of the screenplay artifact.
+ *
+ * Buffers the user's keystrokes locally and debounces saves to disk via
+ * artifacts.write. Once the file lands the diff query (running on a 2 s
+ * refetchInterval upstream) picks the change up and the surface flips
+ * to the green/red review view — same flow the agent's edits go through.
+ *
+ * If the file changes on disk WHILE the user is editing (the agent
+ * writes mid-typing), we don't blow away their buffer; instead we leave
+ * the local state alone until the user pauses (no keystrokes for ≥ the
+ * settle window) at which point the next server sync wins. For v1 this
+ * race is acceptable — collaborative editing with operational transform
+ * is deferred.
+ */
+function EditorSurface({ content, chatId, onSaved }: EditorSurfaceProps) {
+  const [value, setValue] = useState<string>(content ?? "")
+  const lastTypedRef = useRef<number>(0)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const write = trpc.artifacts.write.useMutation({
+    onSuccess: () => onSaved?.(),
+  })
+
+  // Pull server content into the local buffer when the user is idle.
+  // "Idle" = no keystroke in the last 800 ms. Prevents server-side
+  // refetches from clobbering the user's mid-typing draft.
+  useEffect(() => {
+    if (content == null) return
+    if (Date.now() - lastTypedRef.current < 800) return
+    setValue(content)
+  }, [content])
+
+  // Cleanup any pending save on unmount.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [])
+
+  const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = e.target.value
+    setValue(next)
+    lastTypedRef.current = Date.now()
+    if (!chatId) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      write.mutate({ chatId, content: next })
+    }, 600)
+  }
+
+  if (!content && !value) {
     return <BlankCanvas />
   }
+
   return (
     <div className="h-full flex justify-center">
-      <pre
+      <textarea
+        value={value}
+        onChange={onChange}
+        spellCheck
+        autoCorrect="off"
+        autoCapitalize="off"
+        wrap="soft"
         className={cn(
           "w-full max-w-[820px] mx-auto px-10 py-12",
           "font-mono text-sm leading-7 text-foreground/90",
-          "whitespace-pre-wrap break-words",
+          "bg-transparent border-0 outline-none resize-none",
           "select-text",
+          "min-h-full",
+          // Subtle ring on focus instead of the default browser outline.
+          "focus:outline-none focus:ring-0",
+          "caret-primary",
         )}
-      >
-        {content}
-      </pre>
+        placeholder="Start typing your screenplay, or ask the assistant on the right to draft it."
+      />
     </div>
   )
 }
@@ -515,8 +590,9 @@ function DiffLineRow({
                 : "Restore this removed line"
             }
             className={cn(
-              "opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity",
+              "opacity-40 group-hover:opacity-100 focus:opacity-100 transition-opacity",
               "flex items-center justify-center w-5 h-5 rounded",
+              "border border-transparent group-hover:border-border",
               "text-muted-foreground hover:text-rose-700 dark:hover:text-rose-300",
               "hover:bg-rose-500/15",
             )}
