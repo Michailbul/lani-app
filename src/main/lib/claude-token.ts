@@ -189,32 +189,46 @@ export function getExistingClaudeToken(): string | null {
 }
 
 /**
- * Refresh Claude OAuth token using refresh token
- * Uses the Anthropic API token endpoint
+ * Refresh Claude OAuth token using a stored refresh token.
+ *
+ * Anthropic's Claude Code OAuth endpoint accepts JSON, not form-urlencoded.
+ * The official Claude Code CLI registers as a public OAuth client with the
+ * id `9d1c250a-e61b-44d9-88ed-5944d1962f5e` (this value is part of every
+ * shipped Claude Code binary, baked into the OAuth dance — there is no
+ * secret).
+ *
+ * If the server still rejects our request the user should re-run
+ * `claude /login` in a terminal — that triggers the official OAuth flow
+ * which writes a fresh credential into the OS keychain.
  */
+const CLAUDE_CODE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+
 export async function refreshClaudeToken(refreshToken: string): Promise<{
   accessToken: string;
   refreshToken?: string;
   expiresAt?: number;
 }> {
-  const params = new URLSearchParams({
+  const body = JSON.stringify({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
-    client_id: 'claude-desktop',
+    client_id: CLAUDE_CODE_OAUTH_CLIENT_ID,
   });
 
-  const response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+  const response = await fetch('https://console.anthropic.com/v1/oauth/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body,
   });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Failed to refresh Claude token: ${error}`);
+    throw new Error(`Failed to refresh Claude token (HTTP ${response.status}): ${error}`);
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     access_token: string;
     refresh_token?: string;
     expires_in?: number;
