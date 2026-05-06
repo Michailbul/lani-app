@@ -1,51 +1,45 @@
 "use client"
 
 /**
- * PromptsModeView — the "Prompts" pipeline stage.
+ * PromptsModeView — scene-by-scene workflow.
  *
- *   ┌── Project ──┬── Screenplay (editable) ──┬── Shot List ──┬── Chat ──┐
+ *   ┌── Project ──┬── Screenplay (editable, scene-blocks) ──┬── ONE scene's shots ──┬── Chat ──┐
  *
- * Layout pattern adopted from the reference UX (a Claude.ai artifact):
- *   - Left: the screenplay as a normal editable document. Just a
- *     textarea — write freely, scroll naturally. No clever
- *     block-filtering because organization lives on the right.
- *   - Right: a structured "Shot List" document. Title + metadata
- *     header, a STYLE ANCHOR block at the top that applies to every
- *     prompt, then scenes (H2) that group shots (H3). Each shot is
- *     a card with metadata fields (type, duration, references) and
- *     a freely-editable prompt body.
+ * Mental model:
+ *   - The screenplay is divided into scenes (Fountain INT./EXT.
+ *     headings auto-detect them; explicit user marks come later).
+ *   - You work ONE SCENE at a time. Click a scene block on the left
+ *     to switch the right pane to that scene's shots.
+ *   - Within a scene, click a shot to expand it for editing. Other
+ *     shots stay listed in collapsed form.
+ *   - Bottom of the right pane: < Scene N of M > prev/next nav.
  *
- * The screenplay drives the story; the Shot List is the working
- * artifact of "how do we render this visually". The user and the
- * agent both edit shots in place.
+ * Default selection: first scene. The right pane never shows multiple
+ * scenes at once — keeps the surface focused.
  *
- * V1 uses MOCK_DATA. E1.4 wires real entities.read for both surfaces.
+ * Mock data for now (E1.4 wires real entities.read).
  */
 
 import { useAtomValue } from "jotai"
 import {
-  Camera,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Copy,
   Image as ImageIcon,
-  Layers,
-  Link as LinkIcon,
-  MoreHorizontal,
   Pin,
   Plus,
   RotateCcw,
   Sparkles,
   Wand2,
+  X,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "../../lib/utils"
 import { activeEntityAtom } from "./atoms"
 
 // ────────────────────────────────────────────────────────────────────────
-// Mock data — replaced by real entities.read calls in E1.4 + E1.9.
-// Modeled after the user's reference shot-list document: scenes contain
-// shots, each shot has explicit metadata + a prompt body, plus an
-// always-pinned style anchor at the top.
+// Mock data
 // ────────────────────────────────────────────────────────────────────────
 
 const MOCK_SCREENPLAY = `EXT. DESERT MOUNTAIN PASS - SUNSET
@@ -70,138 +64,91 @@ The REFEREE drops their arm.
 
 Both cars LAUNCH forward. Tires scream. Dust kicks up.`
 
-const MOCK_PROJECT_TITLE = "Friendship on the Line — Seedance 2.0 Shot List"
+const MOCK_PROJECT_TITLE = "Friendship on the Line"
 
-const MOCK_STYLE_ANCHOR = `cinematic 35mm anamorphic, amber + rust palette, low atmospheric haze, anamorphic lens flare on highlights, slight film grain, painterly ambient occlusion, golden-hour key light raking from screen-right, dust motes hanging in air.`
+const MOCK_STYLE_ANCHOR = `cinematic 35mm anamorphic, amber + rust palette, low atmospheric haze, anamorphic lens flare on highlights, slight film grain, painterly ambient occlusion, golden-hour key light, dust motes hanging in air.`
 
 type PromptType = "keyframe" | "multi-shot" | "start-end-frame" | "workflow"
 type PromptStatus = "draft" | "generated" | "approved" | "archived"
 
 interface Shot {
-  /** Stable id used in the UI ("S1-A", "S1-B", …). */
   id: string
-  /** One-line cue ("CRANE RISE — ESTABLISHING"). */
+  sceneId: string
   title: string
   type: PromptType
   status: PromptStatus
-  /** Director-level description (what we're trying to capture). */
   shotType: string
   duration: string
-  inputImage?: string
-  /** The prompt body — what the agent / user freely edits. */
   body: string
   hasGeneration: boolean
-  parent?: string | null
 }
 
-interface SceneGroup {
-  id: string
-  number: number
-  title: string
-  /** Subtitle / one-line scene goal — shown under the scene heading. */
-  goal: string
-  shots: Shot[]
-}
-
-const MOCK_SCENES: SceneGroup[] = [
+const MOCK_SHOTS: Shot[] = [
   {
-    id: "01-mountain-pass",
-    number: 1,
-    title: "DESERT MOUNTAIN PASS",
-    goal: "The opening. Establish stakes, scale, two drivers locked in.",
-    shots: [
-      {
-        id: "S1-A",
-        title: "CRANE RISE — ESTABLISHING",
-        type: "keyframe",
-        status: "approved",
-        shotType: "Slow crane rising from line level to mid-air",
-        duration: "6s",
-        inputImage: "Image 1 (I2V)",
-        body: "Slow crane shot rising from asphalt level upward, revealing two parked cars at a desert starting line. Dust hangs in amber light. Mountain pass snakes into foothills behind them. Sunset burns orange, the sky behind streaked with rust.",
-        hasGeneration: true,
-        parent: null,
-      },
-      {
-        id: "S1-B",
-        title: "REFEREE — LOW SILHOUETTE",
-        type: "keyframe",
-        status: "generated",
-        shotType: "Low ground-level silhouette",
-        duration: "4s",
-        body: "Low-angle silhouette of the referee, arm raised against the sunset. Their figure dwarfed by the cars on either side. Backlit, almost cut from black paper.",
-        hasGeneration: true,
-        parent: null,
-      },
-      {
-        id: "S1-C",
-        title: "TWO CARS — SYMMETRY",
-        type: "keyframe",
-        status: "draft",
-        shotType: "Tight medium-wide, symmetrical",
-        duration: "3s",
-        body: "Tight medium-wide on the two cars, painted line dividing them. Engines audibly rumbling. Dust motes hang in amber light. Both cars symmetrical in frame.",
-        hasGeneration: false,
-        parent: null,
-      },
-    ],
+    id: "S1-A",
+    sceneId: "01",
+    title: "Crane rise — establishing",
+    type: "keyframe",
+    status: "approved",
+    shotType: "Slow crane rising from line level to mid-air",
+    duration: "6s",
+    body: "Slow crane shot rising from asphalt level upward, revealing two parked cars at a desert starting line. Dust hangs in amber light. Mountain pass snakes into foothills behind them. Sunset burns orange.",
+    hasGeneration: true,
   },
   {
-    id: "02-car-interiors",
-    number: 2,
-    title: "INSIDE THE CARS",
-    goal: "Reveal the emotional cost. Each driver alone with what they're about to do.",
-    shots: [
-      {
-        id: "S2-A",
-        title: "ALEX CU — JAW CLENCHED",
-        type: "keyframe",
-        status: "generated",
-        shotType: "Tight close-up, slight rack focus",
-        duration: "5s",
-        body: "Tight close-up on Alex's eyes in the windshield reflection. Jaw clenched, breath caught. Warm light spills across one half of their face. Their hands grip the wheel — knuckles white.",
-        hasGeneration: true,
-        parent: null,
-      },
-      {
-        id: "S2-B",
-        title: "JORDAN CU — HAND ON DASHBOARD",
-        type: "keyframe",
-        status: "draft",
-        shotType: "Medium close-up, push-in",
-        duration: "5s",
-        body: "Jordan's jaw clenches. One hand comes off the wheel for half a second. They reach toward the dashboard — a worn photograph taped there. Younger versions of themselves. Jordan and Alex. Laughing. Before this.",
-        hasGeneration: false,
-        parent: null,
-      },
-    ],
+    id: "S1-B",
+    sceneId: "01",
+    title: "Referee silhouette",
+    type: "keyframe",
+    status: "generated",
+    shotType: "Low ground-level silhouette",
+    duration: "4s",
+    body: "Low-angle silhouette of the referee, arm raised against the sunset. Their figure dwarfed by the cars on either side. Backlit, almost cut from black paper.",
+    hasGeneration: true,
   },
   {
-    id: "03-launch",
-    number: 3,
-    title: "THE LAUNCH",
-    goal: "Kinetic release. The point of no return.",
-    shots: [
-      {
-        id: "S3-A",
-        title: "MULTI-SHOT — LAUNCH SEQUENCE",
-        type: "multi-shot",
-        status: "generated",
-        shotType: "3-shot continuous: wide / push-in / launch",
-        duration: "7s total",
-        body: "Three-shot launch.\nShot 1 (2s): static wide on the line.\nShot 2 (3s): low push-in as referee drops arm.\nShot 3 (2s): cars launch, tires scream, dust clouds bloom behind.\n\nContinuity: amber light constant, lens choice locked, no cuts within shots.",
-        hasGeneration: true,
-        parent: null,
-      },
-    ],
+    id: "S1-C",
+    sceneId: "01",
+    title: "Two cars symmetry",
+    type: "keyframe",
+    status: "draft",
+    shotType: "Tight medium-wide, symmetrical",
+    duration: "3s",
+    body: "Tight medium-wide on the two cars, painted line dividing them. Engines audibly rumbling. Dust motes hang in amber light. Both cars symmetrical in frame.",
+    hasGeneration: false,
   },
-]
-
-const MOCK_WORKFLOWS = [
   {
-    id: "WF-color-grade",
-    title: "Color-grade transfer template",
-    body: "Reusable workflow. Extract LUT from reference still, apply to generated frame at 0.7 strength. Pull selective skin chroma. Use whenever a Nano Banana output needs grade-matching to a reference still.",
+    id: "S2-A",
+    sceneId: "02",
+    title: "Alex CU — jaw clenched",
+    type: "keyframe",
+    status: "generated",
+    shotType: "Tight close-up, slight rack focus",
+    duration: "5s",
+    body: "Tight close-up on Alex's eyes in the windshield reflection. Jaw clenched, breath caught. Warm light spills across one half of their face. Their hands grip the wheel — knuckles white.",
+    hasGeneration: true,
+  },
+  {
+    id: "S3-A",
+    sceneId: "03",
+    title: "Jordan hand on photo",
+    type: "keyframe",
+    status: "draft",
+    shotType: "Medium close-up, push-in",
+    duration: "5s",
+    body: "Jordan's jaw clenches. One hand comes off the wheel for half a second. They reach toward the dashboard — a worn photograph taped there. Younger versions of themselves.",
+    hasGeneration: false,
+  },
+  {
+    id: "S3-B",
+    sceneId: "03",
+    title: "Launch — multi-shot",
+    type: "multi-shot",
+    status: "generated",
+    shotType: "3-shot continuous: wide / push-in / launch",
+    duration: "7s",
+    body: "Three-shot launch.\nShot 1 (2s): static wide on the line.\nShot 2 (3s): low push-in as referee drops arm.\nShot 3 (2s): cars launch, tires scream, dust clouds bloom.",
+    hasGeneration: true,
   },
 ]
 
@@ -213,172 +160,364 @@ const STATUS_DOT: Record<PromptStatus, string> = {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Scene parser — split screenplay by INT./EXT./EST./Section headings.
+// ────────────────────────────────────────────────────────────────────────
+
+const SCENE_HEADING = /^(INT\.\/EXT\.|I\/E\.|INT\.|EXT\.|EST\.)/i
+
+interface SceneBlock {
+  /** Stable id derived from order — "01", "02", … */
+  id: string
+  /** Display number — 1-indexed. */
+  number: number
+  /** First line of the scene (the heading itself). */
+  heading: string
+  /** Whole scene text including heading. */
+  text: string
+}
+
+function parseScenes(screenplay: string): SceneBlock[] {
+  const lines = screenplay.split("\n")
+  const blocks: { startLine: number; lines: string[] }[] = []
+  let current: { startLine: number; lines: string[] } | null = null
+  let preamble: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (SCENE_HEADING.test(line.trim())) {
+      if (current) blocks.push(current)
+      current = { startLine: i, lines: [line] }
+    } else if (current) {
+      current.lines.push(line)
+    } else {
+      preamble.push(line)
+    }
+  }
+  if (current) blocks.push(current)
+
+  // If there's no scene heading at all (rare), treat the whole text as one block
+  if (blocks.length === 0) {
+    return [
+      {
+        id: "01",
+        number: 1,
+        heading: "(Untitled scene)",
+        text: screenplay.trim(),
+      },
+    ]
+  }
+
+  return blocks.map((b, idx) => {
+    const heading = b.lines[0].trim()
+    return {
+      id: String(idx + 1).padStart(2, "0"),
+      number: idx + 1,
+      heading,
+      text: b.lines.join("\n").trimEnd(),
+    }
+  })
+}
+
+function joinScenes(scenes: SceneBlock[]): string {
+  return scenes.map((s) => s.text).join("\n\n") + "\n"
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // View
 // ────────────────────────────────────────────────────────────────────────
 
 export function PromptsModeView() {
   const active = useAtomValue(activeEntityAtom)
   const [screenplay, setScreenplay] = useState(MOCK_SCREENPLAY)
+  const scenes = useMemo(() => parseScenes(screenplay), [screenplay])
 
-  const sceneLabel =
-    active?.kind === "scene"
-      ? active.label
-      : active?.kind === "shot"
-        ? `Scene of ${active.label}`
-        : "Project"
+  // Default to first scene. If the active entity is a scene with a known id,
+  // honour it (best-effort match; mock data scenes are 01/02/03).
+  const initialSceneId =
+    scenes.find(
+      (s) => active?.kind === "scene" && active.id?.startsWith(s.id),
+    )?.id ?? scenes[0]?.id ?? "01"
+  const [selectedSceneId, setSelectedSceneId] = useState(initialSceneId)
+  const [expandedShotId, setExpandedShotId] = useState<string | null>(null)
 
-  const totalPrompts =
-    MOCK_SCENES.reduce((acc, s) => acc + s.shots.length, 0) +
-    MOCK_WORKFLOWS.length
+  // If the screenplay is edited and scenes change, keep the selection valid.
+  useEffect(() => {
+    if (!scenes.find((s) => s.id === selectedSceneId)) {
+      setSelectedSceneId(scenes[0]?.id ?? "01")
+    }
+  }, [scenes, selectedSceneId])
+
+  const updateScene = (sceneId: string, nextText: string) => {
+    setScreenplay(
+      joinScenes(
+        scenes.map((s) => (s.id === sceneId ? { ...s, text: nextText } : s)),
+      ),
+    )
+  }
+
+  const onSelectScene = (sceneId: string) => {
+    setSelectedSceneId(sceneId)
+    setExpandedShotId(null)
+  }
+
+  const sceneIndex = scenes.findIndex((s) => s.id === selectedSceneId)
+  const activeScene = scenes[Math.max(0, sceneIndex)]
+  const activeShots = MOCK_SHOTS.filter((s) => s.sceneId === activeScene?.id)
+  const goPrev = () => {
+    if (sceneIndex > 0) onSelectScene(scenes[sceneIndex - 1].id)
+  }
+  const goNext = () => {
+    if (sceneIndex < scenes.length - 1) onSelectScene(scenes[sceneIndex + 1].id)
+  }
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
-      {/* Left — editable screenplay */}
+      {/* LEFT — screenplay split into scene blocks */}
       <div className="w-[44%] min-w-[360px] max-w-[600px] flex flex-col border-r border-border">
-        <div className="flex items-center justify-between gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
-              Screenplay
-            </span>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="text-xs text-foreground/85 truncate">
-              {sceneLabel}
-            </span>
-          </div>
+        <div className="flex items-center gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+            Screenplay
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-xs text-foreground/85 truncate">
+            {MOCK_PROJECT_TITLE}
+          </span>
+          <span className="text-[10px] tabular-nums text-muted-foreground/60 font-mono ml-auto">
+            {scenes.length} scene{scenes.length === 1 ? "" : "s"}
+          </span>
         </div>
         <div className="flex-1 min-h-0 overflow-auto bg-card/10">
-          <textarea
-            value={screenplay}
-            onChange={(e) => setScreenplay(e.target.value)}
-            spellCheck
-            className={cn(
-              "w-full h-full resize-none px-6 py-6 bg-transparent",
-              "font-mono text-[13px] leading-7 text-foreground/90",
-              "border-0 outline-none",
-              "min-h-full",
-            )}
-          />
-        </div>
-      </div>
-
-      {/* Right — Shot List */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <ShotListHeader title={MOCK_PROJECT_TITLE} sceneCount={MOCK_SCENES.length} promptCount={totalPrompts} />
-        <div className="flex-1 min-h-0 overflow-auto">
-          <div className="max-w-[820px] mx-auto px-6 py-4">
-            <StyleAnchorCard text={MOCK_STYLE_ANCHOR} />
-
-            {MOCK_SCENES.map((scene) => (
-              <SceneSection key={scene.id} scene={scene} />
+          <div className="px-3 py-3 space-y-1.5">
+            {scenes.map((scene) => (
+              <SceneEditorBlock
+                key={scene.id}
+                scene={scene}
+                selected={scene.id === selectedSceneId}
+                shotCount={
+                  MOCK_SHOTS.filter((sh) => sh.sceneId === scene.id).length
+                }
+                onSelect={() => onSelectScene(scene.id)}
+                onChange={(next) => updateScene(scene.id, next)}
+              />
             ))}
-
-            {/* Workflows section */}
-            {MOCK_WORKFLOWS.length > 0 && (
-              <section className="mt-10">
-                <h2 className="font-display text-[20px] font-bold leading-tight text-foreground mb-1 flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-rose-500" />
-                  Workflows
-                </h2>
-                <p className="text-[12px] text-muted-foreground/80 mb-3">
-                  Reusable templates that don't tie to a single scene.
-                </p>
-                <div className="space-y-3">
-                  {MOCK_WORKFLOWS.map((wf) => (
-                    <div
-                      key={wf.id}
-                      className="rounded-md border border-border bg-card p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-muted-foreground/70 tracking-wider">
-                            {wf.id}
-                          </span>
-                          <span className="text-[13px] font-medium text-foreground">
-                            {wf.title}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[12px] font-mono text-muted-foreground leading-relaxed">
-                        {wf.body}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
         </div>
       </div>
+
+      {/* RIGHT — ONE scene's shots */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex items-center justify-between gap-3 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+              Scene {activeScene?.number ?? 1}
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="text-xs font-medium text-foreground truncate">
+              {activeScene?.heading ?? ""}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+                "text-muted-foreground hover:text-foreground hover:bg-secondary",
+                "transition-colors",
+              )}
+              title="Copy this scene's shot prompts"
+            >
+              <Copy className="h-3 w-3" />
+              Copy scene
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+                "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
+              )}
+            >
+              <Plus className="h-3 w-3" />
+              Add shot
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-auto">
+          <div className="max-w-[760px] mx-auto px-6 py-4">
+            <StyleAnchorCard text={MOCK_STYLE_ANCHOR} />
+
+            <div className="space-y-2 mt-6">
+              {activeShots.length === 0 ? (
+                <EmptyShots />
+              ) : (
+                activeShots.map((shot) => (
+                  <ShotRow
+                    key={shot.id}
+                    shot={shot}
+                    expanded={shot.id === expandedShotId}
+                    onToggle={() =>
+                      setExpandedShotId((cur) =>
+                        cur === shot.id ? null : shot.id,
+                      )
+                    }
+                  />
+                ))
+              )}
+              <button
+                type="button"
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 py-2.5",
+                  "border border-dashed border-border rounded-md",
+                  "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
+                  "transition-colors text-[12px] font-medium",
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add shot to Scene {activeScene?.number}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer: scene navigation */}
+        <div className="flex items-center justify-between gap-2 h-10 px-4 border-t border-border bg-card/30 shrink-0">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={sceneIndex <= 0}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+              "text-muted-foreground hover:text-foreground hover:bg-secondary",
+              "transition-colors",
+              "disabled:opacity-30 disabled:cursor-not-allowed",
+            )}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Prev scene
+          </button>
+          <div className="flex items-center gap-1">
+            {scenes.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onSelectScene(s.id)}
+                className={cn(
+                  "px-1.5 py-0.5 rounded text-[10px] font-mono",
+                  "transition-colors",
+                  s.id === selectedSceneId
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary",
+                )}
+                title={s.heading}
+              >
+                {s.number}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={sceneIndex >= scenes.length - 1}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+              "text-muted-foreground hover:text-foreground hover:bg-secondary",
+              "transition-colors",
+              "disabled:opacity-30 disabled:cursor-not-allowed",
+            )}
+          >
+            Next scene
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Right-pane header — title, count, copy-all, refresh
+// Left side — one scene editor block.
 // ────────────────────────────────────────────────────────────────────────
 
-function ShotListHeader({
-  title,
-  sceneCount,
-  promptCount,
-}: {
-  title: string
-  sceneCount: number
-  promptCount: number
-}) {
+interface SceneEditorBlockProps {
+  scene: SceneBlock
+  selected: boolean
+  shotCount: number
+  onSelect: () => void
+  onChange: (next: string) => void
+}
+
+function SceneEditorBlock({
+  scene,
+  selected,
+  shotCount,
+  onSelect,
+  onChange,
+}: SceneEditorBlockProps) {
+  const lines = scene.text.split("\n").length
   return (
-    <div className="flex items-center justify-between gap-3 h-10 px-4 border-b border-border bg-card/40 select-none shrink-0">
-      <div className="flex items-center gap-2 min-w-0">
-        <Camera className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-medium text-foreground truncate">
-          {title}
-        </span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60 font-mono ml-1">
-          {promptCount} prompts · {sceneCount} scenes
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <button
-          type="button"
-          className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
-            "text-muted-foreground hover:text-foreground hover:bg-secondary",
-            "transition-colors",
-          )}
-          title="Copy all shot prompts"
-        >
-          <Copy className="h-3 w-3" />
-          Copy all
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
-            "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
-          )}
-        >
-          <Plus className="h-3 w-3" />
-          New shot
-        </button>
+    <div
+      onClick={onSelect}
+      className={cn(
+        "group relative rounded-md transition-all cursor-text",
+        "border-l-2",
+        selected
+          ? "border-primary bg-primary/5"
+          : "border-transparent hover:bg-card/60",
+      )}
+    >
+      <textarea
+        value={scene.text}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={onSelect}
+        rows={Math.max(2, lines)}
+        spellCheck={false}
+        className={cn(
+          "w-full bg-transparent border-0 outline-none resize-none",
+          "px-3 py-2 font-mono text-[12.5px] leading-7 text-foreground/85",
+        )}
+      />
+      <div
+        className={cn(
+          "absolute top-1.5 right-2 flex items-center gap-2",
+          "text-[9px] font-mono uppercase tracking-wider",
+          "text-muted-foreground/60 select-none pointer-events-none",
+          "transition-opacity",
+          selected ? "opacity-100" : "opacity-50 group-hover:opacity-90",
+        )}
+      >
+        <span>Scene {scene.number}</span>
+        {shotCount > 0 && (
+          <span
+            className={cn(
+              "inline-flex items-center px-1.5 py-0.5 rounded-full",
+              "bg-primary/10 text-primary font-semibold",
+            )}
+            title={`${shotCount} shot${shotCount === 1 ? "" : "s"} for this scene`}
+          >
+            {shotCount}
+          </span>
+        )}
       </div>
     </div>
   )
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Style anchor — pinned at the top, applies to every prompt's tail.
+// Right side — style anchor + shot row (collapsed/expanded)
 // ────────────────────────────────────────────────────────────────────────
 
 function StyleAnchorCard({ text }: { text: string }) {
   const [body, setBody] = useState(text)
   const [collapsed, setCollapsed] = useState(false)
   return (
-    <section className="mb-8">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <h2 className="font-display text-[20px] font-bold leading-tight text-foreground flex items-center gap-2">
-          <Pin className="h-4 w-4 text-primary" />
-          Style anchor
-        </h2>
+    <section>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <Pin className="h-3 w-3 text-primary" />
+          <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+            Style anchor — applies to every shot
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
@@ -387,18 +526,15 @@ function StyleAnchorCard({ text }: { text: string }) {
           {collapsed ? "expand" : "collapse"}
         </button>
       </div>
-      <p className="text-[12px] text-muted-foreground/80 mb-2 italic">
-        Copied into every prompt's tail for visual consistency across all clips.
-      </p>
       {!collapsed && (
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          rows={Math.max(3, body.split("\n").length)}
+          rows={Math.max(2, body.split("\n").length)}
           className={cn(
-            "w-full px-3 py-2.5 rounded-md",
+            "w-full px-3 py-2 rounded-md",
             "border-l-2 border-primary bg-primary/5",
-            "font-mono text-[12px] leading-relaxed text-foreground",
+            "font-mono text-[11.5px] leading-relaxed text-foreground",
             "border-y border-r border-border",
             "outline-none focus:ring-1 focus:ring-primary",
             "resize-none",
@@ -409,97 +545,96 @@ function StyleAnchorCard({ text }: { text: string }) {
   )
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Scene section — H2 + goal subtitle, then shot cards.
-// ────────────────────────────────────────────────────────────────────────
-
-function SceneSection({ scene }: { scene: SceneGroup }) {
-  return (
-    <section className="mt-8 pt-2">
-      <h2 className="font-display text-[20px] font-bold leading-tight text-foreground mb-1">
-        Scene {scene.number} — {scene.title}
-      </h2>
-      <p className="text-[12px] text-muted-foreground/80 italic mb-4">
-        {scene.goal}
-      </p>
-      <div className="space-y-3">
-        {scene.shots.map((shot) => (
-          <ShotCard key={shot.id} shot={shot} />
-        ))}
-        <button
-          type="button"
-          className={cn(
-            "w-full flex items-center justify-center gap-2 py-2.5",
-            "border border-dashed border-border rounded-md",
-            "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
-            "transition-colors text-[12px] font-medium",
-          )}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add shot to Scene {scene.number}
-        </button>
-      </div>
-    </section>
-  )
+interface ShotRowProps {
+  shot: Shot
+  expanded: boolean
+  onToggle: () => void
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// ShotCard — the unit. ID + title header, metadata strip, prompt body
-// (free-text editable), tiny generation thumb when present, action row.
-// ────────────────────────────────────────────────────────────────────────
+function ShotRow({ shot, expanded, onToggle }: ShotRowProps) {
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "w-full flex items-center gap-2 px-3 py-2 rounded-md text-left",
+          "border border-border bg-card",
+          "hover:border-foreground/30 transition-colors",
+        )}
+      >
+        <span className="font-mono text-[11px] tracking-wider font-semibold text-primary shrink-0">
+          {shot.id}
+        </span>
+        <span className="text-[13px] text-foreground truncate flex-1">
+          {shot.title}
+        </span>
+        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+          <span className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[shot.status])} />
+          {shot.status}
+        </span>
+        {shot.hasGeneration && (
+          <ImageIcon
+            className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0"
+            aria-label="generation available"
+          />
+        )}
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      </button>
+    )
+  }
 
-function ShotCard({ shot }: { shot: Shot }) {
+  return <ShotExpanded shot={shot} onCollapse={onToggle} />
+}
+
+function ShotExpanded({ shot, onCollapse }: { shot: Shot; onCollapse: () => void }) {
   const [body, setBody] = useState(shot.body)
   const [shotType, setShotType] = useState(shot.shotType)
   const [duration, setDuration] = useState(shot.duration)
-  const [focused, setFocused] = useState(false)
-
+  const [title, setTitle] = useState(shot.title)
   return (
-    <article
-      className={cn(
-        "group rounded-md border bg-card transition-all",
-        focused
-          ? "border-primary shadow-sm ring-1 ring-primary/15"
-          : "border-border hover:border-foreground/30",
-      )}
-    >
-      {/* Card header */}
+    <article className="rounded-md border border-primary bg-card ring-1 ring-primary/15 shadow-sm">
+      {/* Header */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[11px] tracking-wider font-semibold text-primary">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="font-mono text-[11px] tracking-wider font-semibold text-primary shrink-0">
             {shot.id}
           </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-[13px] font-medium text-foreground truncate">
-            {shot.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            <span
-              className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[shot.status])}
-            />
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className={cn(
+              "min-w-0 flex-1 bg-transparent text-[13px] font-medium text-foreground",
+              "border-0 outline-none px-0 py-0",
+            )}
+          />
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+            <span className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[shot.status])} />
             {shot.status}
           </span>
         </div>
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="text-muted-foreground hover:text-foreground p-1 rounded"
+          title="Collapse"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      {/* Metadata strip — small, dense, label:value */}
+      {/* Compact metadata strip */}
       <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-border/60 bg-card/30">
-        <MetaField icon={Camera} label="Shot type" value={shotType} onChange={setShotType} />
+        <MetaField icon={Sparkles} label="Type" value={shotType} onChange={setShotType} />
         <MetaField icon={Clock} label="Duration" value={duration} onChange={setDuration} />
-        {shot.inputImage && (
-          <MetaField icon={ImageIcon} label="Input image" value={shot.inputImage} readOnly />
-        )}
       </div>
 
-      {/* Prompt body — the main editable surface */}
+      {/* Prompt body */}
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        rows={Math.max(3, body.split("\n").length)}
+        rows={Math.max(4, body.split("\n").length)}
         className={cn(
           "w-full px-3 py-2.5 bg-transparent",
           "font-mono text-[12.5px] leading-relaxed text-foreground",
@@ -507,8 +642,8 @@ function ShotCard({ shot }: { shot: Shot }) {
         )}
       />
 
-      {/* Generation + actions */}
-      <div className="px-3 pb-2 pt-0 flex items-center justify-between gap-2">
+      {/* Bottom row */}
+      <div className="px-3 pb-2.5 flex items-center justify-between gap-2 flex-wrap">
         {shot.hasGeneration ? (
           <div className="flex items-center gap-2">
             <div
@@ -529,49 +664,31 @@ function ShotCard({ shot }: { shot: Shot }) {
             no generation yet
           </span>
         )}
-        <div
-          className={cn(
-            "flex items-center gap-1 transition-opacity",
-            focused ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-          )}
-        >
-          <ActionButton icon={Wand2} label="Compose" title="Compose with locks injected" />
+        <div className="flex items-center gap-1">
+          <ActionButton icon={Wand2} label="Compose" title="Compose with character + location + world locks" />
           <ActionButton icon={RotateCcw} label="Iterate" title="Ask the agent for a variation" />
           <ActionButton
             icon={Sparkles}
             label={shot.hasGeneration ? "Re-run" : "Generate"}
             primary
-            title={shot.hasGeneration ? "Run the model again" : "Run the model"}
+            title={shot.hasGeneration ? "Run again" : "Generate"}
           />
-          <button
-            type="button"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary"
-            title="More"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
     </article>
   )
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Small bits
-// ────────────────────────────────────────────────────────────────────────
-
 function MetaField({
   icon: Icon,
   label,
   value,
   onChange,
-  readOnly,
 }: {
-  icon: typeof Camera
+  icon: typeof Sparkles
   label: string
   value: string
-  onChange?: (next: string) => void
-  readOnly?: boolean
+  onChange: (next: string) => void
 }) {
   return (
     <div className="flex items-center gap-1.5 min-w-0">
@@ -579,20 +696,15 @@ function MetaField({
       <span className="text-muted-foreground/70 font-mono text-[10px] uppercase tracking-wider shrink-0">
         {label}
       </span>
-      {readOnly ? (
-        <span className="text-foreground/85 truncate">{value}</span>
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange?.(e.target.value)}
-          className={cn(
-            "min-w-0 flex-1 bg-transparent text-foreground/90 outline-none",
-            "border-0 px-0 py-0 text-[11px]",
-            "focus:ring-0 focus:bg-bone/10 focus:px-1 focus:rounded",
-          )}
-        />
-      )}
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "min-w-0 flex-1 bg-transparent text-foreground/90 outline-none",
+          "border-0 px-0 py-0 text-[11px]",
+        )}
+      />
     </div>
   )
 }
@@ -603,7 +715,7 @@ function ActionButton({
   title,
   primary,
 }: {
-  icon: typeof Wand2
+  icon: typeof Sparkles
   label: string
   title: string
   primary?: boolean
@@ -626,6 +738,16 @@ function ActionButton({
   )
 }
 
-// Suppress import-pruning
-const _LinkIcon = LinkIcon
-void _LinkIcon
+function EmptyShots() {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+      <Sparkles className="h-5 w-5 text-muted-foreground/50" />
+      <div className="text-[13px] text-foreground/80 font-medium">
+        No shots for this scene yet.
+      </div>
+      <div className="text-[11px] text-muted-foreground/70 max-w-[40ch]">
+        Click <strong>Add shot</strong> below, or ask the agent in chat to break this scene into shots.
+      </div>
+    </div>
+  )
+}
