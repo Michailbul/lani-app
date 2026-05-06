@@ -31,12 +31,19 @@ Project
 ├── World             — art direction, palette, tone, period, technology level
 ├── Script (master)   — the screenplay overview spanning all scenes
 │
-└── Scenes            — each scene has ONE master script
-    │
-    └── Shots         — each shot has prompts to generate image / video
-        │
-        └── Prompts   — actual generative AI prompts (start frame, continuation, refs)
+├── Scenes            — each scene has ONE master script (Fountain)
+│
+└── Prompts Queue     — the curated library of every generative prompt, linked to scenes
+                        Replaces the earlier "shots-as-folders" model — flat, type-tagged,
+                        and version-controlled per prompt file
 ```
+
+> **Note on the v1 hierarchy revision:** an earlier draft had Shots as a
+> third nesting level under Scenes (`scenes/01/shots/shot-01.md`). After
+> reviewing the writer's daily workflow we collapsed that into a flat
+> **Prompts Queue** — one place to see every prompt across the project,
+> filterable by scene + type. Each prompt is its own markdown file with
+> frontmatter; git history per file gives free version control.
 
 Every entity is a markdown file in the project's git repository (extending the Fountain convention we already use). Every entity is independently **forkable** as its own Direction.
 
@@ -87,25 +94,78 @@ The Story Canvas (Phase 5 in the current roadmap) expands from "tree of scripts"
 
 ---
 
-## The Prompts View
+## The Prompts Queue (replaces the per-shot Prompts View from the earlier draft)
 
-A new view mode alongside Editor / Preview / Split / History: **Prompts**.
+A new top-level entry in the project tree, alongside World / Characters / Locations / Scenes:
 
-When you select a Shot in the project tree, the Prompts view shows:
+```
+Prompts Queue   ⊕12   ← click to open the dedicated queue page
+```
 
-- **Starting-frame prompt** (Nano Banana Pro / Midjourney) — text + composer
-- **Continuation prompt** (Seedance / Kling) — text + composer
-- **References gallery** — reference images attached, lock blocks pinned
-- **Generated outputs** — links to AI-generated images/videos saved to the project
-- **Iteration log** — every prompt variation tried, with resulting output
+Click → center pane swaps to the Prompts Queue surface: filterable, type-tagged, scene-linked list of every generative prompt in the project.
 
-Per-prompt actions:
-- **Edit** → autosaves to disk
-- **Compose** → agent generates the prompt by combining: scene description + character locks + location + world locks
+### Filesystem layout
+
+```
+prompts/
+  <id>.md            — one markdown file per prompt, frontmatter + body
+assets/
+  refs/              — reference images attached to prompts
+  generated/         — AI-generated outputs linked back to their prompt
+```
+
+### Prompt file shape (frontmatter + body)
+
+```markdown
+---
+title: "Opening establishing shot — wide forest road"
+type: keyframe          # keyframe | multi-shot | start-end-frame | workflow
+sceneId: 01-opening     # optional for workflow type
+status: draft           # draft | queued | generated | approved | archived
+references:
+  - assets/refs/forest-road-cinematic.jpg
+  - assets/refs/dawn-light-ref.jpg
+generations:            # populated as the user saves outputs
+  - id: gen-2026-05-05-001
+    model: nano-banana-pro
+    output: assets/generated/01-opening-keyframe-v1.png
+    timestamp: 2026-05-05T14:30:00Z
+---
+
+[The actual prompt body — plain text or markdown.
+Character / location / world locks get auto-injected when the
+agent composes via "Compose with locks".]
+```
+
+### The four prompt types (v1, hardcoded)
+
+| Type | What it produces | Example tools |
+|---|---|---|
+| `keyframe` | A single image — establishing shot, character moment, cover frame | Nano Banana Pro, Midjourney, Stable Diffusion |
+| `multi-shot` | A multi-shot video sequence with continuity | Seedance 2.0, Kling 3.0 |
+| `start-end-frame` | A video transition with locked start frame + (optional) end frame | Seedance, Kling, Runway |
+| `workflow` | A reusable utility prompt — color-grading transfer, identity-lock template, generation recipe. Doesn't tie to a specific scene. | n/a (template / system prompt) |
+
+### Per-prompt actions
+
+- **Edit** → autosaves the file (each save = a git commit; version control is automatic)
+- **Compose with locks** → agent reads the linked scene's `.fountain`, plus relevant character / location / world files, and drafts the prompt body
 - **Iterate** → agent suggests N variations
-- **Send to model** → (later) wires directly into Nano Banana / Seedance / Kling APIs
+- **Generate** → (E5+) ships to the appropriate model API based on `type`
+- **Restore version** → walks git history of this file (uses the existing `partHistory` / `restorePart` infrastructure)
 
-The Prompts view is what makes Backlot the **super-weapon** — it eliminates the manual step of assembling locks every time, which is currently the single biggest source of friction in AI filmmaking workflows.
+### Why the Queue instead of per-shot prompts
+
+The writer / AI creator's daily question is *"what prompt do I need next?"* — not *"which shot of which scene am I editing?"*. The Queue gives one place to:
+
+- See every prompt in the project at once
+- Filter by `sceneId` to focus on one act / scene
+- Filter by `type` to batch-iterate similar prompts (e.g. "give me all keyframes")
+- See `status` distribution at a glance (drafts pending, generations approved)
+- Drag-drop reference images onto any prompt
+- Walk version history per prompt independently
+
+This is the killer surface that makes Backlot **the super-weapon** — it eliminates the manual lock-pasting step that is currently the single biggest friction point in AI-filmmaking workflows.
 
 ---
 
