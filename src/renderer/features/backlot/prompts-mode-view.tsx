@@ -3,99 +3,49 @@
 /**
  * PromptsModeView — the "Prompts" pipeline stage.
  *
- *   ┌── Project ──┬── Screenplay (editable, blocks) ──┬── Prompts (filtered to selected block) ──┬── Chat ──┐
+ *   ┌── Project ──┬── Screenplay (editable) ──┬── Shot List ──┬── Chat ──┐
  *
- * Selection-driven coupling:
- *   - The screenplay is divided into BLOCKS — each block is a paragraph
- *     in the Fountain document (scene heading, an action passage, a
- *     dialogue exchange, a section header, …).
- *   - Clicking a block makes it the ACTIVE block. The right pane shows
- *     only prompts attached to that block.
- *   - Click "All scene prompts" in the right header to clear the filter
- *     and see everything.
- *   - Each block is editable inline — type freely, the agent edits the
- *     same block via Edit/Write tools.
+ * Layout pattern adopted from the reference UX (a Claude.ai artifact):
+ *   - Left: the screenplay as a normal editable document. Just a
+ *     textarea — write freely, scroll naturally. No clever
+ *     block-filtering because organization lives on the right.
+ *   - Right: a structured "Shot List" document. Title + metadata
+ *     header, a STYLE ANCHOR block at the top that applies to every
+ *     prompt, then scenes (H2) that group shots (H3). Each shot is
+ *     a card with metadata fields (type, duration, references) and
+ *     a freely-editable prompt body.
  *
- * Granularity is up to the user:
- *   - One prompt for the whole scene → attach to the scene-heading block.
- *   - Many prompts for many beats → attach each to its beat block.
- *   - Workflow / utility prompts → no block anchor (always visible).
+ * The screenplay drives the story; the Shot List is the working
+ * artifact of "how do we render this visually". The user and the
+ * agent both edit shots in place.
+ *
+ * V1 uses MOCK_DATA. E1.4 wires real entities.read for both surfaces.
  */
 
 import { useAtomValue } from "jotai"
 import {
+  Camera,
+  Clock,
+  Copy,
   Image as ImageIcon,
   Layers,
   Link as LinkIcon,
   MoreHorizontal,
+  Pin,
   Plus,
   RotateCcw,
   Sparkles,
   Wand2,
-  X,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { cn } from "../../lib/utils"
 import { activeEntityAtom } from "./atoms"
 
 // ────────────────────────────────────────────────────────────────────────
-// Block parser — Fountain-aware paragraph splitter.
-// ────────────────────────────────────────────────────────────────────────
-
-type BlockKind =
-  | "section"       // # heading
-  | "scene-heading" // INT./EXT.
-  | "character"     // ALL CAPS character cue
-  | "dialogue"      // dialogue paragraph
-  | "action"        // action paragraph (default)
-
-interface ScreenplayBlock {
-  id: string
-  kind: BlockKind
-  /** Single-line summary for the right-pane "Prompts for: …" label. */
-  label: string
-  text: string
-  /** Index in the original split, for stable id even after edits. */
-  index: number
-}
-
-const SCENE_PREFIX = /^(INT\.\/EXT\.|I\/E\.|INT\.|EXT\.|EST\.)/i
-const SECTION_PREFIX = /^(#{1,3})\s+/
-
-function parseBlocks(text: string): ScreenplayBlock[] {
-  // Split on blank lines but keep ordering. Treat 2+ newlines as a separator.
-  const chunks = text.split(/\n\s*\n/).map((c) => c.trim()).filter(Boolean)
-  return chunks.map((chunk, index) => {
-    const firstLine = chunk.split("\n")[0]?.trim() ?? ""
-    let kind: BlockKind = "action"
-    if (SECTION_PREFIX.test(firstLine)) kind = "section"
-    else if (SCENE_PREFIX.test(firstLine)) kind = "scene-heading"
-    else if (
-      /^[A-Z][A-Z0-9 ()'\-.]+$/.test(firstLine) &&
-      chunk.split("\n").length > 1
-    )
-      kind = "character"
-    else kind = "action"
-    // For "character" cues we treat the whole chunk (cue + parentheticals + dialogue) as one block.
-    const label = firstLine.length > 60 ? firstLine.slice(0, 57) + "…" : firstLine
-    // Stable-ish id — derived from kind + first line slug + index. Survives
-    // typing in unrelated blocks; collapses if you rewrite the first line.
-    const slug = firstLine
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 24) || `b${index}`
-    const id = `${index.toString().padStart(2, "0")}-${slug}`
-    return { id, kind, label, text: chunk, index }
-  })
-}
-
-function joinBlocks(blocks: ScreenplayBlock[]): string {
-  return blocks.map((b) => b.text).join("\n\n") + "\n"
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Mock data — replaced by real entities.read in E1.4 + E1.9
+// Mock data — replaced by real entities.read calls in E1.4 + E1.9.
+// Modeled after the user's reference shot-list document: scenes contain
+// shots, each shot has explicit metadata + a prompt body, plus an
+// always-pinned style anchor at the top.
 // ────────────────────────────────────────────────────────────────────────
 
 const MOCK_SCREENPLAY = `EXT. DESERT MOUNTAIN PASS - SUNSET
@@ -120,84 +70,138 @@ The REFEREE drops their arm.
 
 Both cars LAUNCH forward. Tires scream. Dust kicks up.`
 
+const MOCK_PROJECT_TITLE = "Friendship on the Line — Seedance 2.0 Shot List"
+
+const MOCK_STYLE_ANCHOR = `cinematic 35mm anamorphic, amber + rust palette, low atmospheric haze, anamorphic lens flare on highlights, slight film grain, painterly ambient occlusion, golden-hour key light raking from screen-right, dust motes hanging in air.`
+
 type PromptType = "keyframe" | "multi-shot" | "start-end-frame" | "workflow"
 type PromptStatus = "draft" | "generated" | "approved" | "archived"
 
-interface MockPrompt {
+interface Shot {
+  /** Stable id used in the UI ("S1-A", "S1-B", …). */
   id: string
-  /** Block id this prompt supports — null = scene-wide / workflow. */
-  blockId: string | null
+  /** One-line cue ("CRANE RISE — ESTABLISHING"). */
+  title: string
   type: PromptType
   status: PromptStatus
-  parent: string | null
+  /** Director-level description (what we're trying to capture). */
+  shotType: string
+  duration: string
+  inputImage?: string
+  /** The prompt body — what the agent / user freely edits. */
   body: string
   hasGeneration: boolean
+  parent?: string | null
 }
 
-// Block ids must match the parser's slugify: index padded + slug of first line.
-const MOCK_PROMPTS: MockPrompt[] = [
+interface SceneGroup {
+  id: string
+  number: number
+  title: string
+  /** Subtitle / one-line scene goal — shown under the scene heading. */
+  goal: string
+  shots: Shot[]
+}
+
+const MOCK_SCENES: SceneGroup[] = [
   {
-    id: "v1-wide-establishing",
-    blockId: "00-ext-desert-mountain-pass-su",
-    type: "keyframe",
-    status: "approved",
-    parent: null,
-    body: `A wide establishing shot of an empty forest road at dawn. Warm amber light grazes the asphalt, mist hugs the treeline, anamorphic flare on the horizon. 35mm film stock feel, slight grain.`,
-    hasGeneration: true,
+    id: "01-mountain-pass",
+    number: 1,
+    title: "DESERT MOUNTAIN PASS",
+    goal: "The opening. Establish stakes, scale, two drivers locked in.",
+    shots: [
+      {
+        id: "S1-A",
+        title: "CRANE RISE — ESTABLISHING",
+        type: "keyframe",
+        status: "approved",
+        shotType: "Slow crane rising from line level to mid-air",
+        duration: "6s",
+        inputImage: "Image 1 (I2V)",
+        body: "Slow crane shot rising from asphalt level upward, revealing two parked cars at a desert starting line. Dust hangs in amber light. Mountain pass snakes into foothills behind them. Sunset burns orange, the sky behind streaked with rust.",
+        hasGeneration: true,
+        parent: null,
+      },
+      {
+        id: "S1-B",
+        title: "REFEREE — LOW SILHOUETTE",
+        type: "keyframe",
+        status: "generated",
+        shotType: "Low ground-level silhouette",
+        duration: "4s",
+        body: "Low-angle silhouette of the referee, arm raised against the sunset. Their figure dwarfed by the cars on either side. Backlit, almost cut from black paper.",
+        hasGeneration: true,
+        parent: null,
+      },
+      {
+        id: "S1-C",
+        title: "TWO CARS — SYMMETRY",
+        type: "keyframe",
+        status: "draft",
+        shotType: "Tight medium-wide, symmetrical",
+        duration: "3s",
+        body: "Tight medium-wide on the two cars, painted line dividing them. Engines audibly rumbling. Dust motes hang in amber light. Both cars symmetrical in frame.",
+        hasGeneration: false,
+        parent: null,
+      },
+    ],
   },
   {
-    id: "v2-warmer-light",
-    blockId: "00-ext-desert-mountain-pass-su",
-    type: "keyframe",
-    status: "generated",
-    parent: "v1-wide-establishing",
-    body: `Same composition as v1 but with the camera dropped almost to ground level — asphalt detail dominates the foreground. Push the warmth: golden hour at peak.`,
-    hasGeneration: true,
+    id: "02-car-interiors",
+    number: 2,
+    title: "INSIDE THE CARS",
+    goal: "Reveal the emotional cost. Each driver alone with what they're about to do.",
+    shots: [
+      {
+        id: "S2-A",
+        title: "ALEX CU — JAW CLENCHED",
+        type: "keyframe",
+        status: "generated",
+        shotType: "Tight close-up, slight rack focus",
+        duration: "5s",
+        body: "Tight close-up on Alex's eyes in the windshield reflection. Jaw clenched, breath caught. Warm light spills across one half of their face. Their hands grip the wheel — knuckles white.",
+        hasGeneration: true,
+        parent: null,
+      },
+      {
+        id: "S2-B",
+        title: "JORDAN CU — HAND ON DASHBOARD",
+        type: "keyframe",
+        status: "draft",
+        shotType: "Medium close-up, push-in",
+        duration: "5s",
+        body: "Jordan's jaw clenches. One hand comes off the wheel for half a second. They reach toward the dashboard — a worn photograph taped there. Younger versions of themselves. Jordan and Alex. Laughing. Before this.",
+        hasGeneration: false,
+        parent: null,
+      },
+    ],
   },
   {
-    id: "v1-two-cars-idle",
-    blockId: "01-two-cars-idle-at-a-starting",
-    type: "keyframe",
-    status: "draft",
-    parent: null,
-    body: `Tight medium-wide on the two cars, painted line dividing them. Engines audibly rumbling. Dust motes hang in amber light. Both cars symmetrical in frame.`,
-    hasGeneration: false,
+    id: "03-launch",
+    number: 3,
+    title: "THE LAUNCH",
+    goal: "Kinetic release. The point of no return.",
+    shots: [
+      {
+        id: "S3-A",
+        title: "MULTI-SHOT — LAUNCH SEQUENCE",
+        type: "multi-shot",
+        status: "generated",
+        shotType: "3-shot continuous: wide / push-in / launch",
+        duration: "7s total",
+        body: "Three-shot launch.\nShot 1 (2s): static wide on the line.\nShot 2 (3s): low push-in as referee drops arm.\nShot 3 (2s): cars launch, tires scream, dust clouds bloom behind.\n\nContinuity: amber light constant, lens choice locked, no cuts within shots.",
+        hasGeneration: true,
+        parent: null,
+      },
+    ],
   },
+]
+
+const MOCK_WORKFLOWS = [
   {
-    id: "v1-referee",
-    blockId: "02-a-referee-in-a-dark-jacket",
-    type: "keyframe",
-    status: "draft",
-    parent: null,
-    body: `Low-angle silhouette of the referee, arm raised against the sunset. Their figure dwarfed by the cars on either side.`,
-    hasGeneration: false,
-  },
-  {
-    id: "v1-alex-cu",
-    blockId: "04-alex-late-20s-focused-hands",
-    type: "keyframe",
-    status: "generated",
-    parent: null,
-    body: `Tight close-up on Alex's eyes in the rearview / windshield reflection. Jaw clenched, breath caught. Warm light spills across one half of their face.`,
-    hasGeneration: true,
-  },
-  {
-    id: "v1-multi-launch",
-    blockId: null, // scene-wide multi-shot
-    type: "multi-shot",
-    status: "generated",
-    parent: null,
-    body: `Three-shot launch sequence.\nShot 1 (2s): static wide on the line.\nShot 2 (3s): low push-in as referee drops arm.\nShot 3 (2s): cars launch, tires scream, dust clouds.`,
-    hasGeneration: true,
-  },
-  {
-    id: "v1-workflow-grade",
-    blockId: null, // workflow
-    type: "workflow",
-    status: "approved",
-    parent: null,
-    body: `Color-grade transfer template. Extract LUT from reference still, apply to generated frame at 0.7 strength, pull selective skin chroma.`,
-    hasGeneration: false,
+    id: "WF-color-grade",
+    title: "Color-grade transfer template",
+    body: "Reusable workflow. Extract LUT from reference still, apply to generated frame at 0.7 strength. Pull selective skin chroma. Use whenever a Nano Banana output needs grade-matching to a reference still.",
   },
 ]
 
@@ -208,177 +212,100 @@ const STATUS_DOT: Record<PromptStatus, string> = {
   archived: "bg-muted-foreground/20",
 }
 
-const KIND_LABEL: Record<BlockKind, string> = {
-  section: "Section",
-  "scene-heading": "Scene",
-  character: "Dialogue",
-  dialogue: "Dialogue",
-  action: "Action",
-}
-
 // ────────────────────────────────────────────────────────────────────────
 // View
 // ────────────────────────────────────────────────────────────────────────
 
 export function PromptsModeView() {
   const active = useAtomValue(activeEntityAtom)
-  const [text, setText] = useState(MOCK_SCREENPLAY)
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
-
-  const blocks = useMemo(() => parseBlocks(text), [text])
-  const blocksById = useMemo(() => {
-    const m = new Map<string, ScreenplayBlock>()
-    for (const b of blocks) m.set(b.id, b)
-    return m
-  }, [blocks])
-
-  // Count prompts per block for the inline "↔ N" badges.
-  const promptCountByBlock = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const p of MOCK_PROMPTS) {
-      if (!p.blockId) continue
-      m.set(p.blockId, (m.get(p.blockId) ?? 0) + 1)
-    }
-    return m
-  }, [])
-
-  // Filter: when a block is selected, show its prompts AND null-block
-  // prompts (workflows / scene-wide). When no block selected, show all.
-  const visiblePrompts = useMemo(() => {
-    if (!selectedBlockId) return MOCK_PROMPTS
-    return MOCK_PROMPTS.filter(
-      (p) => p.blockId === selectedBlockId || p.blockId === null,
-    )
-  }, [selectedBlockId])
-
-  const updateBlockText = (blockId: string, next: string) => {
-    const updated = blocks.map((b) =>
-      b.id === blockId ? { ...b, text: next } : b,
-    )
-    setText(joinBlocks(updated))
-  }
+  const [screenplay, setScreenplay] = useState(MOCK_SCREENPLAY)
 
   const sceneLabel =
     active?.kind === "scene"
       ? active.label
       : active?.kind === "shot"
         ? `Scene of ${active.label}`
-        : "Scene"
+        : "Project"
+
+  const totalPrompts =
+    MOCK_SCENES.reduce((acc, s) => acc + s.shots.length, 0) +
+    MOCK_WORKFLOWS.length
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
-      {/* Left — editable screenplay broken into blocks */}
-      <div className="w-[50%] min-w-[380px] max-w-[640px] flex flex-col border-r border-border">
+      {/* Left — editable screenplay */}
+      <div className="w-[44%] min-w-[360px] max-w-[600px] flex flex-col border-r border-border">
         <div className="flex items-center justify-between gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
               Screenplay
             </span>
             <span className="text-muted-foreground/40">·</span>
-            <span className="text-xs text-foreground/85 truncate">{sceneLabel}</span>
-            <span className="text-[10px] tabular-nums text-muted-foreground/60 font-mono">
-              {blocks.length} blocks
+            <span className="text-xs text-foreground/85 truncate">
+              {sceneLabel}
             </span>
           </div>
         </div>
-
         <div className="flex-1 min-h-0 overflow-auto bg-card/10">
-          <div className="px-2 py-3">
-            {blocks.map((b) => (
-              <BlockEditor
-                key={b.id}
-                block={b}
-                selected={b.id === selectedBlockId}
-                promptCount={promptCountByBlock.get(b.id) ?? 0}
-                onSelect={() => setSelectedBlockId(b.id)}
-                onChange={(next) => updateBlockText(b.id, next)}
-              />
-            ))}
-          </div>
+          <textarea
+            value={screenplay}
+            onChange={(e) => setScreenplay(e.target.value)}
+            spellCheck
+            className={cn(
+              "w-full h-full resize-none px-6 py-6 bg-transparent",
+              "font-mono text-[13px] leading-7 text-foreground/90",
+              "border-0 outline-none",
+              "min-h-full",
+            )}
+          />
         </div>
       </div>
 
-      {/* Right — prompts filtered to the selected block */}
+      {/* Right — Shot List */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center justify-between gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
-              Prompts
-            </span>
-            {selectedBlockId ? (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <LinkIcon className="h-3 w-3 text-primary shrink-0" />
-                <span className="text-xs text-foreground/85 truncate">
-                  {blocksById.get(selectedBlockId)?.label ?? selectedBlockId}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedBlockId(null)}
-                  className={cn(
-                    "ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-mono",
-                    "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                    "transition-colors",
-                  )}
-                  title="Clear filter, show all scene prompts"
-                >
-                  <X className="h-2.5 w-2.5" />
-                  clear
-                </button>
-              </>
-            ) : (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <Layers className="h-3 w-3 text-muted-foreground/70" />
-                <span className="text-xs text-muted-foreground/85">
-                  All scene prompts
-                </span>
-              </>
-            )}
-            <span className="text-[10px] tabular-nums text-muted-foreground/60 font-mono ml-1">
-              {visiblePrompts.length}
-            </span>
-          </div>
-          <button
-            type="button"
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
-              "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
-            )}
-          >
-            <Plus className="h-3 w-3" />
-            New
-          </button>
-        </div>
-
+        <ShotListHeader title={MOCK_PROJECT_TITLE} sceneCount={MOCK_SCENES.length} promptCount={totalPrompts} />
         <div className="flex-1 min-h-0 overflow-auto">
-          <div className="max-w-[760px] mx-auto px-6 py-4 space-y-3">
-            {visiblePrompts.length === 0 ? (
-              <EmptyForBlock blockLabel={blocksById.get(selectedBlockId ?? "")?.label} />
-            ) : (
-              visiblePrompts.map((p) => (
-                <PromptBlock key={p.id} prompt={p} />
-              ))
+          <div className="max-w-[820px] mx-auto px-6 py-4">
+            <StyleAnchorCard text={MOCK_STYLE_ANCHOR} />
+
+            {MOCK_SCENES.map((scene) => (
+              <SceneSection key={scene.id} scene={scene} />
+            ))}
+
+            {/* Workflows section */}
+            {MOCK_WORKFLOWS.length > 0 && (
+              <section className="mt-10">
+                <h2 className="font-display text-[20px] font-bold leading-tight text-foreground mb-1 flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-rose-500" />
+                  Workflows
+                </h2>
+                <p className="text-[12px] text-muted-foreground/80 mb-3">
+                  Reusable templates that don't tie to a single scene.
+                </p>
+                <div className="space-y-3">
+                  {MOCK_WORKFLOWS.map((wf) => (
+                    <div
+                      key={wf.id}
+                      className="rounded-md border border-border bg-card p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-muted-foreground/70 tracking-wider">
+                            {wf.id}
+                          </span>
+                          <span className="text-[13px] font-medium text-foreground">
+                            {wf.title}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[12px] font-mono text-muted-foreground leading-relaxed">
+                        {wf.body}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
-            <button
-              type="button"
-              className={cn(
-                "w-full flex items-center justify-center gap-2 py-3",
-                "border border-dashed border-border rounded-md",
-                "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
-                "transition-colors text-sm font-medium",
-              )}
-              title={
-                selectedBlockId
-                  ? "Add a prompt linked to this screenplay block"
-                  : "Add a scene-wide prompt"
-              }
-            >
-              <Plus className="h-4 w-4" />
-              {selectedBlockId
-                ? `Add prompt for "${blocksById.get(selectedBlockId)?.label ?? "block"}"`
-                : "Add scene-wide prompt"}
-            </button>
           </div>
         </div>
       </div>
@@ -387,164 +314,285 @@ export function PromptsModeView() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// BlockEditor — one paragraph of the screenplay. Editable. Click selects.
+// Right-pane header — title, count, copy-all, refresh
 // ────────────────────────────────────────────────────────────────────────
 
-interface BlockEditorProps {
-  block: ScreenplayBlock
-  selected: boolean
-  promptCount: number
-  onSelect: () => void
-  onChange: (next: string) => void
-}
-
-function BlockEditor({
-  block,
-  selected,
+function ShotListHeader({
+  title,
+  sceneCount,
   promptCount,
-  onSelect,
-  onChange,
-}: BlockEditorProps) {
-  const lines = block.text.split("\n").length
+}: {
+  title: string
+  sceneCount: number
+  promptCount: number
+}) {
   return (
-    <div
-      onClick={onSelect}
-      className={cn(
-        "group relative my-1 rounded-md transition-all cursor-text",
-        "border-l-2",
-        selected
-          ? "border-primary bg-primary/5"
-          : "border-transparent hover:bg-card/60",
-      )}
-    >
-      <textarea
-        value={block.text}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={onSelect}
-        rows={Math.max(1, lines)}
-        spellCheck={false}
-        className={cn(
-          "w-full bg-transparent border-0 outline-none resize-none",
-          "px-3 py-2 font-mono text-[12.5px] leading-7",
-          block.kind === "scene-heading"
-            ? "text-foreground font-semibold uppercase tracking-wide"
-            : block.kind === "section"
-              ? "text-primary font-semibold"
-              : block.kind === "character" || block.kind === "dialogue"
-                ? "text-foreground/90"
-                : "text-foreground/85",
-        )}
-      />
-
-      {/* Inline meta — kind label + prompt count */}
-      <div
-        className={cn(
-          "absolute right-2 top-1.5 flex items-center gap-1.5",
-          "text-[9px] font-mono uppercase tracking-wider",
-          "text-muted-foreground/50 select-none pointer-events-none",
-          "transition-opacity",
-          selected ? "opacity-100" : "opacity-0 group-hover:opacity-70",
-        )}
-      >
-        <span>{KIND_LABEL[block.kind]}</span>
-        {promptCount > 0 && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full",
-              "bg-primary/10 text-primary font-semibold",
-            )}
-            title={`${promptCount} prompts attached to this block`}
-          >
-            <LinkIcon className="h-2.5 w-2.5" />
-            {promptCount}
-          </span>
-        )}
+    <div className="flex items-center justify-between gap-3 h-10 px-4 border-b border-border bg-card/40 select-none shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <Camera className="h-3.5 w-3.5 text-primary shrink-0" />
+        <span className="text-xs font-medium text-foreground truncate">
+          {title}
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60 font-mono ml-1">
+          {promptCount} prompts · {sceneCount} scenes
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+            "text-muted-foreground hover:text-foreground hover:bg-secondary",
+            "transition-colors",
+          )}
+          title="Copy all shot prompts"
+        >
+          <Copy className="h-3 w-3" />
+          Copy all
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+            "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
+          )}
+        >
+          <Plus className="h-3 w-3" />
+          New shot
+        </button>
       </div>
     </div>
   )
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// PromptBlock — same minimal text-block design as before. The only
-// metadata visible by default: tiny corner badge with v-id + status dot.
+// Style anchor — pinned at the top, applies to every prompt's tail.
 // ────────────────────────────────────────────────────────────────────────
 
-function PromptBlock({ prompt }: { prompt: MockPrompt }) {
-  const [text, setText] = useState(prompt.body)
-  const [focused, setFocused] = useState(false)
+function StyleAnchorCard({ text }: { text: string }) {
+  const [body, setBody] = useState(text)
+  const [collapsed, setCollapsed] = useState(false)
   return (
-    <div
+    <section className="mb-8">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h2 className="font-display text-[20px] font-bold leading-tight text-foreground flex items-center gap-2">
+          <Pin className="h-4 w-4 text-primary" />
+          Style anchor
+        </h2>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground font-mono"
+        >
+          {collapsed ? "expand" : "collapse"}
+        </button>
+      </div>
+      <p className="text-[12px] text-muted-foreground/80 mb-2 italic">
+        Copied into every prompt's tail for visual consistency across all clips.
+      </p>
+      {!collapsed && (
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={Math.max(3, body.split("\n").length)}
+          className={cn(
+            "w-full px-3 py-2.5 rounded-md",
+            "border-l-2 border-primary bg-primary/5",
+            "font-mono text-[12px] leading-relaxed text-foreground",
+            "border-y border-r border-border",
+            "outline-none focus:ring-1 focus:ring-primary",
+            "resize-none",
+          )}
+        />
+      )}
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Scene section — H2 + goal subtitle, then shot cards.
+// ────────────────────────────────────────────────────────────────────────
+
+function SceneSection({ scene }: { scene: SceneGroup }) {
+  return (
+    <section className="mt-8 pt-2">
+      <h2 className="font-display text-[20px] font-bold leading-tight text-foreground mb-1">
+        Scene {scene.number} — {scene.title}
+      </h2>
+      <p className="text-[12px] text-muted-foreground/80 italic mb-4">
+        {scene.goal}
+      </p>
+      <div className="space-y-3">
+        {scene.shots.map((shot) => (
+          <ShotCard key={shot.id} shot={shot} />
+        ))}
+        <button
+          type="button"
+          className={cn(
+            "w-full flex items-center justify-center gap-2 py-2.5",
+            "border border-dashed border-border rounded-md",
+            "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
+            "transition-colors text-[12px] font-medium",
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add shot to Scene {scene.number}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ShotCard — the unit. ID + title header, metadata strip, prompt body
+// (free-text editable), tiny generation thumb when present, action row.
+// ────────────────────────────────────────────────────────────────────────
+
+function ShotCard({ shot }: { shot: Shot }) {
+  const [body, setBody] = useState(shot.body)
+  const [shotType, setShotType] = useState(shot.shotType)
+  const [duration, setDuration] = useState(shot.duration)
+  const [focused, setFocused] = useState(false)
+
+  return (
+    <article
       className={cn(
-        "group relative rounded-md transition-all bg-card border",
+        "group rounded-md border bg-card transition-all",
         focused
           ? "border-primary shadow-sm ring-1 ring-primary/15"
           : "border-border hover:border-foreground/30",
       )}
     >
+      {/* Card header */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-[11px] tracking-wider font-semibold text-primary">
+            {shot.id}
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-[13px] font-medium text-foreground truncate">
+            {shot.title}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span
+              className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[shot.status])}
+            />
+            {shot.status}
+          </span>
+        </div>
+      </div>
+
+      {/* Metadata strip — small, dense, label:value */}
+      <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-border/60 bg-card/30">
+        <MetaField icon={Camera} label="Shot type" value={shotType} onChange={setShotType} />
+        <MetaField icon={Clock} label="Duration" value={duration} onChange={setDuration} />
+        {shot.inputImage && (
+          <MetaField icon={ImageIcon} label="Input image" value={shot.inputImage} readOnly />
+        )}
+      </div>
+
+      {/* Prompt body — the main editable surface */}
       <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        rows={Math.max(3, text.split("\n").length)}
+        rows={Math.max(3, body.split("\n").length)}
         className={cn(
-          "w-full px-4 py-3 bg-transparent",
-          "font-mono text-[13px] leading-relaxed text-foreground",
+          "w-full px-3 py-2.5 bg-transparent",
+          "font-mono text-[12.5px] leading-relaxed text-foreground",
           "border-0 outline-none resize-none",
-          "placeholder:text-muted-foreground/50",
         )}
       />
-      <div className="absolute top-2 right-2 flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/50 select-none pointer-events-none">
-        {prompt.parent && (
-          <span title={`Iteration of ${prompt.parent}`}>
-            ↳ {prompt.parent.replace(/^v\d+-/, "")}
+
+      {/* Generation + actions */}
+      <div className="px-3 pb-2 pt-0 flex items-center justify-between gap-2">
+        {shot.hasGeneration ? (
+          <div className="flex items-center gap-2">
+            <div
+              className="w-20 h-12 rounded shrink-0"
+              style={{
+                background:
+                  "linear-gradient(135deg, #FFB87A 0%, #FF8C42 50%, #B45309 100%)",
+              }}
+              title="Latest generation"
+            />
+            <div className="text-[10px] text-muted-foreground/70 font-mono leading-tight">
+              <div>nano-banana-pro</div>
+              <div className="text-muted-foreground/50">2h ago</div>
+            </div>
+          </div>
+        ) : (
+          <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider">
+            no generation yet
           </span>
         )}
-        <span>{prompt.id.split("-")[0]}</span>
-        <span
-          className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[prompt.status])}
-          title={prompt.status}
-        />
-      </div>
-      {prompt.hasGeneration && (
-        <div className="px-4 pb-3 flex items-center gap-2">
-          <div
-            className="w-24 h-14 rounded shrink-0"
-            style={{
-              background:
-                "linear-gradient(135deg, #FFB87A 0%, #FF8C42 50%, #B45309 100%)",
-            }}
-            title="Latest generation"
-          />
-          <div className="text-[10px] text-muted-foreground/70 font-mono leading-tight">
-            <div>nano-banana-pro</div>
-            <div className="text-muted-foreground/50">2h ago</div>
-          </div>
-        </div>
-      )}
-      <div
-        className={cn(
-          "flex items-center justify-end gap-1 px-3 pb-2 pt-0",
-          "transition-opacity",
-          focused ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-        )}
-      >
-        <ActionButton icon={Wand2} label="Compose" title="Compose with character + location + world locks" />
-        <ActionButton icon={RotateCcw} label="Iterate" title="Ask the agent for a variation of this prompt" />
-        <ActionButton
-          icon={Sparkles}
-          label={prompt.hasGeneration ? "Re-generate" : "Generate"}
-          primary
-          title={prompt.hasGeneration ? "Run the model again" : "Run the model with this prompt"}
-        />
-        <button
-          type="button"
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary"
-          title="More"
+        <div
+          className={cn(
+            "flex items-center gap-1 transition-opacity",
+            focused ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          )}
         >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
+          <ActionButton icon={Wand2} label="Compose" title="Compose with locks injected" />
+          <ActionButton icon={RotateCcw} label="Iterate" title="Ask the agent for a variation" />
+          <ActionButton
+            icon={Sparkles}
+            label={shot.hasGeneration ? "Re-run" : "Generate"}
+            primary
+            title={shot.hasGeneration ? "Run the model again" : "Run the model"}
+          />
+          <button
+            type="button"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary"
+            title="More"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
+    </article>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Small bits
+// ────────────────────────────────────────────────────────────────────────
+
+function MetaField({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  readOnly,
+}: {
+  icon: typeof Camera
+  label: string
+  value: string
+  onChange?: (next: string) => void
+  readOnly?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <Icon className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+      <span className="text-muted-foreground/70 font-mono text-[10px] uppercase tracking-wider shrink-0">
+        {label}
+      </span>
+      {readOnly ? (
+        <span className="text-foreground/85 truncate">{value}</span>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
+          className={cn(
+            "min-w-0 flex-1 bg-transparent text-foreground/90 outline-none",
+            "border-0 px-0 py-0 text-[11px]",
+            "focus:ring-0 focus:bg-bone/10 focus:px-1 focus:rounded",
+          )}
+        />
+      )}
     </div>
   )
 }
@@ -565,7 +613,7 @@ function ActionButton({
       type="button"
       title={title}
       className={cn(
-        "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+        "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium",
         "transition-colors",
         primary
           ? "bg-primary text-primary-foreground hover:opacity-90"
@@ -578,27 +626,6 @@ function ActionButton({
   )
 }
 
-function EmptyForBlock({ blockLabel }: { blockLabel: string | undefined }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-      <Sparkles className="h-6 w-6 text-muted-foreground/50" />
-      <div className="text-sm text-foreground/80 font-medium">
-        No prompts for this block yet.
-      </div>
-      <div className="text-xs text-muted-foreground/70 max-w-[40ch]">
-        {blockLabel ? (
-          <>
-            Click <strong>Add prompt</strong> below to start one for{" "}
-            <em>"{blockLabel}"</em>, or ask the agent in chat.
-          </>
-        ) : (
-          <>Click <strong>Add prompt</strong> below.</>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Reference suppress
-const _ImageIcon = ImageIcon
-void _ImageIcon
+// Suppress import-pruning
+const _LinkIcon = LinkIcon
+void _LinkIcon
