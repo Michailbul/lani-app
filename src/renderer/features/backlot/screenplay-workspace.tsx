@@ -26,6 +26,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 import { ChevronLeft, ChevronRight, GitBranch, MessageSquare, Plus, Sparkles } from "lucide-react"
 import { toast } from "sonner"
+import { ProjectTreeRail } from "./project-tree-rail"
 import { ScreenplayPane } from "./screenplay-pane"
 import {
   detailsSidebarOpenAtom,
@@ -85,6 +86,9 @@ export function ScreenplayWorkspace({
 
   return (
     <div className="flex h-full w-full overflow-hidden">
+      {/* Left rail — project tree navigator. Collapsible. */}
+      <ProjectTreeRail />
+
       {/* Center — lineage breadcrumb (when forked) + screenplay.
           Top "Direction tabs" were removed because they duplicated the
           existing 1code workspaces sidebar on the left — every chat
