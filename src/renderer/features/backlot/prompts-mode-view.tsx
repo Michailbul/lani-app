@@ -263,12 +263,19 @@ export function PromptsModeView() {
   const sceneIndex = scenes.findIndex((s) => s.id === selectedSceneId)
   const activeScene = scenes[Math.max(0, sceneIndex)]
   const activeShots = MOCK_SHOTS.filter((s) => s.sceneId === activeScene?.id)
+  const activeSegments = MOCK_SEGMENTS.filter(
+    (s) => s.sceneId === activeScene?.id,
+  )
   const goPrev = () => {
     if (sceneIndex > 0) onSelectScene(scenes[sceneIndex - 1].id)
   }
   const goNext = () => {
     if (sceneIndex < scenes.length - 1) onSelectScene(scenes[sceneIndex + 1].id)
   }
+
+  // Sub-mode: which right-pane representation? Two demo views the user
+  // can flip between to compare design directions.
+  const [rightMode, setRightMode] = useState<"shots" | "segments">("shots")
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
@@ -304,7 +311,7 @@ export function PromptsModeView() {
         </div>
       </div>
 
-      {/* RIGHT — ONE scene's shots */}
+      {/* RIGHT — design A (Shots) or design B (Segments) */}
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="flex items-center justify-between gap-3 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -317,6 +324,37 @@ export function PromptsModeView() {
             </span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Demo toggle — pick the design that feels right */}
+            <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-secondary/60 border border-border/50 mr-1">
+              <button
+                type="button"
+                onClick={() => setRightMode("shots")}
+                className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider",
+                  "transition-colors",
+                  rightMode === "shots"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground/80",
+                )}
+                title="Design A — list of shots, click to expand"
+              >
+                A · Shots
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightMode("segments")}
+                className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider",
+                  "transition-colors",
+                  rightMode === "segments"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground/80",
+                )}
+                title="Design B — segments with variant pills (the new model)"
+              >
+                B · Segments
+              </button>
+            </div>
             <button
               type="button"
               className={cn(
@@ -324,10 +362,10 @@ export function PromptsModeView() {
                 "text-muted-foreground hover:text-foreground hover:bg-secondary",
                 "transition-colors",
               )}
-              title="Copy this scene's shot prompts"
+              title="Copy scene prompts"
             >
               <Copy className="h-3 w-3" />
-              Copy scene
+              Copy
             </button>
             <button
               type="button"
@@ -337,7 +375,7 @@ export function PromptsModeView() {
               )}
             >
               <Plus className="h-3 w-3" />
-              Add shot
+              {rightMode === "shots" ? "Add shot" : "Add segment"}
             </button>
           </div>
         </div>
@@ -346,36 +384,60 @@ export function PromptsModeView() {
           <div className="max-w-[760px] mx-auto px-6 py-4">
             <StyleAnchorCard text={MOCK_STYLE_ANCHOR} />
 
-            <div className="space-y-2 mt-6">
-              {activeShots.length === 0 ? (
-                <EmptyShots />
-              ) : (
-                activeShots.map((shot) => (
-                  <ShotRow
-                    key={shot.id}
-                    shot={shot}
-                    expanded={shot.id === expandedShotId}
-                    onToggle={() =>
-                      setExpandedShotId((cur) =>
-                        cur === shot.id ? null : shot.id,
-                      )
-                    }
-                  />
-                ))
-              )}
-              <button
-                type="button"
-                className={cn(
-                  "w-full flex items-center justify-center gap-2 py-2.5",
-                  "border border-dashed border-border rounded-md",
-                  "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
-                  "transition-colors text-[12px] font-medium",
+            {rightMode === "shots" ? (
+              <div className="space-y-2 mt-6">
+                {activeShots.length === 0 ? (
+                  <EmptyShots />
+                ) : (
+                  activeShots.map((shot) => (
+                    <ShotRow
+                      key={shot.id}
+                      shot={shot}
+                      expanded={shot.id === expandedShotId}
+                      onToggle={() =>
+                        setExpandedShotId((cur) =>
+                          cur === shot.id ? null : shot.id,
+                        )
+                      }
+                    />
+                  ))
                 )}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add shot to Scene {activeScene?.number}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full flex items-center justify-center gap-2 py-2.5",
+                    "border border-dashed border-border rounded-md",
+                    "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
+                    "transition-colors text-[12px] font-medium",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add shot to Scene {activeScene?.number}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 mt-6">
+                {activeSegments.length === 0 ? (
+                  <EmptyShots />
+                ) : (
+                  activeSegments.map((seg) => (
+                    <SegmentCard key={seg.id} segment={seg} />
+                  ))
+                )}
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full flex items-center justify-center gap-2 py-2.5",
+                    "border border-dashed border-border rounded-md",
+                    "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
+                    "transition-colors text-[12px] font-medium",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add segment to Scene {activeScene?.number}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -743,11 +805,325 @@ function EmptyShots() {
     <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
       <Sparkles className="h-5 w-5 text-muted-foreground/50" />
       <div className="text-[13px] text-foreground/80 font-medium">
-        No shots for this scene yet.
+        Nothing for this scene yet.
       </div>
       <div className="text-[11px] text-muted-foreground/70 max-w-[40ch]">
-        Click <strong>Add shot</strong> below, or ask the agent in chat to break this scene into shots.
+        Click <strong>Add</strong> below, or ask the agent to break this scene down.
       </div>
     </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Design B — Segments + Variants
+//
+// One Segment = one Seedance generation (single-shot OR multi-shot up to
+// 15s). A Segment has many Variants — different prompt iterations of
+// the SAME segment. The user picks a winner ("approved").
+//
+// This is the iteration-and-observability model: variants live as
+// switchable pills inside the segment card. Click a pill, the prompt
+// body + generation thumb update inline. Approving one pill marks the
+// segment "ready". The losers stay around for reference.
+// ────────────────────────────────────────────────────────────────────────
+
+interface Variant {
+  id: string
+  status: PromptStatus
+  body: string
+  hasGeneration: boolean
+}
+
+interface Segment {
+  id: string
+  sceneId: string
+  type: "single-shot" | "multi-shot" | "start-end-frame"
+  duration: string
+  variants: Variant[]
+  /** Index of the variant the user is actively looking at. */
+  activeIndex: number
+  /** Index of the variant that's marked "approved" (final pick). null = none. */
+  approvedIndex: number | null
+}
+
+const MOCK_SEGMENTS: Segment[] = [
+  {
+    id: "SEG-1A",
+    sceneId: "01",
+    type: "multi-shot",
+    duration: "12s",
+    activeIndex: 0,
+    approvedIndex: 0,
+    variants: [
+      {
+        id: "v1",
+        status: "approved",
+        body: "MULTI-SHOT, 12s.\n\nShot 1 (4s): static wide on the asphalt line. Two cars idle, engines rumbling, dust in amber light.\n\nShot 2 (4s): low push-in toward the referee silhouette, arm raising slowly.\n\nShot 3 (4s): the referee drops their arm. Both cars launch forward, tires scream, dust clouds bloom.",
+        hasGeneration: true,
+      },
+      {
+        id: "v2",
+        status: "generated",
+        body: "MULTI-SHOT, 12s.\n\nShot 1 (3s): handheld 3/4 angle on Car 1. Engine vibrating frame.\n\nShot 2 (3s): match-cut to Car 2 mirror angle.\n\nShot 3 (3s): wide overhead drone of both cars on the line.\n\nShot 4 (3s): launch — symmetric speed-ramp on tire spin.",
+        hasGeneration: true,
+      },
+      {
+        id: "v3",
+        status: "draft",
+        body: "MULTI-SHOT, 12s. Slow burn version.\n\nShot 1 (5s): hold on the photograph taped to Alex's dashboard. Younger versions of themselves laughing.\n\nShot 2 (4s): push back to wide of car interior. Alex's jaw clenched.\n\nShot 3 (3s): cut to engine launching, dust kicks.",
+        hasGeneration: false,
+      },
+    ],
+  },
+  {
+    id: "SEG-1B",
+    sceneId: "01",
+    type: "single-shot",
+    duration: "4s",
+    activeIndex: 0,
+    approvedIndex: null,
+    variants: [
+      {
+        id: "v1",
+        status: "draft",
+        body: "Slow-motion close-up on tire as it grabs asphalt. Pebbles fly. Heat distortion above the tire.",
+        hasGeneration: false,
+      },
+    ],
+  },
+  {
+    id: "SEG-2A",
+    sceneId: "02",
+    type: "single-shot",
+    duration: "5s",
+    activeIndex: 1,
+    approvedIndex: 1,
+    variants: [
+      {
+        id: "v1",
+        status: "archived",
+        body: "Tight close-up on Alex's face. Their eyes flicker between the road and the photograph.",
+        hasGeneration: true,
+      },
+      {
+        id: "v2",
+        status: "approved",
+        body: "Tight close-up on Alex's eyes reflected in the windshield. Jaw clenched, breath caught. Warm light spills across one half of their face. Knuckles white on the wheel.",
+        hasGeneration: true,
+      },
+    ],
+  },
+  {
+    id: "SEG-3A",
+    sceneId: "03",
+    type: "multi-shot",
+    duration: "10s",
+    activeIndex: 0,
+    approvedIndex: null,
+    variants: [
+      {
+        id: "v1",
+        status: "generated",
+        body: "MULTI-SHOT, 10s.\n\nShot 1 (4s): Jordan's hand reaches toward the dashboard. Fingertips graze the photograph.\n\nShot 2 (3s): close on the photograph itself. Younger Alex and Jordan, laughing.\n\nShot 3 (3s): pull back. Jordan's hand returns to wheel. Their face: nothing readable.",
+        hasGeneration: true,
+      },
+    ],
+  },
+]
+
+const SEG_TYPE_LABEL: Record<Segment["type"], string> = {
+  "single-shot": "single shot",
+  "multi-shot": "multi-shot",
+  "start-end-frame": "start ↔ end",
+}
+
+const SEG_TYPE_COLORS: Record<Segment["type"], string> = {
+  "single-shot": "bg-orange-500/15 text-orange-700 dark:text-orange-300",
+  "multi-shot": "bg-slate-500/15 text-slate-700 dark:text-slate-300",
+  "start-end-frame": "bg-purple-500/15 text-purple-700 dark:text-purple-300",
+}
+
+function SegmentCard({ segment }: { segment: Segment }) {
+  const [activeIndex, setActiveIndex] = useState(segment.activeIndex)
+  const [approvedIndex, setApprovedIndex] = useState<number | null>(
+    segment.approvedIndex,
+  )
+  const [variants, setVariants] = useState(segment.variants)
+  const variant = variants[activeIndex]
+
+  const updateVariantBody = (index: number, body: string) => {
+    setVariants((prev) =>
+      prev.map((v, i) => (i === index ? { ...v, body } : v)),
+    )
+  }
+  const onApprove = () => {
+    setApprovedIndex(activeIndex)
+    setVariants((prev) =>
+      prev.map((v, i) =>
+        i === activeIndex
+          ? { ...v, status: "approved" }
+          : v.status === "approved"
+            ? { ...v, status: "archived" }
+            : v,
+      ),
+    )
+  }
+  const onAddVariant = () => {
+    const next: Variant = {
+      id: `v${variants.length + 1}`,
+      status: "draft",
+      body: "",
+      hasGeneration: false,
+    }
+    setVariants((prev) => [...prev, next])
+    setActiveIndex(variants.length)
+  }
+
+  return (
+    <article className="rounded-md border border-border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-[11px] tracking-wider font-semibold text-primary shrink-0">
+            {segment.id}
+          </span>
+          <span
+            className={cn(
+              "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold tracking-wider",
+              SEG_TYPE_COLORS[segment.type],
+            )}
+          >
+            {SEG_TYPE_LABEL[segment.type]}
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0">
+            target {segment.duration}
+          </span>
+          {approvedIndex !== null && (
+            <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 shrink-0 ml-auto">
+              ✓ approved
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Variant pills */}
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/60 bg-card/30 flex-wrap">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono mr-1">
+          Variants
+        </span>
+        {variants.map((v, i) => {
+          const isActive = i === activeIndex
+          const isApproved = i === approvedIndex
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setActiveIndex(i)}
+              className={cn(
+                "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono",
+                "border transition-colors",
+                isActive
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : isApproved
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                    : v.status === "archived"
+                      ? "border-border bg-muted/40 text-muted-foreground/70 hover:text-foreground/80"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-foreground/30",
+              )}
+              title={`${v.id} · ${v.status}${v.hasGeneration ? " · has generation" : ""}`}
+            >
+              {isApproved && !isActive && <span>✓</span>}
+              <span>{v.id}</span>
+              <span
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  isActive ? "bg-white/80" : STATUS_DOT[v.status],
+                )}
+              />
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          onClick={onAddVariant}
+          className={cn(
+            "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono",
+            "border border-dashed border-border text-muted-foreground",
+            "hover:text-primary hover:border-primary/40 hover:bg-primary/5",
+            "transition-colors",
+          )}
+          title="Add a fresh variant"
+        >
+          <Plus className="h-2.5 w-2.5" />
+          new
+        </button>
+      </div>
+
+      {/* Active variant body */}
+      {variant ? (
+        <>
+          <textarea
+            value={variant.body}
+            onChange={(e) => updateVariantBody(activeIndex, e.target.value)}
+            rows={Math.max(4, variant.body.split("\n").length)}
+            className={cn(
+              "w-full px-3 py-2.5 bg-transparent",
+              "font-mono text-[12.5px] leading-relaxed text-foreground",
+              "border-0 outline-none resize-none",
+              "placeholder:text-muted-foreground/50",
+            )}
+            placeholder={`Write the ${SEG_TYPE_LABEL[segment.type]} prompt for this segment, or ask the agent to draft it…`}
+          />
+
+          {/* Bottom row */}
+          <div className="px-3 pb-2.5 flex items-center justify-between gap-2 flex-wrap">
+            {variant.hasGeneration ? (
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-20 h-12 rounded shrink-0"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #FFB87A 0%, #FF8C42 50%, #B45309 100%)",
+                  }}
+                  title="Latest generation for this variant"
+                />
+                <div className="text-[10px] text-muted-foreground/70 font-mono leading-tight">
+                  <div>{variant.id} · seedance-2.0</div>
+                  <div className="text-muted-foreground/50">2h ago</div>
+                </div>
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider">
+                no generation for {variant.id} yet
+              </span>
+            )}
+            <div className="flex items-center gap-1">
+              <ActionButton icon={Wand2} label="Compose" title="Compose with locks" />
+              <ActionButton icon={RotateCcw} label="Iterate" title="Ask the agent for a variation of this variant" />
+              <ActionButton
+                icon={Sparkles}
+                label={variant.hasGeneration ? "Re-run" : "Generate"}
+                primary
+                title={variant.hasGeneration ? "Regenerate with this prompt" : "Generate"}
+              />
+              {variant.status !== "approved" && (
+                <button
+                  type="button"
+                  onClick={onApprove}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium",
+                    "border border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+                    "hover:bg-emerald-500/20 transition-colors",
+                  )}
+                  title="Mark this variant as the approved one for this segment"
+                >
+                  ✓ Approve {variant.id}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      ) : null}
+    </article>
   )
 }
