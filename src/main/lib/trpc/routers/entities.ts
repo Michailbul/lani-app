@@ -42,15 +42,24 @@ import { publicProcedure, router } from "../index"
 // ────────────────────────────────────────────────────────────────────────
 
 export const ENTITY_PATHS = {
+  brief: "brief.md",
   world: "world.md",
+  // The writer's canonical full screenplay. Edited over time. Independent
+  // of any per-scene breakdown — the user can keep both, or just one.
+  mainScript: "main-script.fountain",
+  // Backwards compat: older Backlot projects used screenplay.fountain.
+  // Walker reads either.
+  legacyMainScript: "screenplay.fountain",
   charactersDir: "characters",
   locationsDir: "locations",
+  // Acts are OPTIONAL — projects may have no acts at all (just flat
+  // scenes/), one default act, or many. The walker reports whichever
+  // shape exists; the UI never forces creation.
+  actsDir: "acts",
   scenesDir: "scenes",
   shotsSubdir: "shots",
-  // Inside a scene folder. Always Fountain — the agent treats it as
-  // a screenplay file with the same Edit/diff/accept flow we use for
-  // the legacy single-screenplay artifact.
   sceneScript: "scene.fountain",
+  actNotes: "act.md",
 } as const
 
 export function characterPath(id: string): string {
@@ -59,8 +68,22 @@ export function characterPath(id: string): string {
 export function locationPath(id: string): string {
   return join(ENTITY_PATHS.locationsDir, `${id}.md`)
 }
+/** Path to a flat scene (no act parent). */
 export function scenePath(id: string): string {
   return join(ENTITY_PATHS.scenesDir, id, ENTITY_PATHS.sceneScript)
+}
+/** Path to a scene inside an act. */
+export function sceneInActPath(actId: string, sceneId: string): string {
+  return join(
+    ENTITY_PATHS.actsDir,
+    actId,
+    ENTITY_PATHS.scenesDir,
+    sceneId,
+    ENTITY_PATHS.sceneScript,
+  )
+}
+export function actPath(id: string): string {
+  return join(ENTITY_PATHS.actsDir, id, ENTITY_PATHS.actNotes)
 }
 export function shotPath(sceneId: string, shotId: string): string {
   return join(
@@ -78,11 +101,22 @@ export function shotPath(sceneId: string, shotId: string): string {
 // ────────────────────────────────────────────────────────────────────────
 
 export type EntityKind =
+  | "brief"
   | "world"
+  | "main-script"
   | "character"
   | "location"
+  | "act"
   | "scene"
   | "shot"
+
+export interface SingletonEntity {
+  /** Stable kind for the renderer's switch. */
+  kind: "brief" | "world" | "main-script"
+  /** Relative path from the worktree root. */
+  path: string
+  exists: boolean
+}
 
 export interface WorldEntity {
   kind: "world"
@@ -124,15 +158,33 @@ export interface SceneEntity {
   order: number | null
   /** Relative path to the scene's screenplay (always Fountain). */
   scriptPath: string
+  /** When the scene lives under an act: the parent act's id. null = flat (scenes/...). */
+  actId: string | null
   shots: ShotEntity[]
+}
+
+export interface ActEntity {
+  kind: "act"
+  id: string
+  label: string
+  order: number | null
+  /** Path to the act's notes file (act.md inside the act folder). */
+  notesPath: string
+  /** True if the notes file actually exists; false if the folder exists with no act.md yet. */
+  notesExist: boolean
 }
 
 export interface ProjectHierarchy {
   /** True iff the project's filesystem layout exists in some form (any of the dirs / files present). */
   bootstrapped: boolean
-  world: WorldEntity
+  brief: SingletonEntity
+  world: SingletonEntity
+  mainScript: SingletonEntity
   characters: CharacterEntity[]
   locations: LocationEntity[]
+  /** Acts present in the project. Empty when the user hasn't grouped scenes into acts. */
+  acts: ActEntity[]
+  /** Every scene in the project — flat or under an act. Caller groups by `actId`. */
   scenes: SceneEntity[]
 }
 
@@ -324,25 +376,48 @@ export const entitiesRouter = router({
     .input(z.object({ chatId: z.string() }))
     .query(async ({ input }): Promise<ProjectHierarchy> => {
       const lookup = lookupWorktree(input.chatId)
+      const emptySingleton = (kind: "brief" | "world" | "main-script", path: string): SingletonEntity => ({
+        kind,
+        path,
+        exists: false,
+      })
       const empty: ProjectHierarchy = {
         bootstrapped: false,
-        world: { kind: "world", path: ENTITY_PATHS.world, exists: false },
+        brief: emptySingleton("brief", ENTITY_PATHS.brief),
+        world: emptySingleton("world", ENTITY_PATHS.world),
+        mainScript: emptySingleton("main-script", ENTITY_PATHS.mainScript),
         characters: [],
         locations: [],
+        acts: [],
         scenes: [],
       }
       if (!lookup?.worktreePath) return empty
 
       const root = lookup.worktreePath
+
+      // Singletons at root.
+      const briefPath = join(root, ENTITY_PATHS.brief)
       const worldPath = join(root, ENTITY_PATHS.world)
+      const mainScriptPath = join(root, ENTITY_PATHS.mainScript)
+      const legacyMainScriptPath = join(root, ENTITY_PATHS.legacyMainScript)
+
+      // Prefer main-script.fountain if present; otherwise fall back to
+      // the legacy screenplay.fountain so older projects still surface
+      // their full screenplay in the tree without forcing a rename.
+      let mainScriptResolvedPath: string = ENTITY_PATHS.mainScript
+      let mainScriptExists = existsSync(mainScriptPath)
+      if (!mainScriptExists && existsSync(legacyMainScriptPath)) {
+        mainScriptResolvedPath = ENTITY_PATHS.legacyMainScript
+        mainScriptExists = true
+      }
+
       const charDir = join(root, ENTITY_PATHS.charactersDir)
       const locDir = join(root, ENTITY_PATHS.locationsDir)
-      const scenesDir = join(root, ENTITY_PATHS.scenesDir)
 
+      const briefExists = existsSync(briefPath)
       const worldExists = existsSync(worldPath)
       const charIds = await listMarkdownIds(charDir)
       const locIds = await listMarkdownIds(locDir)
-      const sceneFolders = await listSubdirs(scenesDir)
 
       const characters: CharacterEntity[] = charIds.map((id) => ({
         kind: "character",
@@ -358,9 +433,54 @@ export const entitiesRouter = router({
         path: locationPath(id),
       }))
 
+      // Walk acts/ if it exists. Each act is a folder under acts/; inside
+      // each act folder, scenes live at scenes/<sceneId>/scene.fountain.
+      const actsDir = join(root, ENTITY_PATHS.actsDir)
+      const actFolders = await listSubdirs(actsDir)
+      const acts: ActEntity[] = []
       const scenes: SceneEntity[] = []
-      for (const sceneId of sceneFolders) {
-        const sceneFolder = join(scenesDir, sceneId)
+
+      for (const actId of actFolders) {
+        const actFolder = join(actsDir, actId)
+        const actNotesPath = join(actFolder, ENTITY_PATHS.actNotes)
+        acts.push({
+          kind: "act",
+          id: actId,
+          label: labelFromId(actId, { stripLeadingNumber: true }),
+          order: orderFromId(actId),
+          notesPath: actPath(actId),
+          notesExist: existsSync(actNotesPath),
+        })
+        const actScenesDir = join(actFolder, ENTITY_PATHS.scenesDir)
+        const actSceneFolders = await listSubdirs(actScenesDir)
+        for (const sceneId of actSceneFolders) {
+          const sceneFolder = join(actScenesDir, sceneId)
+          const shotsFolder = join(sceneFolder, ENTITY_PATHS.shotsSubdir)
+          const shotIds = await listMarkdownIds(shotsFolder)
+          const shots: ShotEntity[] = shotIds.map((shotId) => ({
+            kind: "shot",
+            id: shotId,
+            label: labelFromId(shotId),
+            sceneId,
+            path: shotPath(sceneId, shotId),
+          }))
+          scenes.push({
+            kind: "scene",
+            id: sceneId,
+            label: labelFromId(sceneId, { stripLeadingNumber: true }),
+            order: orderFromId(sceneId),
+            scriptPath: sceneInActPath(actId, sceneId),
+            actId,
+            shots,
+          })
+        }
+      }
+
+      // Walk flat scenes/ (no act parent).
+      const flatScenesDir = join(root, ENTITY_PATHS.scenesDir)
+      const flatSceneFolders = await listSubdirs(flatScenesDir)
+      for (const sceneId of flatSceneFolders) {
+        const sceneFolder = join(flatScenesDir, sceneId)
         const shotsFolder = join(sceneFolder, ENTITY_PATHS.shotsSubdir)
         const shotIds = await listMarkdownIds(shotsFolder)
         const shots: ShotEntity[] = shotIds.map((shotId) => ({
@@ -376,11 +496,24 @@ export const entitiesRouter = router({
           label: labelFromId(sceneId, { stripLeadingNumber: true }),
           order: orderFromId(sceneId),
           scriptPath: scenePath(sceneId),
+          actId: null,
           shots,
         })
       }
-      // Sort scenes by leading-number prefix; nulls at the end.
+
+      // Sort: scenes by leading-number prefix within each act/flat group.
       scenes.sort((a, b) => {
+        // Same group (same actId or both null) → order by number then id
+        if (a.actId === b.actId) {
+          if (a.order != null && b.order != null) return a.order - b.order
+          if (a.order != null) return -1
+          if (b.order != null) return 1
+          return a.id.localeCompare(b.id)
+        }
+        // Otherwise stable — caller groups by actId before rendering anyway
+        return 0
+      })
+      acts.sort((a, b) => {
         if (a.order != null && b.order != null) return a.order - b.order
         if (a.order != null) return -1
         if (b.order != null) return 1
@@ -388,15 +521,25 @@ export const entitiesRouter = router({
       })
 
       const bootstrapped =
+        briefExists ||
         worldExists ||
+        mainScriptExists ||
         characters.length > 0 ||
         locations.length > 0 ||
+        acts.length > 0 ||
         scenes.length > 0
       return {
         bootstrapped,
+        brief: { kind: "brief", path: ENTITY_PATHS.brief, exists: briefExists },
         world: { kind: "world", path: ENTITY_PATHS.world, exists: worldExists },
+        mainScript: {
+          kind: "main-script",
+          path: mainScriptResolvedPath,
+          exists: mainScriptExists,
+        },
         characters,
         locations,
+        acts,
         scenes,
       }
     }),

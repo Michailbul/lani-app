@@ -14,12 +14,14 @@
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
+  BookOpen,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Clapperboard,
   Globe2,
+  Layers,
   MapPin,
   Plus,
   Sparkles,
@@ -302,7 +304,34 @@ function ProjectTreeContent() {
 
   return (
     <div className="py-3">
-      <ScenesSection
+      {/* Top-level singletons — always rendered, "empty" badge when missing */}
+      <SingletonRow
+        icon={BookOpen}
+        label="Brief"
+        kind="brief"
+        path={data.brief.path}
+        exists={data.brief.exists}
+      />
+      <SingletonRow
+        icon={Globe2}
+        label="World"
+        kind="world"
+        path={data.world.path}
+        exists={data.world.exists}
+      />
+      <SingletonRow
+        icon={Clapperboard}
+        label="Main script"
+        kind="main-script"
+        path={data.mainScript.path}
+        exists={data.mainScript.exists}
+      />
+
+      <Divider />
+
+      {/* Scenes — flat or grouped by acts depending on what exists */}
+      <ScenesAndActsSection
+        acts={data.acts}
         scenes={data.scenes}
         creating={creating === "scene"}
         onStart={() => setCreating("scene")}
@@ -311,8 +340,6 @@ function ProjectTreeContent() {
       />
 
       <Divider />
-
-      <WorldRow exists={data.world.exists} path={data.world.path} />
 
       <EntityGroup
         icon={User}
@@ -367,20 +394,95 @@ interface SceneNode {
   shots: { id: string; label: string; path: string }[]
 }
 
-function ScenesSection({
+/**
+ * SingletonRow — a top-level entity that has exactly one file (Brief,
+ * World, Main script). Always rendered; "empty" badge when the file
+ * doesn't exist yet. Click → activeEntity, EntityEditor opens with
+ * a Create-starter button if the file is missing.
+ */
+function SingletonRow({
+  icon: Icon,
+  label,
+  kind,
+  path,
+  exists,
+}: {
+  icon: typeof BookOpen
+  label: string
+  kind: "brief" | "world" | "main-script"
+  path: string
+  exists: boolean
+}) {
+  const [active, setActive] = useAtom(activeEntityAtom)
+  const isActive = active?.kind === kind
+  return (
+    <button
+      type="button"
+      onClick={() => setActive({ kind, path } as ActiveEntity)}
+      className={cn(
+        "group relative w-full flex items-center gap-2 px-3 py-1.5 mx-1.5 rounded-md text-[12.5px]",
+        "transition-colors",
+        isActive
+          ? "bg-primary/12 text-foreground font-medium"
+          : "text-foreground/85 hover:bg-secondary/60",
+      )}
+    >
+      {isActive && (
+        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
+      )}
+      <Icon
+        className={cn(
+          "h-3.5 w-3.5 shrink-0",
+          isActive ? "text-primary" : "text-muted-foreground/70",
+        )}
+      />
+      <span className="flex-1 text-left">{label}</span>
+      {!exists && (
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50 font-mono">
+          empty
+        </span>
+      )}
+    </button>
+  )
+}
+
+interface ActNode {
+  id: string
+  label: string
+  order: number | null
+  notesPath: string
+  notesExist: boolean
+}
+
+interface SceneFromTree extends SceneNode {
+  actId: string | null
+}
+
+function ScenesAndActsSection({
+  acts,
   scenes,
   creating,
   onStart,
   onCancel,
   onCreate,
 }: {
-  scenes: SceneNode[]
+  acts: ActNode[]
+  scenes: SceneFromTree[]
   creating: boolean
   onStart: () => void
   onCancel: () => void
   onCreate: (label: string) => void
 }) {
   const [active, setActive] = useAtom(activeEntityAtom)
+  // Scenes that aren't grouped under an act — render at the top of the
+  // section, before the act-grouped ones.
+  const flatScenes = scenes.filter((s) => !s.actId)
+  const scenesByAct = new Map<string, SceneFromTree[]>()
+  for (const s of scenes) {
+    if (!s.actId) continue
+    if (!scenesByAct.has(s.actId)) scenesByAct.set(s.actId, [])
+    scenesByAct.get(s.actId)!.push(s)
+  }
 
   return (
     <section className="px-1.5">
@@ -393,63 +495,33 @@ function ScenesSection({
         </span>
       </div>
 
-      {scenes.length === 0 ? (
+      {scenes.length === 0 && acts.length === 0 ? (
         <div className="px-2 pb-2 text-[11.5px] text-muted-foreground/60 italic">
           No scenes yet. Ask the agent in chat to break the screenplay
-          into scenes — or click <strong>+ Add</strong> below.
+          into scenes — or click <strong>+ Add scene</strong> below.
         </div>
       ) : (
-        <ul className="space-y-px mb-1">
-          {scenes.map((s) => {
-            const isActive = active?.path === s.scriptPath
-            return (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setActive({
-                      kind: "scene",
-                      id: s.id,
-                      label: s.label,
-                      path: s.scriptPath,
-                    } as ActiveEntity)
-                  }
-                  className={cn(
-                    "group relative w-full text-left flex items-baseline gap-2.5 pl-3 pr-2 py-1.5 rounded-md",
-                    "transition-colors",
-                    isActive
-                      ? "bg-primary/12"
-                      : "hover:bg-secondary/60",
-                  )}
-                >
-                  {/* Active accent stripe */}
-                  {isActive && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
-                  )}
-                  <span
-                    className={cn(
-                      "shrink-0 font-mono text-[10px] tabular-nums tracking-wider",
-                      isActive ? "text-primary" : "text-muted-foreground/60",
-                    )}
-                  >
-                    {s.order != null ? String(s.order).padStart(2, "0") : "·"}
-                  </span>
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate",
-                      isActive
-                        ? "text-foreground font-medium text-[13px] leading-tight"
-                        : "text-foreground/85 text-[12.5px] leading-tight",
-                    )}
-                    style={{ fontFamily: isActive ? "'Darker Grotesque', sans-serif" : undefined }}
-                  >
-                    {s.label}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <>
+          {/* Flat (non-act-grouped) scenes first */}
+          {flatScenes.length > 0 && (
+            <ul className="space-y-px mb-1">
+              {flatScenes.map((s) => (
+                <SceneRow key={s.id} scene={s} active={active} setActive={setActive} />
+              ))}
+            </ul>
+          )}
+
+          {/* Acts (each with its scenes nested) */}
+          {acts.map((act) => (
+            <ActSubsection
+              key={act.id}
+              act={act}
+              scenes={scenesByAct.get(act.id) ?? []}
+              active={active}
+              setActive={setActive}
+            />
+          ))}
+        </>
       )}
 
       {creating ? (
@@ -473,6 +545,163 @@ function ScenesSection({
         </button>
       )}
     </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// SceneRow — used by both flat-scenes list and act-nested scenes
+// ────────────────────────────────────────────────────────────────────────
+
+function SceneRow({
+  scene,
+  active,
+  setActive,
+  indent,
+}: {
+  scene: SceneFromTree
+  active: ActiveEntity
+  setActive: (a: ActiveEntity) => void
+  indent?: number
+}) {
+  const isActive = active?.path === scene.scriptPath
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() =>
+          setActive({
+            kind: "scene",
+            id: scene.id,
+            label: scene.label,
+            actId: scene.actId,
+            path: scene.scriptPath,
+          } as ActiveEntity)
+        }
+        style={indent ? { paddingLeft: indent } : undefined}
+        className={cn(
+          "group relative w-full text-left flex items-baseline gap-2.5 pl-3 pr-2 py-1.5 rounded-md",
+          "transition-colors",
+          isActive ? "bg-primary/12" : "hover:bg-secondary/60",
+        )}
+      >
+        {isActive && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
+        )}
+        <span
+          className={cn(
+            "shrink-0 font-mono text-[10px] tabular-nums tracking-wider",
+            isActive ? "text-primary" : "text-muted-foreground/60",
+          )}
+        >
+          {scene.order != null ? String(scene.order).padStart(2, "0") : "·"}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            isActive
+              ? "text-foreground font-medium text-[13px] leading-tight"
+              : "text-foreground/85 text-[12.5px] leading-tight",
+          )}
+          style={{ fontFamily: isActive ? "'Darker Grotesque', sans-serif" : undefined }}
+        >
+          {scene.label}
+        </span>
+      </button>
+    </li>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ActSubsection — collapsible header for an act + its scenes nested
+// ────────────────────────────────────────────────────────────────────────
+
+function ActSubsection({
+  act,
+  scenes,
+  active,
+  setActive,
+}: {
+  act: ActNode
+  scenes: SceneFromTree[]
+  active: ActiveEntity
+  setActive: (a: ActiveEntity) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const isActAwake = active?.kind === "act" && active.id === act.id
+  return (
+    <div className="mt-2">
+      <div
+        className={cn(
+          "group flex items-center gap-1 px-2 py-1 rounded-md",
+          "text-[11px] uppercase tracking-[0.14em] font-mono",
+          isActAwake
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground/85 hover:bg-secondary/40",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="text-current hover:text-foreground p-0.5"
+          aria-label={collapsed ? "Expand act" : "Collapse act"}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )}
+        </button>
+        <Layers className="h-3 w-3" />
+        <button
+          type="button"
+          onClick={() =>
+            setActive({
+              kind: "act",
+              id: act.id,
+              label: act.label,
+              path: act.notesPath,
+            } as ActiveEntity)
+          }
+          className="flex items-baseline gap-1.5 flex-1 text-left"
+          title={
+            act.notesExist
+              ? "Open act notes"
+              : "Open / create act notes (act.md)"
+          }
+        >
+          <span className="font-mono tabular-nums text-[10px]">
+            {act.order != null ? `Act ${act.order}` : "Act"}
+          </span>
+          <span className="truncate normal-case tracking-normal text-[12px] font-medium text-foreground/85">
+            {act.label}
+          </span>
+        </button>
+        {!act.notesExist && (
+          <span className="text-[8px] text-muted-foreground/40 font-mono">
+            no notes
+          </span>
+        )}
+      </div>
+      {!collapsed && (
+        <ul className="space-y-px mt-0.5">
+          {scenes.length === 0 ? (
+            <li className="pl-9 pr-2 py-1 text-[11px] italic text-muted-foreground/55">
+              no scenes in this act yet
+            </li>
+          ) : (
+            scenes.map((s) => (
+              <SceneRow
+                key={s.id}
+                scene={s}
+                active={active}
+                setActive={setActive}
+                indent={28}
+              />
+            ))
+          )}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -531,44 +760,8 @@ function CreateInline({
   )
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// World row (single entity)
-// ────────────────────────────────────────────────────────────────────────
-
-function WorldRow({ exists, path }: { exists: boolean; path: string }) {
-  const [active, setActive] = useAtom(activeEntityAtom)
-  const isActive = active?.kind === "world"
-  return (
-    <button
-      type="button"
-      onClick={() => setActive({ kind: "world", path } as ActiveEntity)}
-      className={cn(
-        "group relative w-full flex items-center gap-2 px-3 py-1.5 mx-1.5 rounded-md text-[12px]",
-        "transition-colors",
-        isActive
-          ? "bg-primary/12 text-foreground font-medium"
-          : "text-foreground/85 hover:bg-secondary/60",
-      )}
-      title="World bible"
-    >
-      {isActive && (
-        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
-      )}
-      <Globe2
-        className={cn(
-          "h-3.5 w-3.5 shrink-0",
-          isActive ? "text-primary" : "text-muted-foreground/70",
-        )}
-      />
-      <span className="flex-1 text-left">World</span>
-      {!exists && (
-        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50 font-mono">
-          empty
-        </span>
-      )}
-    </button>
-  )
-}
+// (Old WorldRow removed — superseded by SingletonRow which handles
+//  Brief / World / Main script uniformly.)
 
 // ────────────────────────────────────────────────────────────────────────
 // Characters / Locations groups

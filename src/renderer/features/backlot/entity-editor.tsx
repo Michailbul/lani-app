@@ -19,7 +19,17 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useAtomValue } from "jotai"
-import { Check, FileText, Globe2, Loader2, MapPin, User } from "lucide-react"
+import {
+  BookOpen,
+  Check,
+  Clapperboard,
+  FileText,
+  Globe2,
+  Layers,
+  Loader2,
+  MapPin,
+  User,
+} from "lucide-react"
 import { selectedAgentChatIdAtom } from "../agents/atoms"
 import { activeEntityAtom, type ActiveEntity } from "./atoms"
 import { trpc } from "../../lib/trpc"
@@ -41,7 +51,7 @@ export function EntityEditor() {
   if (active.kind === "scene" || active.kind === "shot" || active.kind === "master-script") {
     // Scenes and shots have their own surfaces (PromptsModeView /
     // ScreenplayPane). This component only handles atomic markdown
-    // entities.
+    // entities (brief, world, main-script, character, location, act).
     return null
   }
 
@@ -233,20 +243,29 @@ function NotYetCreatedState({
 
 function KindIcon({ kind }: { kind: NonNullable<ActiveEntity>["kind"] }) {
   const cls = "h-4 w-4 text-primary/80 shrink-0"
+  if (kind === "brief") return <BookOpen className={cls} />
   if (kind === "world") return <Globe2 className={cls} />
+  if (kind === "main-script") return <Clapperboard className={cls} />
   if (kind === "character") return <User className={cls} />
   if (kind === "location") return <MapPin className={cls} />
+  if (kind === "act") return <Layers className={cls} />
   return <FileText className={cls} />
 }
 
 function kindLabel(kind: NonNullable<ActiveEntity>["kind"]) {
   switch (kind) {
+    case "brief":
+      return "Project brief"
     case "world":
       return "World bible"
+    case "main-script":
+      return "Main script"
     case "character":
       return "Character"
     case "location":
       return "Location"
+    case "act":
+      return "Act"
     case "scene":
       return "Scene"
     case "shot":
@@ -289,6 +308,47 @@ function SaveIndicator({ state }: { state: "idle" | "saving" | "saved" | "error"
 
 function buildTemplate(active: NonNullable<ActiveEntity>): string {
   switch (active.kind) {
+    case "brief":
+      return `# Project Brief
+
+## Logline
+
+(One sentence — what's the story, in twenty words or less?)
+
+## Short description
+
+(A paragraph or two. The pitch you'd give to a producer.)
+
+## Style
+
+(Visual / tonal direction. References, mood, what this should *feel*
+like. The agent uses this when composing prompts.)
+`
+    case "main-script":
+      return `Title: Untitled
+Credit: Written by
+Author:
+
+FADE IN:
+
+# Act I
+
+EXT. — — DAY
+
+`
+    case "act":
+      return `# ${"label" in active ? active.label : "Act"}
+
+## Logline
+
+(One-sentence summary of this act's beat.)
+
+## Beats
+
+- (key story moment 1)
+- (key story moment 2)
+- (key story moment 3)
+`
     case "world":
       return `# World Bible
 

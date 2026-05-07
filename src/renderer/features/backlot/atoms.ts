@@ -23,11 +23,19 @@ import { atomWithStorage } from "jotai/utils"
 export type ActiveEntity =
   | {
       kind: "master-script"
-      /** Always "screenplay.fountain" — the legacy single-artifact path. */
+      /** Legacy single-artifact path (screenplay.fountain). Kept for back-compat. */
+      path: string
+    }
+  | {
+      kind: "brief"
       path: string
     }
   | {
       kind: "world"
+      path: string
+    }
+  | {
+      kind: "main-script"
       path: string
     }
   | {
@@ -43,9 +51,18 @@ export type ActiveEntity =
       path: string
     }
   | {
+      kind: "act"
+      id: string
+      label: string
+      /** Path to act.md notes file (may not exist on disk yet). */
+      path: string
+    }
+  | {
       kind: "scene"
       id: string
       label: string
+      /** Parent act id when the scene lives under acts/<actId>/scenes/...; null when flat. */
+      actId?: string | null
       path: string
     }
   | {
