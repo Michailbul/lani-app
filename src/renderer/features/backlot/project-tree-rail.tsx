@@ -1,30 +1,24 @@
 "use client"
 
 /**
- * ProjectTreeRail — the left-side hierarchy navigator.
+ * ProjectTreeRail — left-side navigator.
  *
- *    World · Characters · Locations · Scenes (with nested Shots)
+ * Editorial treatment: scenes get the typographic spotlight (Darker
+ * Grotesque title, scene number in mono). Entities (characters,
+ * locations, world) live in collapsible sub-sections with restrained
+ * mono labels.
  *
- * Reads the project structure from `trpc.entities.list({ chatId })` — a
- * pure filesystem walk on the active chat's worktree. Click any entity →
- * `activeEntityAtom` updates, the screenplay center pane (and chat
- * context) react to load that entity's artifact.
- *
- * When the worktree hasn't been bootstrapped to the new hierarchy yet,
- * the rail shows an empty-state CTA that calls `entities.bootstrap` to
- * scaffold the folder structure with placeholder content + READMEs.
+ * Resizable horizontally via the right-edge handle (180–420 px clamp,
+ * persisted in `projectTreeWidthAtom`).
  */
 
-import { useAtom, useAtomValue } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
-  Book,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Clapperboard,
-  FileText,
-  Film,
   Globe2,
   MapPin,
   Plus,
@@ -36,12 +30,20 @@ import { toast } from "sonner"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { selectedAgentChatIdAtom } from "../agents/atoms"
-import { activeEntityAtom, projectTreeOpenAtom, type ActiveEntity } from "./atoms"
+import {
+  activeEntityAtom,
+  projectTreeOpenAtom,
+  projectTreeWidthAtom,
+  type ActiveEntity,
+} from "./atoms"
+import { Resizer } from "./resizer"
 
-const RAIL_WIDTH = 240
+const MIN_WIDTH = 200
+const MAX_WIDTH = 420
 
 export function ProjectTreeRail() {
   const [open, setOpen] = useAtom(projectTreeOpenAtom)
+  const [width, setWidth] = useAtom(projectTreeWidthAtom)
 
   if (!open) {
     return (
@@ -54,8 +56,8 @@ export function ProjectTreeRail() {
           "text-muted-foreground hover:text-foreground hover:bg-card/60",
           "transition-colors",
         )}
-        title="Show project tree"
-        aria-label="Show project tree"
+        title="Show project"
+        aria-label="Show project"
       >
         <Clapperboard className="h-4 w-4" />
         <span
@@ -70,106 +72,48 @@ export function ProjectTreeRail() {
   }
 
   return (
-    <aside
-      className="shrink-0 border-r border-border bg-card/30 flex flex-col"
-      style={{ width: RAIL_WIDTH }}
-    >
-      {/* Rail header */}
-      <div className="flex items-center justify-between h-9 px-3 border-b border-border bg-card/40 select-none shrink-0">
-        <div className="flex items-center gap-2">
-          <Clapperboard className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
-            Project
-          </span>
+    <div className="flex shrink-0 h-full">
+      <aside
+        className="border-r border-border bg-card/30 flex flex-col"
+        style={{ width }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between h-9 px-3 border-b border-border bg-card/40 select-none shrink-0">
+          <div className="flex items-center gap-2">
+            <Clapperboard className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+              Project
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Hide project"
+          >
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-          title="Hide project tree"
-          aria-label="Hide project tree"
-        >
-          <ChevronsLeft className="h-3.5 w-3.5" />
-        </button>
-      </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        <ProjectTreeContent />
-      </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <ProjectTreeContent />
+        </div>
+      </aside>
 
-      {/* Footer: temporary demo trigger so the per-shot Prompts UI is
-          reachable before E1.9 wires real shot files. Disappears once
-          we ship the file backend. */}
-      <DemoPromptsTrigger />
-    </aside>
-  )
-}
-
-function DemoPromptsTrigger() {
-  const [active, setActive] = useAtom(activeEntityAtom)
-  const isDemoSceneActive =
-    active?.kind === "scene" && active.path.startsWith("__demo")
-  const isDemoShotActive =
-    active?.kind === "shot" && active.path.startsWith("__demo")
-  return (
-    <div className="border-t border-border p-2 shrink-0 space-y-1">
-      <button
-        type="button"
-        onClick={() =>
-          setActive({
-            kind: "scene",
-            id: "01-opening",
-            label: "Opening (demo)",
-            path: "__demo/scenes/01-opening/scene.fountain",
-          } as ActiveEntity)
-        }
-        className={cn(
-          "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium",
-          "border border-dashed border-border transition-colors",
-          isDemoSceneActive
-            ? "bg-primary/10 text-primary border-primary/40"
-            : "text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5",
-        )}
-        title="Preview the parallel scene + prompts panel with mock data"
-      >
-        <Sparkles className="h-3 w-3" />
-        Preview: Scene + Prompts
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          setActive({
-            kind: "shot",
-            sceneId: "01-opening",
-            id: "shot-01",
-            label: "Shot 01",
-            path: "__demo/scenes/01-opening/shots/shot-01",
-          } as ActiveEntity)
-        }
-        className={cn(
-          "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium",
-          "border border-dashed border-border transition-colors",
-          isDemoShotActive
-            ? "bg-primary/10 text-primary border-primary/40"
-            : "text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5",
-        )}
-        title="Same as above, but filtered to Shot 01's prompts"
-      >
-        <Sparkles className="h-3 w-3" />
-        Preview: Shot 01 (filtered)
-      </button>
+      <Resizer
+        axis="x"
+        onResize={(d) => setWidth((w) => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w + d)))}
+      />
     </div>
   )
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Content — separate component so we can suspense-style return early
-// without re-running the rail header.
+// Content
 // ────────────────────────────────────────────────────────────────────────
 
 function ProjectTreeContent() {
   const chatId = useAtomValue(selectedAgentChatIdAtom)
-
   const tree = trpc.entities.list.useQuery(
     { chatId: chatId ?? "" },
     {
@@ -187,28 +131,24 @@ function ProjectTreeContent() {
           : "Project structure already in place.",
       )
     },
-    onError: (err) => {
-      toast.error(err.message || "Couldn't bootstrap the project.")
-    },
+    onError: (err) => toast.error(err.message || "Couldn't bootstrap."),
   })
 
   if (!chatId) {
     return (
-      <div className="p-4 text-xs text-muted-foreground">
-        Open a chat to see its project structure.
+      <div className="px-4 py-6 text-[12px] text-muted-foreground">
+        Open a chat to see its project.
       </div>
     )
   }
   if (tree.isPending) {
-    return (
-      <div className="p-4 text-xs text-muted-foreground">Loading…</div>
-    )
+    return <div className="px-4 py-6 text-[12px] text-muted-foreground/70">Loading…</div>
   }
   const data = tree.data
   if (!data) {
     return (
-      <div className="p-4 text-xs text-muted-foreground">
-        Couldn't read this project's structure.
+      <div className="px-4 py-6 text-[12px] text-muted-foreground/70">
+        Couldn't read this project.
       </div>
     )
   }
@@ -223,35 +163,288 @@ function ProjectTreeContent() {
   }
 
   return (
-    <div className="py-2">
-      <WorldRow exists={data.world.exists} />
-      <SectionGroup
+    <div className="py-3">
+      {/* Scenes — the headline section. Always rendered first because
+          it's where the writer lives most of the time. */}
+      <ScenesSection scenes={data.scenes} />
+
+      {/* World / Characters / Locations — the supporting cast. Smaller
+          typographic weight, collapsible. */}
+      <Divider />
+
+      <WorldRow exists={data.world.exists} path={data.world.path} />
+
+      <EntityGroup
         icon={User}
         label="Characters"
-        empty="No characters yet"
         items={data.characters.map((c) => ({
           id: c.id,
           label: c.label,
           entity: { kind: "character", id: c.id, label: c.label, path: c.path } as ActiveEntity,
         }))}
+        addCta="Add character"
       />
-      <SectionGroup
+
+      <EntityGroup
         icon={MapPin}
         label="Locations"
-        empty="No locations yet"
         items={data.locations.map((l) => ({
           id: l.id,
           label: l.label,
           entity: { kind: "location", id: l.id, label: l.label, path: l.path } as ActiveEntity,
         }))}
+        addCta="Add location"
       />
-      <ScenesGroup scenes={data.scenes} />
+
+      <Divider />
+
+      <DemoTrigger />
     </div>
   )
 }
 
+function Divider() {
+  return <div className="my-3 mx-3 h-px bg-border/70" />
+}
+
 // ────────────────────────────────────────────────────────────────────────
-// Empty state — shown when the worktree hasn't been bootstrapped.
+// Scenes — the editorial centerpiece.
+// ────────────────────────────────────────────────────────────────────────
+
+interface SceneNode {
+  id: string
+  label: string
+  order: number | null
+  scriptPath: string
+  shots: { id: string; label: string; path: string }[]
+}
+
+function ScenesSection({ scenes }: { scenes: SceneNode[] }) {
+  const [active, setActive] = useAtom(activeEntityAtom)
+
+  return (
+    <section className="px-1.5">
+      <div className="flex items-center justify-between px-2 py-1">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+          Scenes
+        </span>
+        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+          {scenes.length}
+        </span>
+      </div>
+
+      {scenes.length === 0 ? (
+        <div className="px-2 pb-2 text-[11.5px] text-muted-foreground/60 italic">
+          No scenes yet. Ask the agent in chat to break the screenplay
+          into scenes — or click <strong>+ Add</strong> below.
+        </div>
+      ) : (
+        <ul className="space-y-px mb-1">
+          {scenes.map((s) => {
+            const isActive = active?.path === s.scriptPath
+            return (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActive({
+                      kind: "scene",
+                      id: s.id,
+                      label: s.label,
+                      path: s.scriptPath,
+                    } as ActiveEntity)
+                  }
+                  className={cn(
+                    "group relative w-full text-left flex items-baseline gap-2.5 pl-3 pr-2 py-1.5 rounded-md",
+                    "transition-colors",
+                    isActive
+                      ? "bg-primary/12"
+                      : "hover:bg-secondary/60",
+                  )}
+                >
+                  {/* Active accent stripe */}
+                  {isActive && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
+                  )}
+                  <span
+                    className={cn(
+                      "shrink-0 font-mono text-[10px] tabular-nums tracking-wider",
+                      isActive ? "text-primary" : "text-muted-foreground/60",
+                    )}
+                  >
+                    {s.order != null ? String(s.order).padStart(2, "0") : "·"}
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      isActive
+                        ? "text-foreground font-medium text-[13px] leading-tight"
+                        : "text-foreground/85 text-[12.5px] leading-tight",
+                    )}
+                    style={{ fontFamily: isActive ? "'Darker Grotesque', sans-serif" : undefined }}
+                  >
+                    {s.label}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        className={cn(
+          "w-full flex items-center gap-1.5 mt-0.5 px-3 py-1 rounded-md",
+          "text-[11px] text-muted-foreground hover:text-primary",
+          "hover:bg-primary/5 transition-colors",
+        )}
+      >
+        <Plus className="h-3 w-3" />
+        Add scene
+      </button>
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World row (single entity)
+// ────────────────────────────────────────────────────────────────────────
+
+function WorldRow({ exists, path }: { exists: boolean; path: string }) {
+  const [active, setActive] = useAtom(activeEntityAtom)
+  const isActive = active?.kind === "world"
+  return (
+    <button
+      type="button"
+      onClick={() => setActive({ kind: "world", path } as ActiveEntity)}
+      className={cn(
+        "group relative w-full flex items-center gap-2 px-3 py-1.5 mx-1.5 rounded-md text-[12px]",
+        "transition-colors",
+        isActive
+          ? "bg-primary/12 text-foreground font-medium"
+          : "text-foreground/85 hover:bg-secondary/60",
+      )}
+      title="World bible"
+    >
+      {isActive && (
+        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
+      )}
+      <Globe2
+        className={cn(
+          "h-3.5 w-3.5 shrink-0",
+          isActive ? "text-primary" : "text-muted-foreground/70",
+        )}
+      />
+      <span className="flex-1 text-left">World</span>
+      {!exists && (
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50 font-mono">
+          empty
+        </span>
+      )}
+    </button>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Characters / Locations groups
+// ────────────────────────────────────────────────────────────────────────
+
+interface EntityItem {
+  id: string
+  label: string
+  entity: ActiveEntity
+}
+
+function EntityGroup({
+  icon: Icon,
+  label,
+  items,
+  addCta,
+}: {
+  icon: typeof User
+  label: string
+  items: EntityItem[]
+  addCta: string
+}) {
+  const [collapsed, setCollapsed] = useState(items.length === 0)
+  const [active, setActive] = useAtom(activeEntityAtom)
+
+  return (
+    <section className="mt-1 px-1.5">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className={cn(
+          "w-full flex items-center gap-1.5 px-2 py-1",
+          "text-[10px] uppercase tracking-[0.16em] font-mono",
+          "text-muted-foreground/70 hover:text-foreground/90 transition-colors",
+        )}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" />
+        ) : (
+          <ChevronDown className="h-3 w-3" />
+        )}
+        <Icon className="h-3 w-3" />
+        <span className="flex-1 text-left">{label}</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+          {items.length}
+        </span>
+      </button>
+
+      {!collapsed && (
+        <ul className="space-y-px">
+          {items.length === 0 ? (
+            <li className="px-3 pl-9 py-1 text-[11px] italic text-muted-foreground/55">
+              none yet
+            </li>
+          ) : (
+            items.map((it) => {
+              const isActive = active?.path === it.entity?.path
+              return (
+                <li key={it.id}>
+                  <button
+                    type="button"
+                    onClick={() => setActive(it.entity)}
+                    className={cn(
+                      "relative w-full flex items-center gap-2 pl-9 pr-2 py-1 rounded-md text-[12px]",
+                      "transition-colors",
+                      isActive
+                        ? "bg-primary/12 text-foreground font-medium"
+                        : "text-foreground/85 hover:bg-secondary/60",
+                    )}
+                    title={it.label}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r bg-primary" />
+                    )}
+                    <span className="truncate flex-1 text-left">{it.label}</span>
+                  </button>
+                </li>
+              )
+            })
+          )}
+          <li>
+            <button
+              type="button"
+              className={cn(
+                "w-full flex items-center gap-1.5 pl-9 pr-2 py-1 rounded-md text-[11px]",
+                "text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors",
+              )}
+            >
+              <Plus className="h-3 w-3" />
+              {addCta}
+            </button>
+          </li>
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Empty state — no project bootstrapped yet
 // ────────────────────────────────────────────────────────────────────────
 
 function EmptyState({
@@ -262,11 +455,10 @@ function EmptyState({
   isPending: boolean
 }) {
   return (
-    <div className="p-4 flex flex-col gap-3 text-xs">
-      <div className="text-muted-foreground leading-relaxed">
+    <div className="p-4 flex flex-col gap-3">
+      <div className="text-[12.5px] text-foreground/85 leading-relaxed">
         This project doesn't have the screenwriter structure yet. Bootstrap
-        it to add a world bible, characters, locations, and scene folders —
-        each one editable by you and the agent.
+        it to add a world bible, characters, locations, and scene folders.
       </div>
       <button
         type="button"
@@ -275,7 +467,7 @@ function EmptyState({
         className={cn(
           "flex items-center justify-center gap-1.5 px-3 py-2 rounded-md",
           "bg-primary text-primary-foreground hover:opacity-90",
-          "text-xs font-medium transition-opacity",
+          "text-[12px] font-medium transition-opacity",
           "disabled:opacity-50 disabled:cursor-progress",
         )}
       >
@@ -291,245 +483,34 @@ function EmptyState({
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Single-entity rows + section groups
+// Demo trigger — small footer link, less aggressive than the button stack
+// from the previous iteration. Comes out completely once E1.4 wires real
+// scene data.
 // ────────────────────────────────────────────────────────────────────────
 
-function WorldRow({ exists }: { exists: boolean }) {
-  const [active, setActive] = useAtom(activeEntityAtom)
-  const isActive = active?.kind === "world"
+function DemoTrigger() {
+  const setActive = useSetAtom(activeEntityAtom)
   return (
-    <button
-      type="button"
-      onClick={() =>
-        setActive({ kind: "world", path: "world.md" } as ActiveEntity)
-      }
-      className={cn(
-        "w-full flex items-center gap-2 px-3 py-1.5 text-xs",
-        "transition-colors",
-        isActive
-          ? "bg-primary/10 text-foreground font-medium"
-          : "text-foreground/85 hover:bg-secondary/50",
-      )}
-      title="World bible — art-direction spine of the project"
-    >
-      <Globe2 className="h-3.5 w-3.5 text-primary/80 shrink-0" />
-      <span className="truncate flex-1 text-left">World</span>
-      {!exists && (
-        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 font-mono">
-          empty
-        </span>
-      )}
-    </button>
-  )
-}
-
-interface SectionItem {
-  id: string
-  label: string
-  entity: ActiveEntity
-}
-
-function SectionGroup({
-  icon: Icon,
-  label,
-  items,
-  empty,
-}: {
-  icon: typeof User
-  label: string
-  items: SectionItem[]
-  empty: string
-}) {
-  const [collapsed, setCollapsed] = useState(false)
-  const [active, setActive] = useAtom(activeEntityAtom)
-  return (
-    <div className="mt-2">
+    <div className="px-4 py-2">
       <button
         type="button"
-        onClick={() => setCollapsed((c) => !c)}
+        onClick={() =>
+          setActive({
+            kind: "scene",
+            id: "01-opening",
+            label: "Opening (demo)",
+            path: "__demo/scenes/01-opening/scene.fountain",
+          } as ActiveEntity)
+        }
         className={cn(
-          "w-full flex items-center gap-1.5 px-3 py-1",
-          "text-[10px] uppercase tracking-[0.14em] font-mono",
-          "text-muted-foreground/70 hover:text-foreground/80 transition-colors",
+          "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-mono",
+          "text-muted-foreground/60 hover:text-primary transition-colors",
         )}
+        title="Load mock data so the scene focus view is testable before E1.4"
       >
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )}
-        <Icon className="h-3 w-3" />
-        <span className="flex-1 text-left">{label}</span>
-        <span className="text-[9px] tabular-nums text-muted-foreground/50">
-          {items.length}
-        </span>
+        <Sparkles className="h-2.5 w-2.5" />
+        Preview demo
       </button>
-      {!collapsed && (
-        <>
-          {items.length === 0 ? (
-            <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 italic pl-9">
-              {empty}
-            </div>
-          ) : (
-            items.map((it) => {
-              const isActive = active?.path === it.entity?.path
-              return (
-                <button
-                  key={it.id}
-                  type="button"
-                  onClick={() => setActive(it.entity)}
-                  className={cn(
-                    "w-full flex items-center gap-2 pl-9 pr-3 py-1 text-xs",
-                    "transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-foreground font-medium"
-                      : "text-foreground/80 hover:bg-secondary/50",
-                  )}
-                  title={it.label}
-                >
-                  <span className="truncate flex-1 text-left">{it.label}</span>
-                </button>
-              )
-            })
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Scenes (with nested shots)
-// ────────────────────────────────────────────────────────────────────────
-
-interface SceneNode {
-  id: string
-  label: string
-  order: number | null
-  scriptPath: string
-  shots: { id: string; label: string; path: string }[]
-}
-
-function ScenesGroup({ scenes }: { scenes: SceneNode[] }) {
-  const [collapsed, setCollapsed] = useState(false)
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className={cn(
-          "w-full flex items-center gap-1.5 px-3 py-1",
-          "text-[10px] uppercase tracking-[0.14em] font-mono",
-          "text-muted-foreground/70 hover:text-foreground/80 transition-colors",
-        )}
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )}
-        <Film className="h-3 w-3" />
-        <span className="flex-1 text-left">Scenes</span>
-        <span className="text-[9px] tabular-nums text-muted-foreground/50">
-          {scenes.length}
-        </span>
-      </button>
-      {!collapsed &&
-        (scenes.length === 0 ? (
-          <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 italic pl-9">
-            No scenes yet
-          </div>
-        ) : (
-          scenes.map((s) => <SceneRow key={s.id} scene={s} />)
-        ))}
-    </div>
-  )
-}
-
-function SceneRow({ scene }: { scene: SceneNode }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const [active, setActive] = useAtom(activeEntityAtom)
-  const isActive = active?.path === scene.scriptPath
-
-  return (
-    <div>
-      <div
-        className={cn(
-          "group flex items-center gap-1 pl-5 pr-2 text-xs",
-          "transition-colors",
-          isActive
-            ? "bg-primary/10 text-foreground font-medium"
-            : "text-foreground/85 hover:bg-secondary/50",
-        )}
-      >
-        {scene.shots.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            className="text-muted-foreground/70 hover:text-foreground p-0.5"
-            aria-label={collapsed ? "Expand shots" : "Collapse shots"}
-          >
-            {collapsed ? (
-              <ChevronRight className="h-3 w-3" />
-            ) : (
-              <ChevronDown className="h-3 w-3" />
-            )}
-          </button>
-        ) : (
-          <span className="w-4 shrink-0" />
-        )}
-        <button
-          type="button"
-          onClick={() =>
-            setActive({
-              kind: "scene",
-              id: scene.id,
-              label: scene.label,
-              path: scene.scriptPath,
-            } as ActiveEntity)
-          }
-          className="flex items-center gap-2 flex-1 py-1 text-left min-w-0"
-          title={scene.label}
-        >
-          <FileText className="h-3.5 w-3.5 text-muted-foreground/80 shrink-0" />
-          {scene.order != null && (
-            <span className="text-muted-foreground/60 font-mono tabular-nums text-[10px] shrink-0">
-              {String(scene.order).padStart(2, "0")}
-            </span>
-          )}
-          <span className="truncate flex-1">{scene.label}</span>
-        </button>
-      </div>
-      {!collapsed &&
-        scene.shots.map((sh) => {
-          const isShotActive = active?.path === sh.path
-          return (
-            <button
-              key={sh.id}
-              type="button"
-              onClick={() =>
-                setActive({
-                  kind: "shot",
-                  sceneId: scene.id,
-                  id: sh.id,
-                  label: sh.label,
-                  path: sh.path,
-                } as ActiveEntity)
-              }
-              className={cn(
-                "w-full flex items-center gap-2 pl-12 pr-3 py-0.5 text-[11px]",
-                "transition-colors",
-                isShotActive
-                  ? "bg-primary/10 text-foreground font-medium"
-                  : "text-foreground/70 hover:bg-secondary/50",
-              )}
-              title={sh.label}
-            >
-              <Book className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-              <span className="truncate flex-1 text-left">{sh.label}</span>
-            </button>
-          )
-        })}
     </div>
   )
 }

@@ -27,7 +27,7 @@
  * frames-grid, no generations-grid. Just script and prompt.
  */
 
-import { useAtomValue } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import {
   ChevronDown,
   ChevronUp,
@@ -38,7 +38,12 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { cn } from "../../lib/utils"
-import { activeEntityAtom } from "./atoms"
+import {
+  activeEntityAtom,
+  refsPanelHeightAtom,
+  scriptPromptSplitAtom,
+} from "./atoms"
+import { Resizer } from "./resizer"
 
 // ────────────────────────────────────────────────────────────────────────
 // Mock — replaced by entities.read in E1.4
@@ -285,28 +290,64 @@ export function PromptsModeView() {
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
       <SceneHeader scene={scene} onChange={updateScene} />
-      <div className="flex-1 min-h-0 flex">
+      <ScriptPromptSplit
+        script={scene.script}
+        prompt={scene.prompt}
+        onScriptChange={updateScript}
+        onPromptChange={updatePrompt}
+      />
+      <RefsPanel versioned={scene.refs} onChange={updateRefs} />
+      <SceneNav scenes={scenes} activeIdx={activeIdx} onSelect={setActiveIdx} />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ScriptPromptSplit — horizontal split between the two text panels with
+// a draggable divider. Width fraction is persisted via
+// scriptPromptSplitAtom (clamped 0.2–0.8).
+// ────────────────────────────────────────────────────────────────────────
+
+function ScriptPromptSplit({
+  script,
+  prompt,
+  onScriptChange,
+  onPromptChange,
+}: {
+  script: VersionedText
+  prompt: VersionedText
+  onScriptChange: (next: VersionedText) => void
+  onPromptChange: (next: VersionedText) => void
+}) {
+  const [split, setSplit] = useAtom(scriptPromptSplitAtom)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  return (
+    <div ref={containerRef} className="flex-1 min-h-0 flex">
+      <div className="min-w-0 flex flex-col" style={{ flex: `${split} 1 0` }}>
         <Panel
           label="Script"
-          versioned={scene.script}
-          onChange={updateScript}
+          versioned={script}
+          onChange={onScriptChange}
           flavor="screenplay"
         />
-        <div className="w-px bg-border shrink-0" />
+      </div>
+      <Resizer
+        axis="x"
+        onResize={(d) => {
+          const w = containerRef.current?.clientWidth ?? 1
+          if (w === 0) return
+          setSplit((s) => Math.max(0.2, Math.min(0.8, s + d / w)))
+        }}
+      />
+      <div className="min-w-0 flex flex-col" style={{ flex: `${1 - split} 1 0` }}>
         <Panel
           label="Prompt"
-          versioned={scene.prompt}
-          onChange={updatePrompt}
+          versioned={prompt}
+          onChange={onPromptChange}
           flavor="prompt"
         />
       </div>
-      <RefsPanel versioned={scene.refs} onChange={updateRefs} />
-      {/* Bottom: scene navigation */}
-      <SceneNav
-        scenes={scenes}
-        activeIdx={activeIdx}
-        onSelect={setActiveIdx}
-      />
     </div>
   )
 }
@@ -416,21 +457,18 @@ function Panel({
     onChange(next)
   }
 
+  // Suppress unused — versions are stashed in state for when the chrome
+  // comes back. Keep `switchTo` / `newVersion` ready but unused until then.
+  void switchTo
+  void newVersion
+
   return (
     <div className="flex-1 min-w-0 flex flex-col">
-      {/* Panel header */}
-      <div className="flex items-center justify-between gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
-            {label}
-          </span>
-          <span className="text-muted-foreground/40">·</span>
-          <VersionSelector
-            versioned={versioned}
-            onSwitch={switchTo}
-            onNew={newVersion}
-          />
-        </div>
+      {/* Panel header — minimal, just the label */}
+      <div className="flex items-center gap-2 h-9 px-4 border-b border-border bg-card/40 select-none shrink-0">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+          {label}
+        </span>
       </div>
 
       {/* Body */}
@@ -447,10 +485,7 @@ function Panel({
           className={cn(
             "w-full h-full min-h-full px-6 py-5 bg-transparent",
             "border-0 outline-none resize-none",
-            "font-mono text-[13px] leading-7",
-            flavor === "screenplay"
-              ? "text-foreground/90"
-              : "text-foreground/90",
+            "font-mono text-[13px] leading-7 text-foreground/90",
             "placeholder:text-muted-foreground/40",
           )}
         />
@@ -612,6 +647,7 @@ function RefsPanel({
   onChange: (next: VersionedRefs) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [height, setHeight] = useAtom(refsPanelHeightAtom)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const dropZoneRef = useRef<HTMLDivElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -627,21 +663,9 @@ function RefsPanel({
       ),
     })
   }
-  const switchTo = (i: number) => onChange({ ...versioned, activeIndex: i })
-  const newVersion = () => {
-    onChange({
-      activeIndex: versioned.versions.length,
-      versions: [
-        ...versioned.versions,
-        {
-          id: `r-${Date.now()}`,
-          label: `v${versioned.versions.length + 1}`,
-          createdAt: "just now",
-          refs: [...(active?.refs ?? [])],
-        },
-      ],
-    })
-  }
+  // Versions kept in data model; UI hidden for now.
+  void onChange
+
   const addPlaceholderRef = (name?: string) => {
     const hints: NonNullable<RefImage["hint"]>[] = [
       "warm",
@@ -667,9 +691,23 @@ function RefsPanel({
   }
 
   return (
-    <section className="border-t border-border bg-card/20 shrink-0">
+    <section className="bg-card/20 shrink-0 flex flex-col">
+      {/* Top resize handle */}
+      {!collapsed && (
+        <Resizer
+          axis="y"
+          onResize={(d) =>
+            setHeight((h) => Math.max(80, Math.min(420, h - d)))
+          }
+        />
+      )}
       {/* Header — always visible */}
-      <div className="flex items-center justify-between gap-2 h-8 px-4 select-none">
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 h-8 px-4 select-none shrink-0",
+          collapsed && "border-t border-border",
+        )}
+      >
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
@@ -689,11 +727,6 @@ function RefsPanel({
           </span>
         </button>
         <div className="flex items-center gap-2">
-          <RefsVersionSelector
-            versioned={versioned}
-            onSwitch={switchTo}
-            onNew={newVersion}
-          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -713,7 +746,6 @@ function RefsPanel({
             className="hidden"
             onChange={(e) => {
               onFiles(e.target.files)
-              // reset so picking the same file again still triggers
               e.target.value = ""
             }}
           />
@@ -731,7 +763,6 @@ function RefsPanel({
             e.preventDefault()
           }}
           onDragLeave={(e) => {
-            // Only un-set when leaving the dropzone entirely
             if (e.currentTarget === e.target) setIsDragging(false)
           }}
           onDrop={(e) => {
@@ -739,8 +770,9 @@ function RefsPanel({
             setIsDragging(false)
             onFiles(e.dataTransfer?.files ?? null)
           }}
+          style={{ height }}
           className={cn(
-            "px-4 pb-3 pt-1 transition-colors",
+            "px-4 pb-3 pt-1 transition-colors overflow-auto",
             isDragging && "bg-primary/5",
           )}
         >

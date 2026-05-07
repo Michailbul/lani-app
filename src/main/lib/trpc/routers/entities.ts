@@ -202,7 +202,15 @@ async function listMarkdownIds(dir: string): Promise<string[]> {
     return []
   }
   return entries
-    .filter((name) => name.endsWith(".md") && !name.startsWith(".") && name !== ".keep.md")
+    .filter(
+      (name) =>
+        name.endsWith(".md") &&
+        !name.startsWith(".") &&
+        name !== ".keep.md" &&
+        // README.md is folder-level documentation, not an entity. Same for
+        // any case-variant that the bootstrap or the user might create.
+        name.toLowerCase() !== "readme.md",
+    )
     .map((name) => name.slice(0, -".md".length))
     .sort()
 }

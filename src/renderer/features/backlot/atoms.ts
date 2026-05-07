@@ -86,3 +86,24 @@ export const viewModeAtom = atomWithStorage<ViewMode>(
   "backlot:view-mode",
   "screenwriting",
 )
+
+// ────────────────────────────────────────────────────────────────────────
+// Resizable rail / panel sizes — persisted across reloads.
+// ────────────────────────────────────────────────────────────────────────
+
+export const projectTreeWidthAtom = atomWithStorage<number>(
+  "backlot:project-tree-width",
+  260,
+)
+
+/** Fraction of the center pane width allocated to the Script panel. */
+export const scriptPromptSplitAtom = atomWithStorage<number>(
+  "backlot:script-prompt-split",
+  0.5,
+)
+
+/** Height of the references panel in pixels (when expanded). */
+export const refsPanelHeightAtom = atomWithStorage<number>(
+  "backlot:refs-panel-height",
+  140,
+)
