@@ -917,34 +917,13 @@ export function AgentsContent() {
   return (
     <>
       <div className="flex h-full">
-        {/* Sub-chats sidebar - only show in sidebar mode when viewing a chat */}
-        <ResizableSidebar
-          isOpen={!!isSubChatsSidebarOpen}
-          onClose={() => {
-            setShouldAnimateSubChatsSidebar(true)
-            setSubChatsSidebarMode("tabs")
-          }}
-          widthAtom={agentsSubChatsSidebarWidthAtom}
-          minWidth={160}
-          maxWidth={300}
-          side="left"
-          animationDuration={0}
-          initialWidth={0}
-          exitWidth={0}
-          disableClickToClose={true}
-        >
-          <AgentsSubChatsSidebar
-            onClose={() => {
-              setShouldAnimateSubChatsSidebar(true)
-              setSubChatsSidebarMode("tabs")
-            }}
-            isMobile={isMobile}
-            isSidebarOpen={sidebarOpen}
-            onBackToChats={() => setSidebarOpen((prev) => !prev)}
-            isLoading={isLoadingSubChats}
-            agentName={chatData?.name}
-          />
-        </ResizableSidebar>
+        {/* Sub-chats sidebar — hidden in Backlot. The ProjectTreeRail
+            (rendered by ScreenplayWorkspace) is the project's primary
+            navigator; a separate "Chats" sub-sidebar is redundant for
+            the one-project-one-main-chat model. The component is left
+            in the codebase for now in case we re-enable it as an
+            opt-in "fork browser" later, but the JSX is no longer
+            mounted. */}
 
         {/* Main content */}
         <div
