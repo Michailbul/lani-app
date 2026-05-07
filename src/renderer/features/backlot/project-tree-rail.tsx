@@ -25,7 +25,7 @@ import {
   Sparkles,
   User,
 } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
@@ -37,6 +37,77 @@ import {
   type ActiveEntity,
 } from "./atoms"
 import { Resizer } from "./resizer"
+
+// ────────────────────────────────────────────────────────────────────────
+// Slug + templates — kept inline so the create flow doesn't need its own
+// shared module. Each new entity file gets a starter template the agent
+// can extend; the user can also type into them directly.
+// ────────────────────────────────────────────────────────────────────────
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip accents
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 64)
+}
+
+function characterTemplate(label: string): string {
+  return `# ${label}
+
+The lock for this character — the canonical description that every
+prompt referencing them pastes verbatim.
+
+## Identity
+
+(Age, build, distinguishing features. Lock the visual so the model
+returns the same person across all prompts.)
+
+## Voice + personality
+
+(How they speak. What they want. What they hide.)
+
+## Wardrobe
+
+(Default outfit, variations per scene if any.)
+
+## Reference images
+
+(Filenames inside assets/refs/, or leave blank.)
+`
+}
+
+function locationTemplate(label: string): string {
+  return `# ${label}
+
+Reference card for this place.
+
+## Description
+
+(Where is it? What does it look like? One paragraph.)
+
+## Time of day variants
+
+(Dawn / day / dusk / night.)
+
+## Lighting setup
+
+(Key light direction, intensity, colour temperature, atmosphere.)
+
+## Reference images
+
+(Filenames inside assets/refs/, or leave blank.)
+`
+}
+
+function sceneTemplate(label: string): string {
+  return `INT. ${label.toUpperCase()} - DAY
+
+(Action / dialogue starts here.)
+`
+}
 
 const MIN_WIDTH = 200
 const MAX_WIDTH = 420
@@ -114,6 +185,7 @@ export function ProjectTreeRail() {
 
 function ProjectTreeContent() {
   const chatId = useAtomValue(selectedAgentChatIdAtom)
+  const setActive = useSetAtom(activeEntityAtom)
   const tree = trpc.entities.list.useQuery(
     { chatId: chatId ?? "" },
     {
@@ -133,6 +205,72 @@ function ProjectTreeContent() {
     },
     onError: (err) => toast.error(err.message || "Couldn't bootstrap."),
   })
+  const write = trpc.entities.write.useMutation({
+    onSuccess: () => tree.refetch(),
+    onError: (err) => toast.error(err.message || "Couldn't create file."),
+  })
+
+  // What kind of entity is being created right now (inline input shown).
+  const [creating, setCreating] = useState<
+    null | "scene" | "character" | "location"
+  >(null)
+
+  const onCreate = async (
+    kind: "scene" | "character" | "location",
+    label: string,
+  ) => {
+    if (!chatId || !label.trim()) {
+      setCreating(null)
+      return
+    }
+    const slug = slugify(label) || `untitled-${Date.now()}`
+    let entityPath: string
+    let active: ActiveEntity
+    let template: string
+    if (kind === "character") {
+      entityPath = `characters/${slug}.md`
+      template = characterTemplate(label)
+      active = {
+        kind: "character",
+        id: slug,
+        label,
+        path: entityPath,
+      } as ActiveEntity
+    } else if (kind === "location") {
+      entityPath = `locations/${slug}.md`
+      template = locationTemplate(label)
+      active = {
+        kind: "location",
+        id: slug,
+        label,
+        path: entityPath,
+      } as ActiveEntity
+    } else {
+      // scene — compute next order from existing scenes
+      const existing = tree.data?.scenes ?? []
+      const nextNum =
+        Math.max(0, ...existing.map((s) => s.order ?? 0)) + 1
+      const order = String(nextNum).padStart(2, "0")
+      const folderId = `${order}-${slug}`
+      entityPath = `scenes/${folderId}/scene.fountain`
+      template = sceneTemplate(label)
+      active = {
+        kind: "scene",
+        id: folderId,
+        label,
+        path: entityPath,
+      } as ActiveEntity
+    }
+    try {
+      await write.mutateAsync({ chatId, entityPath, content: template })
+      setActive(active)
+      setCreating(null)
+      toast.success(`Created ${entityPath}`)
+    } catch {
+      // mutation onError already toasts
+      setCreating(null)
+    }
+  }
 
   if (!chatId) {
     return (
@@ -164,12 +302,14 @@ function ProjectTreeContent() {
 
   return (
     <div className="py-3">
-      {/* Scenes — the headline section. Always rendered first because
-          it's where the writer lives most of the time. */}
-      <ScenesSection scenes={data.scenes} />
+      <ScenesSection
+        scenes={data.scenes}
+        creating={creating === "scene"}
+        onStart={() => setCreating("scene")}
+        onCancel={() => setCreating(null)}
+        onCreate={(label) => onCreate("scene", label)}
+      />
 
-      {/* World / Characters / Locations — the supporting cast. Smaller
-          typographic weight, collapsible. */}
       <Divider />
 
       <WorldRow exists={data.world.exists} path={data.world.path} />
@@ -183,6 +323,10 @@ function ProjectTreeContent() {
           entity: { kind: "character", id: c.id, label: c.label, path: c.path } as ActiveEntity,
         }))}
         addCta="Add character"
+        creating={creating === "character"}
+        onStart={() => setCreating("character")}
+        onCancel={() => setCreating(null)}
+        onCreate={(label) => onCreate("character", label)}
       />
 
       <EntityGroup
@@ -194,6 +338,10 @@ function ProjectTreeContent() {
           entity: { kind: "location", id: l.id, label: l.label, path: l.path } as ActiveEntity,
         }))}
         addCta="Add location"
+        creating={creating === "location"}
+        onStart={() => setCreating("location")}
+        onCancel={() => setCreating(null)}
+        onCreate={(label) => onCreate("location", label)}
       />
 
       <Divider />
@@ -219,7 +367,19 @@ interface SceneNode {
   shots: { id: string; label: string; path: string }[]
 }
 
-function ScenesSection({ scenes }: { scenes: SceneNode[] }) {
+function ScenesSection({
+  scenes,
+  creating,
+  onStart,
+  onCancel,
+  onCreate,
+}: {
+  scenes: SceneNode[]
+  creating: boolean
+  onStart: () => void
+  onCancel: () => void
+  onCreate: (label: string) => void
+}) {
   const [active, setActive] = useAtom(activeEntityAtom)
 
   return (
@@ -292,18 +452,82 @@ function ScenesSection({ scenes }: { scenes: SceneNode[] }) {
         </ul>
       )}
 
-      <button
-        type="button"
-        className={cn(
-          "w-full flex items-center gap-1.5 mt-0.5 px-3 py-1 rounded-md",
-          "text-[11px] text-muted-foreground hover:text-primary",
-          "hover:bg-primary/5 transition-colors",
-        )}
-      >
-        <Plus className="h-3 w-3" />
-        Add scene
-      </button>
+      {creating ? (
+        <CreateInline
+          placeholder="Scene name (e.g. Warehouse Confrontation)"
+          onCancel={onCancel}
+          onSubmit={onCreate}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onStart}
+          className={cn(
+            "w-full flex items-center gap-1.5 mt-0.5 px-3 py-1 rounded-md",
+            "text-[11px] text-muted-foreground hover:text-primary",
+            "hover:bg-primary/5 transition-colors",
+          )}
+        >
+          <Plus className="h-3 w-3" />
+          Add scene
+        </button>
+      )}
     </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// CreateInline — small text input that replaces the "+ Add" button when
+// the user starts creating an entity. Enter to submit, Esc to cancel.
+// ────────────────────────────────────────────────────────────────────────
+
+function CreateInline({
+  placeholder,
+  onCancel,
+  onSubmit,
+}: {
+  placeholder: string
+  onCancel: () => void
+  onSubmit: (label: string) => void
+}) {
+  const [value, setValue] = useState("")
+  const submitted = useRef(false)
+  return (
+    <div className="px-3 py-1 mt-0.5">
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const v = value.trim()
+            if (v) {
+              submitted.current = true
+              onSubmit(v)
+            } else {
+              onCancel()
+            }
+          } else if (e.key === "Escape") {
+            onCancel()
+          }
+        }}
+        onBlur={() => {
+          if (submitted.current) return
+          const v = value.trim()
+          if (v) onSubmit(v)
+          else onCancel()
+        }}
+        placeholder={placeholder}
+        className={cn(
+          "w-full px-2 py-1 rounded text-[12px] bg-background",
+          "border border-primary/40 outline-none focus:border-primary",
+          "focus:ring-1 focus:ring-primary/15",
+        )}
+      />
+      <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 font-mono mt-0.5 px-1">
+        Enter to create · Esc to cancel
+      </div>
+    </div>
   )
 }
 
@@ -361,14 +585,24 @@ function EntityGroup({
   label,
   items,
   addCta,
+  creating,
+  onStart,
+  onCancel,
+  onCreate,
 }: {
   icon: typeof User
   label: string
   items: EntityItem[]
   addCta: string
+  creating: boolean
+  onStart: () => void
+  onCancel: () => void
+  onCreate: (label: string) => void
 }) {
-  const [collapsed, setCollapsed] = useState(items.length === 0)
+  const [collapsed, setCollapsed] = useState(items.length === 0 && !creating)
   const [active, setActive] = useAtom(activeEntityAtom)
+  // Auto-expand when creation starts so the input is visible.
+  if (creating && collapsed) setCollapsed(false)
 
   return (
     <section className="mt-1 px-1.5">
@@ -426,16 +660,27 @@ function EntityGroup({
             })
           )}
           <li>
-            <button
-              type="button"
-              className={cn(
-                "w-full flex items-center gap-1.5 pl-9 pr-2 py-1 rounded-md text-[11px]",
-                "text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors",
-              )}
-            >
-              <Plus className="h-3 w-3" />
-              {addCta}
-            </button>
+            {creating ? (
+              <div className="pl-7">
+                <CreateInline
+                  placeholder={`${label.slice(0, -1) || label} name`}
+                  onCancel={onCancel}
+                  onSubmit={onCreate}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onStart}
+                className={cn(
+                  "w-full flex items-center gap-1.5 pl-9 pr-2 py-1 rounded-md text-[11px]",
+                  "text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors",
+                )}
+              >
+                <Plus className="h-3 w-3" />
+                {addCta}
+              </button>
+            )}
           </li>
         </ul>
       )}
