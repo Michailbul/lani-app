@@ -526,9 +526,10 @@ function VersionSelector({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono",
+          "press inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono",
           "border border-border bg-background",
-          "hover:bg-secondary hover:border-foreground/30 transition-colors",
+          "hover:bg-secondary hover:border-foreground/30",
+          "transition-[background-color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Switch version or create a new one"
       >
@@ -552,8 +553,9 @@ function VersionSelector({
                   setOpen(false)
                 }}
                 className={cn(
-                  "w-full flex items-center justify-between gap-2 px-3 py-1.5",
-                  "text-left text-[12px] transition-colors",
+                  "press w-full flex items-center justify-between gap-2 px-3 py-1.5",
+                  "text-left text-[12px]",
+                  "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
                   isActive
                     ? "bg-primary/10 text-foreground"
                     : "text-foreground/85 hover:bg-secondary",
@@ -574,8 +576,9 @@ function VersionSelector({
                 setOpen(false)
               }}
               className={cn(
-                "w-full flex items-center gap-1.5 px-3 py-2",
-                "text-[12px] text-primary hover:bg-primary/5 transition-colors",
+                "press w-full flex items-center gap-1.5 px-3 py-2",
+                "text-[12px] text-primary hover:bg-primary/5",
+                "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
               )}
             >
               <Plus className="h-3 w-3" />
@@ -609,7 +612,8 @@ function SceneNav({
           type="button"
           onClick={() => onSelect(i)}
           className={cn(
-            "px-2.5 py-1 rounded text-[11px] transition-colors",
+            "press px-2.5 py-1 rounded text-[11px]",
+            "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
             i === activeIdx
               ? "bg-primary text-primary-foreground font-medium"
               : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -711,7 +715,7 @@ function RefsPanel({
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+          className="press flex items-center gap-2 text-muted-foreground hover:text-foreground transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]"
           title={collapsed ? "Expand references" : "Collapse references"}
         >
           {collapsed ? (
@@ -731,8 +735,9 @@ function RefsPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider",
-              "border border-border bg-background hover:bg-secondary transition-colors",
+              "press flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider",
+              "border border-border bg-background hover:bg-secondary",
+              "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
             )}
           >
             <Upload className="h-3 w-3" />
@@ -772,7 +777,10 @@ function RefsPanel({
           }}
           style={{ height }}
           className={cn(
-            "px-4 pb-3 pt-1 transition-colors overflow-auto",
+            "px-4 pb-3 pt-1 overflow-auto",
+            // Drop-zone highlights its background when files hover. Crossfade
+            // is gentle so the visual jump on dragenter doesn't startle.
+            "transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)]",
             isDragging && "bg-primary/5",
           )}
         >
@@ -784,10 +792,10 @@ function RefsPanel({
               type="button"
               onClick={() => addPlaceholderRef()}
               className={cn(
-                "shrink-0 w-24 h-16 rounded border border-dashed border-border",
+                "press shrink-0 w-24 h-16 rounded border border-dashed border-border",
                 "flex flex-col items-center justify-center gap-0.5",
                 "text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5",
-                "transition-colors",
+                "transition-[color,border-color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
               )}
               title="Drop images here, click to add, or use Upload above"
             >
@@ -839,9 +847,13 @@ function RefThumb({
         type="button"
         onClick={onDelete}
         className={cn(
-          "absolute top-0.5 right-0.5 p-0.5 rounded",
+          "press absolute top-0.5 right-0.5 p-0.5 rounded",
           "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100",
-          "hover:bg-rose-500/80 transition-colors",
+          "hover:bg-rose-500/80",
+          // Two transitions composed: opacity-fades-in on group hover, color
+          // turns rose on direct hover. Specifying both prevents either from
+          // resorting to the slow Tailwind default.
+          "transition-[opacity,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Remove reference"
       >
@@ -878,9 +890,10 @@ function RefsVersionSelector({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono",
+          "press inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono",
           "border border-border bg-background",
-          "hover:bg-secondary hover:border-foreground/30 transition-colors",
+          "hover:bg-secondary hover:border-foreground/30",
+          "transition-[background-color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
       >
         <span className="font-medium">{active?.label ?? "v1"}</span>
@@ -903,7 +916,8 @@ function RefsVersionSelector({
                   setOpen(false)
                 }}
                 className={cn(
-                  "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] transition-colors",
+                  "press w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px]",
+                  "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
                   isActive
                     ? "bg-primary/10 text-foreground"
                     : "text-foreground/85 hover:bg-secondary",
@@ -924,8 +938,9 @@ function RefsVersionSelector({
                 setOpen(false)
               }}
               className={cn(
-                "w-full flex items-center gap-1.5 px-3 py-2",
-                "text-[12px] text-primary hover:bg-primary/5 transition-colors",
+                "press w-full flex items-center gap-1.5 px-3 py-2",
+                "text-[12px] text-primary hover:bg-primary/5",
+                "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
               )}
             >
               <Plus className="h-3 w-3" />

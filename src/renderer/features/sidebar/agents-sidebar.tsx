@@ -354,7 +354,11 @@ const DraftItem = React.memo(function DraftItem({
       onClick={() => onSelect(draftId)}
       className={cn(
         "w-full text-left py-1.5 cursor-pointer group relative",
-        "transition-colors duration-75",
+        // Chat list rows: 75ms is intentional. Users navigate this list
+        // tens of times/day — per Emil's "100+/day → no animation, 10s/day
+        // → drastically reduce" rule, we keep just enough fade to avoid
+        // jarring color jumps without slowing perceived navigation.
+        "transition-[background-color,color] duration-75 [transition-timing-function:var(--ease-natural)]",
         "outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
         isMultiSelectMode ? "px-3" : "pl-2 pr-2",
         !isMultiSelectMode && "rounded-md",
@@ -1172,7 +1176,7 @@ const InboxButton = memo(function InboxButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm transition-colors duration-150",
+        "press flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm",
         isActive
           ? "bg-foreground/5 text-foreground"
           : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
@@ -1204,13 +1208,13 @@ const AutomationsButton = memo(function AutomationsButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "group flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm transition-colors duration-150",
+        "press group flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm",
         "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
       )}
     >
       <SidebarAutomationsIcon className="h-4 w-4" />
       <span className="flex-1 text-left">Automations</span>
-      <ArrowUpRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
+      <ArrowUpRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-[opacity] duration-150 [transition-timing-function:var(--ease-natural)]" />
     </button>
   )
 })
@@ -3362,7 +3366,7 @@ export function AgentsSidebar({
               </span>
               <button
                 onClick={clearChatSelection}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="press text-xs text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </button>

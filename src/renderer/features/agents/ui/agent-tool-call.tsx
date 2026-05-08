@@ -36,7 +36,7 @@ export const AgentToolCall = memo(
 
     // Render subtitle with optional tooltip
     const clickableClass = onClick
-      ? " cursor-pointer hover:text-muted-foreground transition-colors"
+      ? " press cursor-pointer hover:text-muted-foreground"
       : ""
 
     const subtitleElement = subtitleStr ? (

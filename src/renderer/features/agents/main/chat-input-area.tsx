@@ -1159,7 +1159,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                     }}
                   >
                     <DropdownMenuTrigger asChild>
-                      <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+                      <button className="press flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
                         {subChatMode === "plan" ? (
                           <PlanIcon className="h-3.5 w-3.5 shrink-0" />
                         ) : (
@@ -1320,7 +1320,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                     >
                       <DropdownMenuTrigger asChild>
                         <button
-                          className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 border border-border"
+                          className="press flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 border border-border"
                         >
                           <Zap className="h-4 w-4 shrink-0" />
                           <span className="truncate">{currentOllamaModel || "Select model"}</span>
@@ -1371,7 +1371,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                         <button
                           disabled={hasCustomClaudeConfig}
                           className={cn(
-                            "flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground transition-colors rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
+                            "press flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
                             hasCustomClaudeConfig
                               ? "opacity-70 cursor-not-allowed"
                               : "hover:text-foreground hover:bg-muted/50",

@@ -226,8 +226,10 @@ function NotYetCreatedState({
           type="button"
           onClick={onCreate}
           className={cn(
-            "px-3 py-1.5 rounded-md text-[12px] font-medium",
-            "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
+            "press px-3 py-1.5 rounded-md text-[12px] font-medium",
+            "bg-primary text-primary-foreground",
+            "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+            "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
           )}
         >
           Create starter

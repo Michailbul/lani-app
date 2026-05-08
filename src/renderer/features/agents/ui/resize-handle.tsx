@@ -28,7 +28,7 @@ export function ResizeHandle({
         ease: "easeInOut",
       }}
       className={cn(
-        "h-16 bg-muted-foreground/20 rounded-full cursor-ew-resize hover:bg-muted-foreground/40 transition-colors flex-shrink-0 pointer-events-auto select-none touch-none",
+        "h-16 bg-muted-foreground/20 rounded-full cursor-ew-resize hover:bg-muted-foreground/40 transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)] flex-shrink-0 pointer-events-auto select-none touch-none",
         isResizing && "bg-muted-foreground/60",
         className,
       )}

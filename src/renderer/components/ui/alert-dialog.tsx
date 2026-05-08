@@ -48,7 +48,7 @@ const AlertDialogContent = React.forwardRef<
     >
       {children}
       {showCloseButton && (
-        <AlertDialogPrimitive.Cancel className="absolute right-3 top-3 h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors z-10">
+        <AlertDialogPrimitive.Cancel className="press absolute right-3 top-3 h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted z-10">
           <Cross2Icon className="h-3.5 w-3.5" />
           <span className="sr-only">Close</span>
         </AlertDialogPrimitive.Cancel>

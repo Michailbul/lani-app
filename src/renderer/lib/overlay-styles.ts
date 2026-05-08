@@ -10,9 +10,15 @@
 // Container Styles (Popover, Dropdown, Select, ContextMenu content)
 // =============================================================================
 
-/** Base container styles for all overlay content */
+/** Base container styles for all overlay content.
+ *
+ * `transform-origin` points at the trigger via Radix's universal popper
+ * CSS variable (Popover, DropdownMenu, Select, ContextMenu all set it).
+ * Default `center` is wrong for almost every popover — they should
+ * scale in FROM their trigger, not from the middle of themselves. Modals
+ * are the only exception and use a separate primitive (Dialog). */
 export const overlayContentBase =
-  "z-50 overflow-auto rounded-[10px] border border-border bg-popover text-sm text-popover-foreground shadow-lg"
+  "z-50 overflow-auto rounded-[10px] border border-border bg-popover text-sm text-popover-foreground shadow-lg [transform-origin:var(--radix-popper-content-transform-origin)]"
 
 /** Max height to stay within viewport */
 export const overlayMaxHeight = "max-h-[calc(100vh-32px)]"
@@ -51,8 +57,11 @@ export const overlayItemHighlighted =
 export const overlayItemDisabled =
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
 
-/** Item transition */
-export const overlayItemTransition = "transition-colors"
+/** Item transition — scoped to color/bg only, custom natural curve.
+ * Items in dropdowns/menus shouldn't snap colors when keyboard-navigating
+ * with arrow keys; the soft fade reads as "I'm following your selection". */
+export const overlayItemTransition =
+  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]"
 
 /** Combined item styles */
 export const overlayItem = `${overlayItemBase} ${overlayItemHover} ${overlayItemFocus} ${overlayItemHighlighted} ${overlayItemDisabled} ${overlayItemTransition}`
@@ -77,7 +86,7 @@ export const overlaySubTrigger = `${overlayItemWithIcon} ${overlaySubTriggerOpen
 
 /** Checkbox/Radio item base (with left padding for indicator) */
 export const overlayCheckableItem =
-  "relative flex items-center gap-1.5 min-h-[32px] py-[5px] pl-7 pr-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none transition-colors dark:hover:bg-neutral-800 hover:bg-accent hover:text-foreground focus:bg-accent dark:focus:bg-neutral-800 focus:text-accent-foreground data-[highlighted]:bg-accent dark:data-[highlighted]:bg-neutral-800 data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+  "relative flex items-center gap-1.5 min-h-[32px] py-[5px] pl-7 pr-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)] dark:hover:bg-neutral-800 hover:bg-accent hover:text-foreground focus:bg-accent dark:focus:bg-neutral-800 focus:text-accent-foreground data-[highlighted]:bg-accent dark:data-[highlighted]:bg-neutral-800 data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
 
 /** Indicator container (positioned left) */
 export const overlayItemIndicator =

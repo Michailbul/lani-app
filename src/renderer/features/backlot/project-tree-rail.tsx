@@ -124,10 +124,10 @@ export function ProjectTreeRail() {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "shrink-0 flex flex-col items-center justify-start py-3 gap-2",
+          "press shrink-0 flex flex-col items-center justify-start py-3 gap-2",
           "w-7 border-r border-border bg-card/30",
           "text-muted-foreground hover:text-foreground hover:bg-card/60",
-          "transition-colors",
+          "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Show project"
         aria-label="Show project"
@@ -161,7 +161,7 @@ export function ProjectTreeRail() {
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="press text-muted-foreground hover:text-foreground transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]"
             title="Hide project"
           >
             <ChevronsLeft className="h-3.5 w-3.5" />
@@ -420,19 +420,30 @@ function SingletonRow({
       type="button"
       onClick={() => setActive({ kind, path } as ActiveEntity)}
       className={cn(
-        "group relative w-full flex items-center gap-2 px-3 py-1.5 mx-1.5 rounded-md text-[12.5px]",
-        "transition-colors",
+        "press group relative w-full flex items-center gap-2 px-3 py-1.5 mx-1.5 rounded-md text-[12.5px]",
+        "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
         isActive
           ? "bg-primary/12 text-foreground font-medium"
           : "text-foreground/85 hover:bg-secondary/60",
       )}
     >
-      {isActive && (
-        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
-      )}
+      {/* Active stripe — always rendered, opacity + scaleY transition.
+          Conditional rendering would pop the stripe in instantly; this
+          way it slides up from a 1px sliver into a full-height bar.
+          transform-origin top-left so the grow direction reads as
+          "filling in" rather than "appearing centered". */}
+      <span
+        className={cn(
+          "absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary origin-top",
+          "transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-out)]",
+          isActive ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
+        )}
+        aria-hidden
+      />
       <Icon
         className={cn(
           "h-3.5 w-3.5 shrink-0",
+          "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
           isActive ? "text-primary" : "text-muted-foreground/70",
         )}
       />
@@ -535,9 +546,9 @@ function ScenesAndActsSection({
           type="button"
           onClick={onStart}
           className={cn(
-            "w-full flex items-center gap-1.5 mt-0.5 px-3 py-1 rounded-md",
+            "press w-full flex items-center gap-1.5 mt-0.5 px-3 py-1 rounded-md",
             "text-[11px] text-muted-foreground hover:text-primary",
-            "hover:bg-primary/5 transition-colors",
+            "hover:bg-primary/5 transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
           )}
         >
           <Plus className="h-3 w-3" />
@@ -579,17 +590,23 @@ function SceneRow({
         }
         style={indent ? { paddingLeft: indent } : undefined}
         className={cn(
-          "group relative w-full text-left flex items-baseline gap-2.5 pl-3 pr-2 py-1.5 rounded-md",
-          "transition-colors",
+          "press group relative w-full text-left flex items-baseline gap-2.5 pl-3 pr-2 py-1.5 rounded-md",
+          "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
           isActive ? "bg-primary/12" : "hover:bg-secondary/60",
         )}
       >
-        {isActive && (
-          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary" />
-        )}
+        <span
+          className={cn(
+            "absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary origin-top",
+            "transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-out)]",
+            isActive ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
+          )}
+          aria-hidden
+        />
         <span
           className={cn(
             "shrink-0 font-mono text-[10px] tabular-nums tracking-wider",
+            "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
             isActive ? "text-primary" : "text-muted-foreground/60",
           )}
         >
@@ -803,9 +820,10 @@ function EntityGroup({
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         className={cn(
-          "w-full flex items-center gap-1.5 px-2 py-1",
+          "press w-full flex items-center gap-1.5 px-2 py-1",
           "text-[10px] uppercase tracking-[0.16em] font-mono",
-          "text-muted-foreground/70 hover:text-foreground/90 transition-colors",
+          "text-muted-foreground/70 hover:text-foreground/90",
+          "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
       >
         {collapsed ? (
@@ -835,17 +853,22 @@ function EntityGroup({
                     type="button"
                     onClick={() => setActive(it.entity)}
                     className={cn(
-                      "relative w-full flex items-center gap-2 pl-9 pr-2 py-1 rounded-md text-[12px]",
-                      "transition-colors",
+                      "press relative w-full flex items-center gap-2 pl-9 pr-2 py-1 rounded-md text-[12px]",
+                      "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
                       isActive
                         ? "bg-primary/12 text-foreground font-medium"
                         : "text-foreground/85 hover:bg-secondary/60",
                     )}
                     title={it.label}
                   >
-                    {isActive && (
-                      <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r bg-primary" />
-                    )}
+                    <span
+                      className={cn(
+                        "absolute left-0 top-1 bottom-1 w-[2px] rounded-r bg-primary origin-top",
+                        "transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-out)]",
+                        isActive ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
+                      )}
+                      aria-hidden
+                    />
                     <span className="truncate flex-1 text-left">{it.label}</span>
                   </button>
                 </li>
@@ -866,8 +889,8 @@ function EntityGroup({
                 type="button"
                 onClick={onStart}
                 className={cn(
-                  "w-full flex items-center gap-1.5 pl-9 pr-2 py-1 rounded-md text-[11px]",
-                  "text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors",
+                  "press w-full flex items-center gap-1.5 pl-9 pr-2 py-1 rounded-md text-[11px]",
+                  "text-muted-foreground hover:text-primary hover:bg-primary/5 transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                 )}
               >
                 <Plus className="h-3 w-3" />
@@ -903,10 +926,12 @@ function EmptyState({
         onClick={onBootstrap}
         disabled={isPending}
         className={cn(
-          "flex items-center justify-center gap-1.5 px-3 py-2 rounded-md",
-          "bg-primary text-primary-foreground hover:opacity-90",
-          "text-[12px] font-medium transition-opacity",
-          "disabled:opacity-50 disabled:cursor-progress",
+          "press flex items-center justify-center gap-1.5 px-3 py-2 rounded-md",
+          "bg-primary text-primary-foreground",
+          "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+          "text-[12px] font-medium",
+          "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
+          "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
         )}
       >
         {isPending ? (
@@ -941,8 +966,9 @@ function DemoTrigger() {
           } as ActiveEntity)
         }
         className={cn(
-          "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-mono",
-          "text-muted-foreground/60 hover:text-primary transition-colors",
+          "press flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-mono",
+          "text-muted-foreground/60 hover:text-primary",
+          "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Load mock data so the scene focus view is testable before E1.4"
       >

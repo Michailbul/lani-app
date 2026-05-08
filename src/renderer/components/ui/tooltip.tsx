@@ -21,7 +21,13 @@ const TooltipContent = React.forwardRef<
       sideOffset={sideOffset}
       data-tooltip="true"
       className={cn(
-        "relative z-50 max-w-[280px] flex flex-col items-start gap-0.5 rounded-md border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark",
+        // Origin-aware scale — Radix exposes the trigger position via
+        // --radix-tooltip-content-transform-origin (and the universal
+        // --radix-popper-content-transform-origin). Without this, tooltips
+        // scale from the center of themselves, which reads as if the
+        // tooltip teleported in. Anchoring to the trigger makes the
+        // animation look like it grew out of the thing being labelled.
+        "relative z-50 max-w-[280px] flex flex-col items-start gap-0.5 rounded-md border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg [transform-origin:var(--radix-popper-content-transform-origin)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark",
         className,
       )}
       {...props}

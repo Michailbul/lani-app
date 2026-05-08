@@ -29,11 +29,28 @@ import { trpc } from "./lib/trpc"
 function ThemedToaster() {
   const { resolvedTheme } = useTheme()
 
+  // Sonner is Emil's library, so the defaults are already tuned. Adjusting:
+  //  • offset: pull off the absolute window edge so the toast doesn't kiss
+  //    the chrome — gives it room to breathe.
+  //  • visibleToasts: 4. Beyond that the stack feels noisy.
+  //  • toastOptions.classNames: brand-aligned border/radius so toasts feel
+  //    like they belong to this app, not a generic shadcn install.
+  //  • style: subtle elevation lift via shadow (no opacity shenanigans).
   return (
     <Toaster
       position="bottom-right"
       theme={resolvedTheme as "light" | "dark" | "system"}
       closeButton
+      offset={16}
+      visibleToasts={4}
+      toastOptions={{
+        classNames: {
+          toast:
+            "border border-border shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] rounded-[10px]",
+          title: "font-medium",
+          description: "text-muted-foreground",
+        },
+      }}
     />
   )
 }

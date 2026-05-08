@@ -68,7 +68,11 @@ export function Resizer({ axis, onResize, onResizeEnd, className }: ResizerProps
         setActive(true)
       }}
       className={cn(
-        "shrink-0 relative group transition-colors",
+        "shrink-0 relative group",
+        // Slow fade on the hover affordance — drag handles shouldn't snap
+        // to color, they should warm up under the cursor like a real
+        // physical handle.
+        "transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)]",
         axis === "x"
           ? "w-1.5 h-full cursor-col-resize hover:bg-primary/15"
           : "h-1.5 w-full cursor-row-resize hover:bg-primary/15",
@@ -79,7 +83,8 @@ export function Resizer({ axis, onResize, onResizeEnd, className }: ResizerProps
       {/* Painted hairline */}
       <div
         className={cn(
-          "absolute bg-border group-hover:bg-primary/60 transition-colors",
+          "absolute bg-border group-hover:bg-primary/60",
+          "transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)]",
           axis === "x"
             ? "inset-y-0 left-1/2 -translate-x-1/2 w-px"
             : "inset-x-0 top-1/2 -translate-y-1/2 h-px",

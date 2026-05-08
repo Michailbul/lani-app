@@ -311,9 +311,10 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
                 key={tab.id}
                 onClick={() => setViewMode(tab.id)}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors",
+                  "press flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
+                  "transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-natural)]",
                   isActive
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-[0_1px_0_0_rgba(0,0,0,0.04),0_1px_2px_-1px_rgba(0,0,0,0.06)]"
                     : "text-muted-foreground hover:text-foreground/80",
                 )}
               >
@@ -384,10 +385,11 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
               onClick={() => chatId && reject.mutate({ chatId })}
               disabled={reject.isPending || accept.isPending}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
+                "press flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
                 "border border-border bg-background hover:bg-secondary",
-                "text-foreground/80 hover:text-foreground transition-colors",
-                "disabled:opacity-50 disabled:cursor-progress",
+                "text-foreground/80 hover:text-foreground",
+                "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
               )}
             >
               <Undo2 className="h-3 w-3" />
@@ -398,9 +400,13 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
               onClick={() => chatId && accept.mutate({ chatId })}
               disabled={accept.isPending || reject.isPending}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
-                "bg-primary text-primary-foreground hover:opacity-90",
-                "disabled:opacity-50 disabled:cursor-progress",
+                "press flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
+                // Hover: brighten via shadow + tiny lift, not opacity. Opacity dimming
+                // reads as "disabled"; lift reads as "alive and pressable".
+                "bg-primary text-primary-foreground",
+                "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+                "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
+                "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
               )}
             >
               <Check className="h-3 w-3" />
@@ -682,10 +688,11 @@ function DiffSurface({
                       disabled={busy || busyHunkIndex !== null}
                       title="Dismiss this hunk (revert to HEAD just here)"
                       className={cn(
-                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                        "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
                         "border border-border bg-background hover:bg-rose-500/10",
                         "text-foreground/70 hover:text-rose-700 dark:hover:text-rose-300",
-                        "transition-colors disabled:opacity-50 disabled:cursor-progress",
+                        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                        "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
                       )}
                     >
                       <X className="h-3 w-3" />
@@ -697,10 +704,11 @@ function DiffSurface({
                       disabled={busy || busyHunkIndex !== null}
                       title="Approve this hunk (commit just this change)"
                       className={cn(
-                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                        "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
                         "border border-border bg-background hover:bg-emerald-500/10",
                         "text-foreground/70 hover:text-emerald-700 dark:hover:text-emerald-300",
-                        "transition-colors disabled:opacity-50 disabled:cursor-progress",
+                        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                        "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
                       )}
                     >
                       <Check className="h-3 w-3" />
@@ -973,7 +981,8 @@ function HistorySurface({
                   type="button"
                   onClick={() => setSelectedHash(c.hash)}
                   className={cn(
-                    "w-full text-left px-3 py-2.5 transition-colors",
+                    "press w-full text-left px-3 py-2.5",
+                    "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                     "hover:bg-secondary/40",
                     isSelected && "bg-primary/10 hover:bg-primary/10",
                   )}
@@ -1029,9 +1038,11 @@ function HistorySurface({
                 }
                 disabled={restore.isPending}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
-                  "bg-primary text-primary-foreground hover:opacity-90",
-                  "disabled:opacity-50 disabled:cursor-progress",
+                  "press flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium",
+                  "bg-primary text-primary-foreground",
+                  "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+                  "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
+                  "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
                 )}
                 title="Copy this snapshot into the working tree as a pending change"
               >
@@ -1112,9 +1123,11 @@ function NoArtifactState({
           onClick={onEnsure}
           disabled={isEnsuring}
           className={cn(
-            "px-3 py-1.5 rounded-md text-xs font-medium",
-            "bg-primary text-primary-foreground hover:opacity-90",
-            "disabled:opacity-50 disabled:cursor-progress",
+            "press px-3 py-1.5 rounded-md text-xs font-medium",
+            "bg-primary text-primary-foreground",
+            "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+            "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
+            "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
           )}
         >
           {isEnsuring ? "Creating…" : "Seed empty screenplay"}
@@ -1177,7 +1190,7 @@ function OutlineNodeRow({ node, onOpenHistory }: OutlineNodeRowProps) {
       <div
         className={cn(
           "group flex items-center gap-1.5 pl-3 pr-2 py-1 text-xs",
-          "hover:bg-secondary/60 transition-colors",
+          "hover:bg-secondary/60 transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         style={{ paddingLeft: 12 + indent }}
       >
@@ -1204,8 +1217,9 @@ function OutlineNodeRow({ node, onOpenHistory }: OutlineNodeRowProps) {
           type="button"
           onClick={() => onOpenHistory(node)}
           className={cn(
-            "shrink-0 p-1 rounded opacity-0 group-hover:opacity-100",
-            "hover:bg-primary/15 hover:text-primary transition-colors",
+            "press shrink-0 p-1 rounded opacity-0 group-hover:opacity-100",
+            "hover:bg-primary/15 hover:text-primary",
+            "transition-[opacity,color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
             "text-muted-foreground",
           )}
           aria-label={`Open history of ${node.label}`}
@@ -1306,7 +1320,7 @@ function PartHistoryDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="press text-muted-foreground hover:text-foreground transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]"
             aria-label="Close history"
           >
             <X className="h-4 w-4" />
@@ -1413,14 +1427,18 @@ function RevisionRow({ rev, isLatest, pending, onSwap }: RevisionRowProps) {
             type="button"
             onClick={() => setExpanded((v) => !v)}
             className={cn(
-              "p-1.5 rounded text-muted-foreground hover:text-foreground",
-              "hover:bg-secondary transition-colors",
+              "press p-1.5 rounded text-muted-foreground hover:text-foreground",
+              "hover:bg-secondary",
+              "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
             )}
             title={expanded ? "Collapse preview" : "Expand preview"}
           >
             <ChevronRight
               className={cn(
-                "h-3.5 w-3.5 transition-transform",
+                // Specify exact property — `transition-transform` is fine,
+                // but the duration default is too long. 200ms with strong
+                // ease-out curve makes the rotation feel crisp.
+                "h-3.5 w-3.5 transition-transform duration-200 [transition-timing-function:var(--ease-out)]",
                 expanded && "rotate-90",
               )}
             />
@@ -1430,10 +1448,10 @@ function RevisionRow({ rev, isLatest, pending, onSwap }: RevisionRowProps) {
             onClick={onSwap}
             disabled={pending}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+              "press flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
               "border border-border bg-background hover:bg-primary hover:text-primary-foreground",
-              "transition-colors",
-              "disabled:opacity-50 disabled:cursor-progress",
+              "transition-[color,background-color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+              "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
             )}
             title="Replace the current version with this one. Surfaces as a pending diff for review."
           >

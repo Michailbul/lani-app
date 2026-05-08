@@ -118,6 +118,22 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════
+   Motion — easing tokens. Built-in CSS easings are too soft
+   for UI; these custom curves give animations the "punch"
+   that makes them feel intentional. Use --ease-out for
+   enter/exit, --ease-in-out for on-screen movement, and
+   --ease-natural for hover/color crossfades.
+   ═══════════════════════════════════════════════════════ */
+@layer base {
+  :root {
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-natural: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -127,6 +143,82 @@
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
+  }
+
+  /* Press feedback — every pressable element should respond.
+     Subtle (0.97), short (140ms transform / 150ms colors), eased
+     out so the rebound on release feels snappy rather than springy.
+     ─────────────────────────────────────────────────────────────
+     Why `!important` on the shorthand:
+     Tailwind's `transition-[color,...]` utilities compile to the
+     `transition-property` LONGHAND, which overrides .press's
+     shorthand if .press loses the cascade. The longhand override
+     would replace transition-property with just `color` etc.,
+     killing transform's transition and making the active scale
+     snap. By forcing the full multi-property shorthand here, we
+     guarantee transform is always animated AND every common color
+     property still transitions. Consumers add `.press` and skip
+     transition-* utilities — this class is authoritative. */
+  .press {
+    transition:
+      transform 140ms var(--ease-out),
+      color 150ms var(--ease-natural),
+      background-color 150ms var(--ease-natural),
+      border-color 150ms var(--ease-natural),
+      box-shadow 150ms var(--ease-natural),
+      filter 150ms var(--ease-natural),
+      opacity 150ms var(--ease-natural) !important;
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+
+  /* Reduced motion — keep opacity/color, remove movement.
+     Per WCAG 2.3.3 and emil's playbook: "fewer and gentler,
+     not zero". `!important` is required to beat .press's own
+     `!important` shorthand — without it this override is silently
+     ignored. We keep the color/opacity transitions (those aid
+     comprehension) and just kill the transform animation. */
+  @media (prefers-reduced-motion: reduce) {
+    .press {
+      transition:
+        color 150ms var(--ease-natural),
+        background-color 150ms var(--ease-natural),
+        border-color 150ms var(--ease-natural),
+        box-shadow 150ms var(--ease-natural),
+        filter 150ms var(--ease-natural),
+        opacity 150ms var(--ease-natural) !important;
+    }
+    .press:active {
+      transform: none !important;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Keyframes — sparingly used. Most motion lives in CSS
+   transitions (interruptible). Keyframes are for one-shot
+   entrances where retargeting isn't needed.
+   ═══════════════════════════════════════════════════════ */
+
+/* Assistant rail pill — slides in from off-screen right
+   when the rail collapses. Starts at scale(0.95), not 0,
+   so it doesn't read as "appearing from nothing". */
+@keyframes rail-pill-enter {
+  from {
+    opacity: 0;
+    transform: translate(8px, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes rail-pill-enter {
+    from { opacity: 0; transform: translateY(-50%); }
+    to   { opacity: 1; transform: translateY(-50%); }
   }
 }
 
@@ -155,10 +247,25 @@
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.3);
   border-radius: 4px;
+  /* Soft fade so the scrollbar warms up under the cursor like a
+     real handle, instead of snapping. */
+  transition: background-color 200ms var(--ease-natural);
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Text selection — wire the brand --selection token (Ember in dark mode,
+   Ember-tinted in light mode) so selection actually feels branded
+   instead of falling back to OS blue. */
+::selection {
+  background: hsl(var(--selection));
+  color: inherit;
+}
+::-moz-selection {
+  background: hsl(var(--selection));
+  color: inherit;
 }
 
 /* Disable text selection on UI elements */

@@ -257,7 +257,7 @@ function Header({
               type="button"
               onClick={() => onLayoutChange("list")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
+                "press flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-natural)]",
                 layout === "list"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground/80",
@@ -270,7 +270,7 @@ function Header({
               type="button"
               onClick={() => onLayoutChange("cards")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
+                "press flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-natural)]",
                 layout === "cards"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground/80",
@@ -283,8 +283,10 @@ function Header({
           <button
             type="button"
             className={cn(
-              "flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium",
-              "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
+              "press flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium",
+              "bg-primary text-primary-foreground",
+              "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+              "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
             )}
           >
             <Plus className="h-3 w-3" />
@@ -339,7 +341,8 @@ function ListLayout({ prompts, selectedId, onSelect }: ListLayoutProps) {
             type="button"
             onClick={() => onSelect(p.id)}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 text-left transition-colors group",
+              "press w-full flex items-center gap-3 px-4 py-2 text-left group",
+              "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
               isSelected
                 ? "bg-primary/10"
                 : "hover:bg-secondary/40",
@@ -428,11 +431,14 @@ function CardsLayout({ prompts, selectedId, onSelect }: CardsLayoutProps) {
             type="button"
             onClick={() => onSelect(p.id)}
             className={cn(
-              "relative flex flex-col gap-2 p-3 text-left rounded-md transition-all",
+              "press relative flex flex-col gap-2 p-3 text-left rounded-md",
+              // Specify exact properties — `transition-all` is a footgun:
+              // it animates everything, including layout-affecting things.
+              "transition-[border-color,box-shadow] duration-200 [transition-timing-function:var(--ease-out)]",
               "border bg-card",
               isSelected
                 ? "border-primary shadow-sm ring-1 ring-primary/20"
-                : "border-border hover:border-foreground/40 hover:shadow-sm",
+                : "border-border hover:border-foreground/40 hover:shadow-md",
             )}
           >
             {/* Top row: type + status */}
@@ -525,7 +531,7 @@ function PromptDetailDrawer({ prompt, onClose }: PromptDetailDrawerProps) {
         <button
           type="button"
           onClick={onClose}
-          className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded"
+          className="press text-muted-foreground hover:text-foreground transition-[color] duration-150 [transition-timing-function:var(--ease-natural)] p-1 rounded"
           aria-label="Close prompt detail"
         >
           <X className="h-4 w-4" />
@@ -612,8 +618,9 @@ function PromptDetailDrawer({ prompt, onClose }: PromptDetailDrawerProps) {
               <button
                 type="button"
                 className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+                  "press flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
                   "border border-border bg-background hover:bg-secondary",
+                  "transition-[background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                 )}
               >
                 <RotateCcw className="h-3 w-3" />
@@ -622,8 +629,10 @@ function PromptDetailDrawer({ prompt, onClose }: PromptDetailDrawerProps) {
               <button
                 type="button"
                 className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
-                  "bg-primary text-primary-foreground hover:opacity-90",
+                  "press flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium",
+                  "bg-primary text-primary-foreground",
+                  "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+                  "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
                 )}
               >
                 <Sparkles className="h-3 w-3" />
@@ -650,9 +659,9 @@ function PromptDetailDrawer({ prompt, onClose }: PromptDetailDrawerProps) {
               <button
                 type="button"
                 className={cn(
-                  "w-12 h-12 rounded border border-dashed border-border",
+                  "press w-12 h-12 rounded border border-dashed border-border",
                   "flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/60",
-                  "transition-colors",
+                  "transition-[color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                 )}
                 title="Drop or paste a reference image"
               >

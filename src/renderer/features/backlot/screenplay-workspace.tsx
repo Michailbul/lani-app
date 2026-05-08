@@ -109,28 +109,35 @@ export function ScreenplayWorkspace({
         {/* Show-assistant pill — vertical label on the right edge. Big enough
             to find without hunting; clickable across the whole pill. */}
         {!railOpen && (
-          <button
-            type="button"
-            onClick={() => setRailOpen(true)}
-            className={cn(
-              "absolute top-1/2 -translate-y-1/2 right-0 z-30",
-              "flex flex-col items-center justify-center gap-2",
-              "w-9 py-4 rounded-l-lg border border-r-0 border-border",
-              "bg-primary text-primary-foreground hover:opacity-90",
-              "shadow-lg transition-opacity",
-            )}
-            title="Show assistant (Cmd+\\)"
-            aria-label="Show assistant"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span
-              className="text-[10px] uppercase tracking-[0.18em] font-mono"
-              style={{ writingMode: "vertical-rl" }}
+          // Positioning shell — handles vertical centering. The button
+          // child handles its own press/hover transforms without fighting
+          // the centering translate.
+          <div className="absolute top-1/2 -translate-y-1/2 right-0 z-30 [animation:rail-pill-enter_220ms_var(--ease-out)_forwards]">
+            <button
+              type="button"
+              onClick={() => setRailOpen(true)}
+              className={cn(
+                "press group",
+                "flex flex-col items-center justify-center gap-2",
+                "w-9 py-4 rounded-l-lg border border-r-0 border-border",
+                "bg-primary text-primary-foreground",
+                "shadow-lg",
+                "transition-shadow duration-200 [transition-timing-function:var(--ease-out)]",
+                "hover:shadow-xl",
+              )}
+              title="Show assistant (Cmd+\\)"
+              aria-label="Show assistant"
             >
-              Assistant
-            </span>
-            <ChevronLeft className="h-3 w-3" />
-          </button>
+              <MessageSquare className="h-4 w-4" />
+              <span
+                className="text-[10px] uppercase tracking-[0.18em] font-mono"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                Assistant
+              </span>
+              <ChevronLeft className="h-3 w-3 transition-transform duration-200 [transition-timing-function:var(--ease-out)] group-hover:-translate-x-0.5" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -155,9 +162,9 @@ export function ScreenplayWorkspace({
                 type="button"
                 onClick={() => setRailOpen(false)}
                 className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+                  "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
                   "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                  "transition-colors",
+                  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                 )}
                 title="Hide assistant (Cmd+\\)"
                 aria-label="Hide assistant"
@@ -188,7 +195,7 @@ export function ScreenplayWorkspace({
 function ModeToggleStrip() {
   const [mode, setMode] = useAtom(viewModeAtom)
   return (
-    <div className="flex items-center gap-1 h-8 px-3 border-b border-border bg-card/30 select-none shrink-0">
+    <div className="flex items-center gap-1 h-9 px-3 border-b border-border bg-card/40 select-none shrink-0">
       <ModeButton
         icon={Pencil}
         label="Screenwriting"
@@ -221,10 +228,14 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-medium",
-        "transition-colors",
+        "press relative flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-medium",
+        // Two transitions on the same element — color crossfades faster
+        // than the surface fill so the label "lands" at the moment the
+        // background settles. Custom easing curves; no `transition-colors`
+        // catch-all.
+        "transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-natural)]",
         active
-          ? "bg-background text-foreground shadow-sm border border-border"
+          ? "bg-background text-foreground shadow-[0_1px_0_0_rgba(0,0,0,0.04),0_1px_2px_-1px_rgba(0,0,0,0.06)]"
           : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
       )}
     >
@@ -339,10 +350,10 @@ function ForkActiveButton() {
       onClick={onClick}
       disabled={!activeChatId || fork.isPending}
       className={cn(
-        "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+        "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
         "text-muted-foreground hover:text-primary hover:bg-primary/10",
-        "transition-colors",
-        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+        "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
       )}
       title="Try another way — fork this Direction at its latest saved version"
       aria-label="Try another way"
@@ -412,8 +423,8 @@ function LineageBreadcrumb() {
                 type="button"
                 onClick={() => setActiveChatId(d.id)}
                 className={cn(
-                  "flex items-center gap-1.5 px-1.5 py-0.5 rounded truncate",
-                  "transition-colors",
+                  "press flex items-center gap-1.5 px-1.5 py-0.5 rounded truncate",
+                  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
                   isCurrent
                     ? "text-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
