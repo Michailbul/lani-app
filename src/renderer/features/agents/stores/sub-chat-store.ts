@@ -11,6 +11,7 @@ export interface SubChatMeta {
   created_at?: string
   updated_at?: string
   mode?: "plan" | "agent"
+  provider?: "claude-code" | "codex"
 }
 
 interface AgentSubChatStore {

@@ -153,8 +153,8 @@ export function ProjectHomeView() {
                   Start a new chat
                 </div>
                 <div className="text-[12.5px] text-muted-foreground leading-snug max-w-[420px]">
-                  Spin up a fresh worktree and put Claude on a new direction —
-                  a beat to break, a scene to reshape, a prompt to forge.
+                  Work in the project draft with Claude or Codex - a beat to
+                  break, a scene to reshape, a prompt to refine.
                 </div>
               </div>
               <ChevronRight className="h-4 w-4 text-primary/60 mt-2 -translate-x-1 group-hover:translate-x-0 transition-transform flex-shrink-0" />
@@ -198,8 +198,8 @@ export function ProjectHomeView() {
             <div className="flex flex-col items-center justify-center text-center py-8 px-4 rounded-lg border border-dashed border-border/60 bg-muted/20">
               <Sparkles className="h-4 w-4 text-muted-foreground/55 mb-2" />
               <div className="text-[12px] text-muted-foreground/85 leading-relaxed max-w-[300px]">
-                No chats yet for this project. Start one above to put Claude
-                on the page.
+                No chats yet for this project. Start one above when you want an
+                agent on the page.
               </div>
             </div>
           ) : (

@@ -35,6 +35,16 @@ export const selectedChatIsRemoteAtom = atomWithWindowStorage<boolean>(
 // Not persisted - only tracks within current session
 export const previousAgentChatIdAtom = atom<string | null>(null)
 
+export type ThreadCreateOptions =
+  | { kind: "fresh" }
+  | { kind: "branch" }
+
+export const threadCreateRequestAtom = atom<{
+  id: number
+  chatId: string
+  options: ThreadCreateOptions
+} | null>(null)
+
 // Selected draft ID - when user clicks on a draft in sidebar, this is set
 // NewChatForm uses this to restore the draft text
 // Reset to null when "New Workspace" is clicked or chat is created
@@ -222,6 +232,109 @@ export const lastSelectedModelIdAtom = atomWithStorage<string>(
   "opus",
   undefined,
   { getOnInit: true },
+)
+
+export const lastSelectedCodexModelIdAtom = atomWithStorage<string>(
+  "agents:lastSelectedCodexModelId",
+  "gpt-5.3-codex",
+  undefined,
+  { getOnInit: true },
+)
+
+export type CodexThinkingPreference = "low" | "medium" | "high" | "xhigh"
+
+export const lastSelectedCodexThinkingAtom =
+  atomWithStorage<CodexThinkingPreference>(
+    "agents:lastSelectedCodexThinking",
+    "high",
+    undefined,
+    { getOnInit: true },
+  )
+
+const subChatModelIdsStorageAtom = atomWithStorage<Record<string, string>>(
+  "agents:subChatModelIds",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const subChatModelIdAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) =>
+      subChatId
+        ? get(subChatModelIdsStorageAtom)[subChatId] ??
+          get(lastSelectedModelIdAtom)
+        : get(lastSelectedModelIdAtom),
+    (get, set, newModelId: string) => {
+      if (!subChatId) {
+        set(lastSelectedModelIdAtom, newModelId)
+        return
+      }
+      const current = get(subChatModelIdsStorageAtom)
+      if (current[subChatId] === newModelId) return
+      set(subChatModelIdsStorageAtom, { ...current, [subChatId]: newModelId })
+    },
+  ),
+)
+
+const subChatCodexModelIdsStorageAtom = atomWithStorage<Record<string, string>>(
+  "agents:subChatCodexModelIds",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const subChatCodexModelIdAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) =>
+      subChatId
+        ? get(subChatCodexModelIdsStorageAtom)[subChatId] ??
+          get(lastSelectedCodexModelIdAtom)
+        : get(lastSelectedCodexModelIdAtom),
+    (get, set, newModelId: string) => {
+      if (!subChatId) {
+        set(lastSelectedCodexModelIdAtom, newModelId)
+        return
+      }
+      const current = get(subChatCodexModelIdsStorageAtom)
+      if (current[subChatId] === newModelId) return
+      set(subChatCodexModelIdsStorageAtom, {
+        ...current,
+        [subChatId]: newModelId,
+      })
+    },
+  ),
+)
+
+const subChatCodexThinkingStorageAtom = atomWithStorage<
+  Record<string, CodexThinkingPreference>
+>(
+  "agents:subChatCodexThinking",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const subChatCodexThinkingAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) =>
+      subChatId
+        ? get(subChatCodexThinkingStorageAtom)[subChatId] ??
+          get(lastSelectedCodexThinkingAtom)
+        : get(lastSelectedCodexThinkingAtom),
+    (get, set, newThinking: CodexThinkingPreference) => {
+      if (!subChatId) {
+        set(lastSelectedCodexThinkingAtom, newThinking)
+        return
+      }
+      const current = get(subChatCodexThinkingStorageAtom)
+      if (current[subChatId] === newThinking) return
+      set(subChatCodexThinkingStorageAtom, {
+        ...current,
+        [subChatId]: newThinking,
+      })
+    },
+  ),
 )
 
 // Storage for all sub-chat modes (persisted per subChatId)
@@ -577,6 +690,7 @@ export const pendingConflictResolutionMessageAtom = atom<string | null>(null)
 // After successful OAuth flow, this triggers automatic retry of the message
 export type PendingAuthRetryMessage = {
   subChatId: string  // Required: only retry in the correct chat
+  provider?: "claude-code" | "codex"
   prompt: string
   images?: Array<{
     base64Data: string
@@ -590,8 +704,8 @@ export const pendingAuthRetryMessageAtom = atom<PendingAuthRetryMessage | null>(
 // Work mode preference (local = work in project dir, worktree = create isolated worktree)
 export type WorkMode = "local" | "worktree"
 export const lastSelectedWorkModeAtom = atomWithStorage<WorkMode>(
-  "agents:lastSelectedWorkMode",
-  "worktree", // default to worktree for current behavior
+  "agents:lastSelectedWorkMode:v2",
+  "local",
   undefined,
   { getOnInit: true },
 )
@@ -648,11 +762,11 @@ export const lastSelectedBranchesAtom = atomWithStorage<
 
 // Compacting status per sub-chat
 // Set<subChatId> - subChats currently being compacted
-export const compactingSubChatsAtom = atom<Set<string>>(new Set())
+export const compactingSubChatsAtom = atom<Set<string>>(new Set<string>())
 
 // Track IDs of chats/subchats created in this browser session (NOT persisted - resets on reload)
 // Used to determine whether to show placeholder + typewriter effect
-export const justCreatedIdsAtom = atom<Set<string>>(new Set())
+export const justCreatedIdsAtom = atom<Set<string>>(new Set<string>())
 
 // Pending user questions from AskUserQuestion tool
 // Set when Claude requests user input, cleared when answered or skipped

@@ -71,6 +71,8 @@ function getFallbackName(userMessage: string): string {
   return trimmed.substring(0, 25) + "..."
 }
 
+type AgentProviderId = "claude-code" | "codex"
+
 // Ollama-backed offline generation helpers were stripped. Backlot is online-only.
 // Procedures that previously fell back to Ollama for chat-name and commit-message
 // generation now skip the offline path entirely; the Claude-backed path remains.
@@ -164,6 +166,7 @@ export const chatsRouter = router({
       z.object({
         projectId: z.string(),
         name: z.string().optional(),
+        model: z.string().optional(),
         initialMessage: z.string().optional(),
         initialMessageParts: z
           .array(
@@ -191,6 +194,7 @@ export const chatsRouter = router({
         branchType: z.enum(["local", "remote"]).optional(), // Whether baseBranch is local or remote
         useWorktree: z.boolean().default(true), // If false, work directly in project dir
         mode: z.enum(["plan", "agent"]).default("agent"),
+        provider: z.enum(["claude-code", "codex"]).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -206,10 +210,18 @@ export const chatsRouter = router({
       console.log("[chats.create] found project:", project)
       if (!project) throw new Error("Project not found")
 
+      const initialProvider: AgentProviderId =
+        input.provider ??
+        (input.model?.toLowerCase().includes("codex") ? "codex" : "claude-code")
+
       // Create chat (fast path)
       const chat = db
         .insert(chats)
-        .values({ name: input.name, projectId: input.projectId })
+        .values({
+          name: input.name,
+          projectId: input.projectId,
+          provider: initialProvider,
+        })
         .returning()
         .get()
       console.log("[chats.create] created chat:", chat)
@@ -217,6 +229,9 @@ export const chatsRouter = router({
       // Create initial sub-chat with user message (AI SDK format)
       // If initialMessageParts is provided, use it; otherwise fallback to text-only message
       let initialMessages = "[]"
+      const initialMetadata = input.model
+        ? { model: input.model, provider: initialProvider }
+        : undefined
 
       if (input.initialMessageParts && input.initialMessageParts.length > 0) {
         initialMessages = JSON.stringify([
@@ -224,6 +239,7 @@ export const chatsRouter = router({
             id: `msg-${Date.now()}`,
             role: "user",
             parts: input.initialMessageParts,
+            ...(initialMetadata ? { metadata: initialMetadata } : {}),
           },
         ])
       } else if (input.initialMessage) {
@@ -232,6 +248,7 @@ export const chatsRouter = router({
             id: `msg-${Date.now()}`,
             role: "user",
             parts: [{ type: "text", text: input.initialMessage }],
+            ...(initialMetadata ? { metadata: initialMetadata } : {}),
           },
         ])
       }
@@ -241,6 +258,7 @@ export const chatsRouter = router({
         .values({
           chatId: chat.id,
           mode: input.mode,
+          provider: initialProvider,
           messages: initialMessages,
         })
         .returning()
@@ -508,6 +526,8 @@ export const chatsRouter = router({
               forkedAtCommit: forkCommit,
               forkedAtMessageIndex: inheritedMessageCount,
               directionColor,
+              provider:
+                parent.provider === "codex" ? "codex" : "claude-code",
             })
             .returning()
             .get()
@@ -537,6 +557,12 @@ export const chatsRouter = router({
                 sessionId: null,
                 streamId: null,
                 name: sc.name,
+                provider:
+                  sc.provider === "codex"
+                    ? "codex"
+                    : parent.provider === "codex"
+                      ? "codex"
+                      : "claude-code",
               })
               .run()
           }
@@ -822,17 +848,51 @@ export const chatsRouter = router({
         chatId: z.string(),
         name: z.string().optional(),
         mode: z.enum(["plan", "agent"]).default("agent"),
+        sourceSubChatId: z.string().optional(),
+        inheritMessages: z.boolean().default(false),
       }),
     )
     .mutation(({ input }) => {
       const db = getDatabase()
+      let messages = "[]"
+      const chat = db
+        .select()
+        .from(chats)
+        .where(eq(chats.id, input.chatId))
+        .get()
+
+      if (!chat) {
+        throw new Error("Session not found")
+      }
+
+      const provider: AgentProviderId =
+        chat.provider === "codex" ? "codex" : "claude-code"
+
+      if (input.inheritMessages && input.sourceSubChatId) {
+        const sourceSubChat = db
+          .select()
+          .from(subChats)
+          .where(eq(subChats.id, input.sourceSubChatId))
+          .get()
+
+        if (!sourceSubChat) {
+          throw new Error("Source thread not found")
+        }
+        if (sourceSubChat.chatId !== input.chatId) {
+          throw new Error("Source thread belongs to a different chat")
+        }
+
+        messages = sourceSubChat.messages || "[]"
+      }
+
       return db
         .insert(subChats)
         .values({
           chatId: input.chatId,
           name: input.name,
           mode: input.mode,
-          messages: "[]",
+          provider,
+          messages,
         })
         .returning()
         .get()

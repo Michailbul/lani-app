@@ -5,7 +5,7 @@
  * the ScreenplayWorkspace when a project is open but no chat is active.
  *
  * The user can already browse + edit files in project mode. The panel's
- * only job is to be the obvious door to "now put Claude on it" — a
+ * only job is to be the obvious door to "now put an agent on it" - a
  * single primary CTA, plus a short list of resumable recent chats so
  * picking up where you left off is one click.
  */
@@ -15,17 +15,21 @@ import { useSetAtom, useAtomValue } from "jotai"
 import {
   ChevronRight,
   GitBranch,
-  MessageSquarePlus,
   Sparkles,
 } from "lucide-react"
 import { trpc } from "../../../lib/trpc"
 import { Skeleton } from "../../../components/ui/skeleton"
+import { ClaudeCodeIcon, CodexIcon } from "../../../components/ui/icons"
 import { cn } from "../../../lib/utils"
 import {
+  lastSelectedAgentIdAtom,
   selectedAgentChatIdAtom,
+  selectedChatIsRemoteAtom,
   selectedProjectAtom,
-  showNewChatFormAtom,
 } from "../atoms"
+import { chatSourceModeAtom } from "../../../lib/atoms"
+
+type SessionProvider = "claude-code" | "codex"
 
 function formatRelative(input: string | Date | null | undefined): string {
   if (!input) return "—"
@@ -46,7 +50,18 @@ function formatRelative(input: string | Date | null | undefined): string {
 export function NoChatAssistantPanel() {
   const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
-  const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const setSelectedChatIsRemote = useSetAtom(selectedChatIsRemoteAtom)
+  const setChatSourceMode = useSetAtom(chatSourceModeAtom)
+  const setLastSelectedAgentId = useSetAtom(lastSelectedAgentIdAtom)
+  const utils = trpc.useUtils()
+  const createSession = trpc.chats.create.useMutation({
+    onSuccess: (session) => {
+      utils.chats.list.invalidate()
+      setSelectedChatIsRemote(false)
+      setChatSourceMode("local")
+      setSelectedChatId(session.id)
+    },
+  })
 
   const projectId = selectedProject?.id
 
@@ -60,7 +75,17 @@ export function NoChatAssistantPanel() {
     return chats.slice(0, 6)
   }, [chats])
 
-  const handleStart = () => setShowNewChatForm(true)
+  const handleStart = (provider: SessionProvider) => {
+    if (!selectedProject || createSession.isPending) return
+    setLastSelectedAgentId(provider)
+    createSession.mutate({
+      projectId: selectedProject.id,
+      name: provider === "codex" ? "Codex Session" : "Claude Session",
+      provider,
+      useWorktree: false,
+      mode: "agent",
+    })
+  }
   const handleResume = (chatId: string) => setSelectedChatId(chatId)
 
   return (
@@ -84,36 +109,63 @@ export function NoChatAssistantPanel() {
           <span className="text-foreground/90 font-medium">
             {selectedProject?.name ?? "this project"}
           </span>
-          . Start a chat to put Claude on the page.
+          . Start a chat when you want an agent on the page.
         </p>
       </div>
 
       {/* ── Primary CTA ── */}
-      <div className="px-4 pt-4">
+      <div className="px-4 pt-4 space-y-2">
         <button
-          onClick={handleStart}
+          onClick={() => handleStart("claude-code")}
+          disabled={createSession.isPending}
           className={cn(
             "group w-full text-left rounded-lg p-3.5 overflow-hidden",
             "bg-primary/[0.07] border border-primary/30",
             "hover:bg-primary/[0.12] hover:border-primary/50",
             "dark:bg-primary/[0.09] dark:border-primary/35 dark:hover:bg-primary/[0.16]",
             "transition-[background-color,border-color,transform] duration-150 ease-out",
-            "active:scale-[0.99]",
+            "active:scale-[0.99] disabled:opacity-60 disabled:pointer-events-none",
           )}
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-md bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
-              <MessageSquarePlus className="h-4 w-4" />
+              <ClaudeCodeIcon className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-display text-[13.5px] font-semibold tracking-tight leading-tight">
-                Start a new chat
+                Start Claude session
               </div>
               <div className="text-[11px] text-muted-foreground/85 leading-snug mt-0.5">
-                Spin up a fresh worktree against this project
+                Use Claude Code for this project session
               </div>
             </div>
             <ChevronRight className="h-3.5 w-3.5 text-primary/60 -translate-x-1 group-hover:translate-x-0 transition-transform flex-shrink-0" />
+          </div>
+        </button>
+        <button
+          onClick={() => handleStart("codex")}
+          disabled={createSession.isPending}
+          className={cn(
+            "group w-full text-left rounded-lg p-3.5 overflow-hidden",
+            "bg-muted/35 border border-border/70",
+            "hover:bg-muted/55 hover:border-border",
+            "transition-[background-color,border-color,transform] duration-150 ease-out",
+            "active:scale-[0.99] disabled:opacity-60 disabled:pointer-events-none",
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 rounded-md bg-background/70 text-foreground flex items-center justify-center flex-shrink-0 border border-border/60">
+              <CodexIcon className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-display text-[13.5px] font-semibold tracking-tight leading-tight">
+                Start Codex session
+              </div>
+              <div className="text-[11px] text-muted-foreground/85 leading-snug mt-0.5">
+                Use OpenAI Codex for this project session
+              </div>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 -translate-x-1 group-hover:translate-x-0 transition-transform flex-shrink-0" />
           </div>
         </button>
       </div>
@@ -125,7 +177,7 @@ export function NoChatAssistantPanel() {
             className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65"
             style={{ fontFamily: "var(--font-mono)" }}
           >
-            Recent chats
+            Recent sessions
           </span>
           <span className="h-px flex-1 bg-border/55 self-center" />
           {!isLoading && recentChats.length > 0 && (
@@ -153,7 +205,7 @@ export function NoChatAssistantPanel() {
         ) : recentChats.length === 0 ? (
           <div className="px-3 py-4 flex items-center gap-2 text-[11px] text-muted-foreground/70 leading-snug">
             <Sparkles className="h-3 w-3 flex-shrink-0" />
-            <span>No chats yet — start one above.</span>
+            <span>No sessions yet — start one above.</span>
           </div>
         ) : (
           <ul className="space-y-0.5">
@@ -168,7 +220,11 @@ export function NoChatAssistantPanel() {
                   )}
                 >
                   <div className="w-5 h-5 rounded bg-muted/70 border border-border/50 flex items-center justify-center flex-shrink-0">
-                    <MessageSquarePlus className="h-2.5 w-2.5 text-muted-foreground/65" />
+                    {(chat as any).provider === "codex" ? (
+                      <CodexIcon className="h-2.5 w-2.5 text-muted-foreground/65" />
+                    ) : (
+                      <ClaudeCodeIcon className="h-2.5 w-2.5 text-muted-foreground/65" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">

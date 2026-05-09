@@ -33,10 +33,11 @@ import {
   agentsDebugModeAtom,
   justCreatedIdsAtom,
   lastSelectedAgentIdAtom,
+  lastSelectedCodexModelIdAtom,
+  lastSelectedCodexThinkingAtom,
   lastSelectedBranchesAtom,
   lastSelectedModelIdAtom,
   lastSelectedRepoAtom,
-  lastSelectedWorkModeAtom,
   selectedAgentChatIdAtom,
   selectedChatIsRemoteAtom,
   selectedDraftIdAtom,
@@ -46,7 +47,6 @@ import {
 } from "../atoms"
 import { defaultAgentModeAtom } from "../../../lib/atoms"
 import { ProjectSelector } from "../components/project-selector"
-import { WorkModeSelector } from "../components/work-mode-selector"
 // import { selectedTeamIdAtom } from "@/lib/atoms/team"
 import { atom } from "jotai"
 const selectedTeamIdAtom = atom<string | null>(null)
@@ -110,9 +110,29 @@ import {
   markDraftVisible,
   type DraftProject,
 } from "../lib/drafts"
-import { CLAUDE_MODELS } from "../lib/models"
+import {
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  formatCodexThinkingLabel,
+  type CodexThinkingLevel,
+} from "../lib/models"
 // import type { PlanType } from "@/lib/config/subscription-plans"
 type PlanType = string
+type OllamaStatus = {
+  internet: { online: boolean }
+  ollama: {
+    available: boolean
+    models: string[]
+    recommendedModel?: string | null
+  }
+}
+type RemoteRepo = {
+  id: string
+  name: string
+  full_name: string
+  sandbox_status?: "error" | "ready" | "not_setup" | "in_progress" | null
+  pushed_at?: string | null
+}
 
 // Codex icon (OpenAI style)
 const CodexIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -126,10 +146,7 @@ const CodexIcon = (props: React.SVGProps<SVGSVGElement>) => (
 // the upstream useAvailableModels hook.
 function useAvailableModels() {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const ollamaStatus: undefined | {
-    internet: { online: boolean }
-    ollama: { available: boolean; models: string[]; recommendedModel?: string | null }
-  } = undefined
+  const ollamaStatus = undefined as OllamaStatus | undefined
 
   const baseModels = CLAUDE_MODELS
 
@@ -165,7 +182,7 @@ function useAvailableModels() {
 const agents = [
   { id: "claude-code", name: "Claude Code", hasModels: true },
   { id: "cursor", name: "Cursor CLI", disabled: true },
-  { id: "codex", name: "OpenAI Codex", disabled: true },
+  { id: "codex", name: "OpenAI Codex" },
 ]
 
 interface NewChatFormProps {
@@ -231,7 +248,7 @@ export function NewChatForm({
   const toggleMode = useCallback(() => {
     setAgentMode(getNextMode)
   }, [])
-  const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom)
+  const workMode = "local" as "local" | "worktree"
   const debugMode = useAtomValue(agentsDebugModeAtom)
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
   const normalizedCustomClaudeConfig =
@@ -284,12 +301,20 @@ export function NewChatForm({
     return `${match[1]}/${match[2].replace(/\.git$/, "")}`
   }
   const [selectedAgent, setSelectedAgent] = useState(
-    () => agents.find((a) => a.id === lastSelectedAgentId) || agents[0],
+    () =>
+      agents.find((a) => a.id === lastSelectedAgentId && !a.disabled) ||
+      agents[0],
   )
 
   // Get available models (with offline support)
   const availableModels = useAvailableModels()
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
+  const [lastSelectedCodexModelId, setLastSelectedCodexModelId] = useAtom(
+    lastSelectedCodexModelIdAtom,
+  )
+  const [lastSelectedCodexThinking, setLastSelectedCodexThinking] = useAtom(
+    lastSelectedCodexThinkingAtom,
+  )
 
   const [selectedModel, setSelectedModel] = useState(
     () =>
@@ -306,6 +331,21 @@ export function NewChatForm({
 
   // Determine current Ollama model (selected or recommended)
   const currentOllamaModel = selectedOllamaModel || availableModels.recommendedModel || availableModels.ollamaModels[0]
+  const selectedCodexModel =
+    CODEX_MODELS.find((model) => model.id === lastSelectedCodexModelId) ||
+    CODEX_MODELS[0]!
+  const selectedCodexThinking: CodexThinkingLevel =
+    selectedCodexModel.thinkings.includes(
+      lastSelectedCodexThinking as CodexThinkingLevel,
+    )
+      ? (lastSelectedCodexThinking as CodexThinkingLevel)
+      : selectedCodexModel.thinkings.includes("high")
+        ? "high"
+        : selectedCodexModel.thinkings[0]!
+  const selectedChatModel =
+    selectedAgent.id === "codex"
+      ? `${selectedCodexModel.id}/${selectedCodexThinking}`
+      : selectedModel?.id || "opus"
   const [repoPopoverOpen, setRepoPopoverOpen] = useState(false)
   const [branchPopoverOpen, setBranchPopoverOpen] = useState(false)
   const [lastSelectedBranches, setLastSelectedBranches] = useAtom(
@@ -572,7 +612,7 @@ export function NewChatForm({
 
   // Fetch repos from team
   // Desktop: no remote repos, we use local projects
-  const reposData = { repositories: [] }
+  const reposData: { repositories: RemoteRepo[] } = { repositories: [] }
   const isLoadingRepos = false
 
   // Memoize repos arrays to prevent useEffect from running on every keystroke
@@ -641,7 +681,7 @@ export function NewChatForm({
         id: firstRepo.id,
         name: firstRepo.name,
         full_name: firstRepo.full_name,
-        sandbox_status: firstRepo.sandbox_status,
+        sandbox_status: firstRepo.sandbox_status ?? "not_setup",
       })
     }
 
@@ -652,7 +692,7 @@ export function NewChatForm({
   const branchesQuery = trpc.changes.getBranches.useQuery(
     { worktreePath: validatedProject?.path || "" },
     {
-      enabled: !!validatedProject?.path,
+      enabled: !!validatedProject?.path && workMode === "worktree",
       staleTime: 30_000, // Cache for 30 seconds
     },
   )
@@ -823,8 +863,8 @@ export function NewChatForm({
           setHasContent(false)
         }
 
-        // Fetch remote branches in background when starting new workspace
-        if (validatedProject?.path) {
+        // Branch refresh is only needed for future worktree/variation mode.
+        if (validatedProject?.path && workMode === "worktree") {
           handleRefreshBranches()
         }
       }
@@ -850,7 +890,7 @@ export function NewChatForm({
         return () => clearTimeout(timeoutId)
       }
     }
-  }, [selectedDraftId, handleRefreshBranches, validatedProject?.path])
+  }, [selectedDraftId, handleRefreshBranches, validatedProject?.path, workMode])
 
   // Mark draft as visible when component unmounts (user navigates away)
   // This ensures the draft only appears in the sidebar after leaving the form
@@ -954,7 +994,7 @@ export function NewChatForm({
 
   // Backlot-style import: copies the picked folder to ~/.backlot/projects/<slug>/,
   // inits a fresh git repo + baseline commit, and selects the resulting
-  // project so the next chat created here forks cleanly. The user's
+  // project so chats work against Backlot's canonical project copy. The user's
   // original folder is never touched.
   const pickAndImport = trpc.projects.pickAndImport.useMutation({
     onSuccess: (project) => {
@@ -1143,6 +1183,8 @@ export function NewChatForm({
     createChatMutation.mutate({
       projectId: selectedProject.id,
       name: message.trim().slice(0, 50), // Use first 50 chars as chat name
+      model: selectedChatModel,
+      provider: selectedAgent.id === "codex" ? "codex" : "claude-code",
       initialMessageParts: parts.length > 0 ? parts : undefined,
       baseBranch:
         workMode === "worktree" ? selectedBranch || undefined : undefined,
@@ -1164,6 +1206,8 @@ export function NewChatForm({
     files,
     pastedTexts,
     agentMode,
+    selectedChatModel,
+    selectedAgent.id,
     trpcUtils,
   ])
 
@@ -1844,46 +1888,59 @@ export function NewChatForm({
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : (
-                        // Online mode: show Claude model selector
+                        // Online mode: show agent/provider model selector
                         <DropdownMenu
-                          open={hasCustomClaudeConfig ? false : isModelDropdownOpen}
-                          onOpenChange={(open) => {
-                            if (!hasCustomClaudeConfig) {
-                              setIsModelDropdownOpen(open)
-                            }
-                          }}
+                          open={isModelDropdownOpen}
+                          onOpenChange={setIsModelDropdownOpen}
                         >
                           <DropdownMenuTrigger asChild>
                             <button
-                              disabled={hasCustomClaudeConfig}
                               className={cn(
                                 "flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground transition-[background-color,color] duration-150 ease-out rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
-                                hasCustomClaudeConfig
-                                  ? "opacity-70 cursor-not-allowed"
-                                  : "hover:text-foreground hover:bg-muted/50",
+                                "hover:text-foreground hover:bg-muted/50",
                               )}
                             >
-                              <ClaudeCodeIcon className="h-3.5 w-3.5" />
+                              {selectedAgent.id === "codex" ? (
+                                <CodexIcon className="h-3.5 w-3.5" />
+                              ) : (
+                                <ClaudeCodeIcon className="h-3.5 w-3.5" />
+                              )}
                               <span>
-                                {hasCustomClaudeConfig ? (
+                                {selectedAgent.id === "codex" ? (
+                                  <>
+                                    {selectedCodexModel.name}{" "}
+                                    <span className="text-muted-foreground">
+                                      {formatCodexThinkingLabel(selectedCodexThinking)}
+                                    </span>
+                                  </>
+                                ) : hasCustomClaudeConfig ? (
                                   "Custom Model"
                                 ) : (
                                   <>
                                     {selectedModel?.name}{" "}
-                                    <span className="text-muted-foreground">4.5</span>
+                                    <span className="text-muted-foreground">
+                                      {selectedModel?.version || "4.5"}
+                                    </span>
                                   </>
                                 )}
                               </span>
                               <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-[200px]">
+                          <DropdownMenuContent align="start" className="w-[240px]">
+                            <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Claude Code
+                            </div>
                             {availableModels.models.map((model) => {
-                              const isSelected = selectedModel?.id === model.id
+                              const isSelected =
+                                selectedAgent.id === "claude-code" &&
+                                selectedModel?.id === model.id
                               return (
                                 <DropdownMenuItem
                                   key={model.id}
                                   onClick={() => {
+                                    setSelectedAgent(agents[0])
+                                    setLastSelectedAgentId("claude-code")
                                     setSelectedModel(model)
                                     setLastSelectedModelId(model.id)
                                   }}
@@ -1893,7 +1950,49 @@ export function NewChatForm({
                                     <ClaudeCodeIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                     <span>
                                       {model.name}{" "}
-                                      <span className="text-muted-foreground">4.5</span>
+                                      <span className="text-muted-foreground">
+                                        {model.version || "4.5"}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  {isSelected && (
+                                    <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                </DropdownMenuItem>
+                              )
+                            })}
+                            <div className="mt-1 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              OpenAI Codex
+                            </div>
+                            {CODEX_MODELS.map((model) => {
+                              const isSelected =
+                                selectedAgent.id === "codex" &&
+                                selectedCodexModel.id === model.id
+                              const nextThinking = model.thinkings.includes(
+                                selectedCodexThinking,
+                              )
+                                ? selectedCodexThinking
+                                : model.thinkings.includes("high")
+                                  ? "high"
+                                  : model.thinkings[0]!
+                              return (
+                                <DropdownMenuItem
+                                  key={model.id}
+                                  onClick={() => {
+                                    setSelectedAgent(agents[2])
+                                    setLastSelectedAgentId("codex")
+                                    setLastSelectedCodexModelId(model.id)
+                                    setLastSelectedCodexThinking(nextThinking)
+                                  }}
+                                  className="gap-2 justify-between"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <CodexIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span>
+                                      {model.name}{" "}
+                                      <span className="text-muted-foreground">
+                                        {formatCodexThinkingLabel(nextThinking)}
+                                      </span>
                                     </span>
                                   </div>
                                   {isSelected && (
@@ -1962,16 +2061,52 @@ export function NewChatForm({
                 <div className="mt-1.5 md:mt-2 ml-[5px] flex items-center gap-2">
                   <ProjectSelector />
 
-                  {/* Work mode selector - between project and branch */}
                   {validatedProject && (
-                    <WorkModeSelector
-                      value={workMode}
-                      onChange={setWorkMode}
-                      disabled={createChatMutation.isPending}
-                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                          disabled={createChatMutation.isPending}
+                        >
+                          {getAgentIcon(selectedAgent.id, "w-4 h-4")}
+                          <span className="truncate max-w-[120px]">
+                            {selectedAgent.name}
+                          </span>
+                          <IconChevronDown className="w-3 h-3 opacity-50" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-[190px]">
+                        {agents
+                          .filter((agent) => !agent.disabled)
+                          .map((agent) => {
+                            const isSelected = selectedAgent.id === agent.id
+                            return (
+                              <DropdownMenuItem
+                                key={agent.id}
+                                onClick={() => {
+                                  setSelectedAgent(agent)
+                                  setLastSelectedAgentId(agent.id)
+                                }}
+                                className="gap-2 justify-between"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  {getAgentIcon(
+                                    agent.id,
+                                    "w-3.5 h-3.5 text-muted-foreground shrink-0",
+                                  )}
+                                  <span>{agent.name}</span>
+                                </div>
+                                {isSelected && (
+                                  <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                              </DropdownMenuItem>
+                            )
+                          })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
 
-                  {/* Branch selector - only visible when worktree mode is selected */}
+                  {/* Branch selector - reserved for future worktree/variation mode. */}
                   {validatedProject && workMode === "worktree" && (
                     <Popover
                       open={branchPopoverOpen}
@@ -2231,8 +2366,7 @@ export function NewChatForm({
 //   + Import a project
 //
 // "Import" copies the picked folder into ~/.backlot/projects/<slug>/
-// and inits a fresh git baseline so forks always work cleanly. The
-// source folder stays untouched.
+// and inits a fresh git baseline. The source folder stays untouched.
 // ─────────────────────────────────────────────────────────────────────
 function BacklotProjectLanding({
   projects,
@@ -2297,8 +2431,8 @@ function BacklotProjectLanding({
           style={{ fontFamily: "var(--font-body)" }}
         >
           {hasProjects
-            ? "Choose a project to open, or import a new one. Backlot keeps forks isolated so the original folder stays untouched."
-            : "Backlot copies your folder into its own workspace so forks and history stay separate from your source."}
+            ? "Choose a project to open, or import a new one. Backlot works from its own project copy so the original folder stays untouched."
+            : "Backlot copies your folder into its own workspace, then lets chats work directly in that project draft."}
         </p>
       </div>
 

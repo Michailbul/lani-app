@@ -64,6 +64,20 @@
       "when": 1778008651031,
       "tag": "0008_tan_stardust",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778337600000,
+      "tag": "0009_thread_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1778341200000,
+      "tag": "0010_session_provider",
+      "breakpoints": true
     }
   ]
 }

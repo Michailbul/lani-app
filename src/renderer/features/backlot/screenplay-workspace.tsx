@@ -24,7 +24,14 @@
 import { type ReactNode, useEffect, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
-import { ChevronLeft, ChevronRight, GitBranch, MessageSquare, Plus } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  GitBranch,
+  MessageSquare,
+  MessageSquarePlus,
+  Plus,
+} from "lucide-react"
 import { motion } from "motion/react"
 import { toast } from "sonner"
 import { ProjectTreeRail } from "./project-tree-rail"
@@ -37,7 +44,19 @@ import {
   detailsSidebarOpenAtom,
   detailsSidebarWidthAtom,
 } from "../details-sidebar/atoms"
-import { selectedAgentChatIdAtom, selectedProjectAtom } from "../agents/atoms"
+import {
+  selectedAgentChatIdAtom,
+  selectedProjectAtom,
+  threadCreateRequestAtom,
+} from "../agents/atoms"
+import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 
@@ -158,6 +177,7 @@ export function ScreenplayWorkspace({
               </span>
             </div>
             <div className="flex items-center gap-1">
+              <ThreadMenuButton />
               <ForkActiveButton />
               <button
                 type="button"
@@ -361,6 +381,73 @@ function fallbackColor(chatId: string): string {
   let h = 0
   for (let i = 0; i < chatId.length; i++) h = (h * 31 + chatId.charCodeAt(i)) | 0
   return FALLBACK_PALETTE[Math.abs(h) % FALLBACK_PALETTE.length]
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ThreadMenuButton — visible entry point for chat threads in the Backlot rail.
+// The internal upstream tab strip is hidden in this layout, so expose the
+// actions here where the user can actually find them.
+// ────────────────────────────────────────────────────────────────────────
+function ThreadMenuButton() {
+  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
+  const setThreadCreateRequest = useSetAtom(threadCreateRequestAtom)
+  const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId)
+  const allSubChats = useAgentSubChatStore((state) => state.allSubChats)
+  const activeSubChat = allSubChats.find((subChat) => subChat.id === activeSubChatId)
+  const activeProviderLabel =
+    activeSubChat?.provider === "codex" ? "Codex" : "Claude"
+
+  const createThread = (options: { kind: "fresh" } | { kind: "branch" }) => {
+    if (!activeChatId) return
+    setThreadCreateRequest({
+      id: Date.now(),
+      chatId: activeChatId,
+      options,
+    })
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={!activeChatId}
+          className={cn(
+            "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
+            "text-muted-foreground hover:text-primary hover:bg-primary/10",
+            "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+            "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
+          )}
+          title="Start or branch an assistant thread"
+          aria-label="New assistant thread"
+        >
+          <MessageSquarePlus className="h-3 w-3" />
+          Thread
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem
+          disabled={!activeSubChatId}
+          onClick={() => createThread({ kind: "branch" })}
+        >
+          <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
+          <div className="flex flex-col">
+            <span>Branch from current</span>
+            <span className="text-[11px] text-muted-foreground">
+              Keep history, stay on {activeProviderLabel}
+            </span>
+          </div>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => createThread({ kind: "fresh" })}
+        >
+          <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
+          Fresh {activeProviderLabel} thread
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────

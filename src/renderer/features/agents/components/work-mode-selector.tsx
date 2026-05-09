@@ -43,7 +43,7 @@ export function WorkModeSelector({
   disabled,
 }: WorkModeSelectorProps) {
   const [open, setOpen] = useState(false)
-  const selectedOption = workModeOptions.find((opt) => opt.id === value) || workModeOptions[1]
+  const selectedOption = workModeOptions.find((opt) => opt.id === value) || workModeOptions[0]
   const Icon = selectedOption.icon
 
   return (
@@ -73,6 +73,7 @@ export function WorkModeSelector({
               key={option.id}
               onClick={() => {
                 if (isDisabled) return
+                if (option.id === "sandbox") return
                 onChange(option.id)
                 setOpen(false)
               }}

@@ -79,81 +79,9 @@ export function AgentsContent() {
   const showNewChatForm = useAtomValue(showNewChatFormAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
 
-  // ──────────────────────────────────────────────────────────────────
-  // Auto-resume / auto-create a chat on entry into a project.
-  //
-  // The user wants picking a project to land them in the working view
-  // (file tree + editor + live chat) — never the "What do you want
-  // to get done?" intro form. Two entry points:
-  //
-  //   1. Cold launch with a previously-selected project loaded from
-  //      localStorage (selectedProject set, selectedChatId null).
-  //   2. Switching projects from inside the app (clears chat, sets
-  //      project).
-  //
-  // SelectRepoPage handles its own click path inline; this effect is
-  // the safety net for everything else. Resumes the most-recent chat
-  // for the project, or creates a fresh one with `useWorktree: true`.
-  // ──────────────────────────────────────────────────────────────────
-  const utilsForResume = trpc.useUtils()
-  const createChatForResume = trpc.chats.create.useMutation()
-  const autoResumeInFlightRef = useRef(false)
-  useEffect(() => {
-    // Only run when we're in the "project but no chat" state.
-    if (!selectedProject) return
-    if (selectedChatId) return
-    if (selectedDraftId) return
-    if (showNewChatForm) return
-    if (autoResumeInFlightRef.current) return
-
-    let cancelled = false
-    autoResumeInFlightRef.current = true
-    void (async () => {
-      try {
-        const existing = await utilsForResume.client.chats.list.query({
-          projectId: selectedProject.id,
-        })
-        if (cancelled) return
-        if (existing && existing.length > 0) {
-          setSelectedChatId(existing[0]!.id)
-          return
-        }
-        const newChat = await createChatForResume.mutateAsync({
-          projectId: selectedProject.id,
-          useWorktree: true,
-        })
-        if (cancelled) return
-        utilsForResume.chats.list.setData(
-          { projectId: selectedProject.id },
-          (oldData) => {
-            const row = newChat as unknown as never
-            if (!oldData) return [row]
-            return [row, ...oldData]
-          },
-        )
-        setSelectedChatId(newChat.id)
-      } catch (err) {
-        // Surface — if both resume and create fail, the user gets the
-        // ScreenplayWorkspace + NoChatAssistantPanel fallback below
-        // and can retry from there.
-        console.warn("[auto-resume] failed:", err)
-      } finally {
-        if (!cancelled) autoResumeInFlightRef.current = false
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [
-    selectedProject,
-    selectedChatId,
-    selectedDraftId,
-    showNewChatForm,
-    setSelectedChatId,
-    utilsForResume,
-    createChatForResume,
-  ])
+  // Picking a project now lands on the Backlot project surface. Sessions are
+  // started explicitly from the assistant rail so the user chooses Claude or
+  // Codex before any agent state is created.
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const betaAutomationsEnabled = useAtomValue(betaAutomationsEnabledAtom)
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)

@@ -1789,11 +1789,13 @@ export function AgentsSidebar({
   // Fetch all local chats (no project filter)
   const { data: localChats } = trpc.chats.list.useQuery({})
 
-  // Fetch user's teams (same as web) - always enabled to allow merged list
-  const { data: teams, isLoading: isTeamsLoading, isError: isTeamsError } = useUserTeams(true)
+  const remoteSandboxEnabled = selectedChatIsRemote && chatSourceMode === "sandbox"
 
-  // Fetch remote sandbox chats (same as web) - requires teamId
-  const { data: remoteChats } = useRemoteChats()
+  // Fetch remote sandbox data only when the user is actually in sandbox mode.
+  // Backlot's local-first workflow should not hit 21st.dev on startup with a
+  // stale cached team id.
+  useUserTeams(remoteSandboxEnabled)
+  const { data: remoteChats } = useRemoteChats(remoteSandboxEnabled)
 
   // Prefetch individual chat data on hover
   const prefetchRemoteChat = usePrefetchRemoteChat()

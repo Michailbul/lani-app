@@ -8,10 +8,10 @@
  *
  *   1. Resume a recent project (most common — one click)
  *   2. Start a new project from scratch (named, scaffolded fresh)
- *   3. Import an existing folder from disk (forked into ~/.backlot)
+ *   3. Import an existing folder from disk (copied into ~/.backlot)
  *
  * Cloning from GitHub stays accessible as a quiet tertiary link so the
- * 1Code-era flow doesn't disappear. Visual register: editorial — the
+ * 1Code-era flow doesn't disappear. Visual register: editorial - the
  * page reads like the inside cover of a director's journal, not a SaaS
  * dashboard. Dark-mode-first (Obsidian + Ember), light-mode polished.
  */
@@ -124,8 +124,6 @@ export function SelectRepoPage() {
   const utils = trpc.useUtils()
   const { data: projects, isLoading: isLoadingProjects } =
     trpc.projects.list.useQuery()
-  const createChat = trpc.chats.create.useMutation()
-
   /** Optimistic insert/refresh of a project in the cached list. */
   const upsertProjectInCache = useCallback(
     (project: ProjectRow) => {
@@ -137,59 +135,29 @@ export function SelectRepoPage() {
             p.id === project.id
               ? { ...p, updatedAt: project.updatedAt ?? p.updatedAt }
               : p,
-          )
+          ) as never
         }
-        return [project as never, ...oldData]
+        return [project as never, ...oldData] as never
       })
     },
     [utils.projects.list],
   )
 
   /**
-   * Open a project end-to-end: select it, then either resume its most
-   * recent chat or auto-create a fresh one. The user never sees the
-   * "What do you want to get done?" intro form on this path — they
-   * land directly in the split view (file tree + editor + live chat).
-   *
-   * Resume strategy: pick the most-recently-updated non-archived chat
-   * for the project. If none, mint a new chat with `useWorktree: true`
-   * so the worktree is wired up before the user types anything.
+   * Open a project end-to-end: select it and land on the project workspace.
+   * The user can browse/edit the canonical project files first, then start
+   * a local chat when they actually want an agent on the page.
    */
   const openProject = useCallback(
     async (project: ProjectRow) => {
       setOpeningProjectId(project.id)
-      // Make sure the form atom is off — handleNewAgent (sidebar) sets
-      // it to true; we need it false on landing-driven entry so the
-      // ChatView wins the routing race.
+      // Make sure the form atom is off. Landing-driven entry should open the
+      // project workspace first, not force the new-chat composer.
       setShowNewChatForm(false)
       setSelectedProject(toSelectedProject(project))
       try {
-        // Try resume first.
-        const existing = await utils.client.chats.list.query({
-          projectId: project.id,
-        })
-        if (existing && existing.length > 0) {
-          const mostRecent = existing[0]!
-          setSelectedChatId(mostRecent.id)
-          return
-        }
-        // No chat yet — mint one. useWorktree=true so the worktree is
-        // ready when the user types their first message.
-        const newChat = await createChat.mutateAsync({
-          projectId: project.id,
-          useWorktree: true,
-        })
-        // Optimistically prime the chats list cache for this project so
-        // the sidebar shows the new chat immediately.
-        utils.chats.list.setData(
-          { projectId: project.id },
-          (oldData) => {
-            const row = newChat as unknown as never
-            if (!oldData) return [row]
-            return [row, ...oldData]
-          },
-        )
-        setSelectedChatId(newChat.id)
+        setSelectedChatId(null)
+        await utils.chats.list.invalidate({ projectId: project.id })
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "Couldn't open project.",
@@ -199,9 +167,7 @@ export function SelectRepoPage() {
       }
     },
     [
-      utils.client.chats.list,
       utils.chats.list,
-      createChat,
       setSelectedChatId,
       setSelectedProject,
       setShowNewChatForm,
@@ -383,7 +349,7 @@ export function SelectRepoPage() {
               tone="muted"
               icon={<FolderInput className="h-4 w-4" />}
               title="Import a folder"
-              description="Pick a folder on disk — Backlot forks it in."
+              description="Pick a folder on disk. Backlot works on its copy."
               shortcut={["⌘", "O"]}
               onClick={() => pickAndImport.mutate()}
               disabled={isBusy}
@@ -490,7 +456,7 @@ export function SelectRepoPage() {
                   Start a new project
                 </DialogTitle>
                 <DialogDescription className="text-[12px] text-muted-foreground/85 leading-snug">
-                  We'll create a fresh tree under{" "}
+                  We'll create a working project under{" "}
                   <span className="font-mono text-[11px]">~/.backlot/projects/</span>
                   .
                 </DialogDescription>
@@ -719,8 +685,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-8 px-4 rounded-lg border border-dashed border-border/60 bg-muted/20">
       <div className="text-[12px] text-muted-foreground/85 leading-relaxed max-w-[300px]">
-        No projects yet. Start with a fresh one above, or pick an existing
-        folder to fork in.
+        No projects yet. Start with a fresh one above, or import an existing
+        folder.
       </div>
       <button
         onClick={onCreate}

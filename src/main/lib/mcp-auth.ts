@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/sdk/validation';
 import { BrowserWindow, shell } from 'electron';
 import {
   getMcpServerConfig,
@@ -25,6 +26,23 @@ export interface McpToolInfo {
   description?: string;
 }
 
+const lenientJsonSchemaValidator: jsonSchemaValidator = {
+  getValidator<T>(_schema: JsonSchemaType): JsonSchemaValidator<T> {
+    return (input: unknown) => ({
+      valid: true,
+      data: input as T,
+      errorMessage: undefined,
+    });
+  },
+};
+
+function isMcpAuthError(error: unknown): boolean {
+  const maybeError = error as { code?: unknown; message?: unknown }
+  const message =
+    typeof maybeError?.message === "string" ? maybeError.message.toLowerCase() : ""
+  return maybeError?.code === 401 || message.includes("authentication required") || message.includes("missing authentication")
+}
+
 export async function fetchMcpTools(
   serverUrl: string,
   headers?: Record<string, string>
@@ -36,6 +54,11 @@ export async function fetchMcpTools(
     client = new Client({
       name: '21st-desktop',
       version: '1.0.0',
+    }, {
+      // Tool discovery should not fail because a third-party MCP server returns
+      // an outputSchema with unresolved local refs. We only need tool metadata
+      // here; actual calls still go through the runtime transport.
+      jsonSchemaValidator: lenientJsonSchemaValidator,
     });
 
     const requestInit: RequestInit = {};
@@ -55,7 +78,11 @@ export async function fetchMcpTools(
     console.log(`[MCP] Fetched ${tools.length} tools via SDK`);
     return tools.map(t => ({ name: t.name, description: t.description }));
   } catch (error) {
-    console.error('[MCP] Failed to fetch tools:', error);
+    if (isMcpAuthError(error)) {
+      console.warn('[MCP] Skipping tool discovery for MCP server that needs authentication');
+    } else {
+      console.error('[MCP] Failed to fetch tools:', error);
+    }
     return [];
   } finally {
     // Clean up the connection
@@ -98,6 +125,8 @@ export async function fetchMcpToolsStdio(config: {
     const client = new Client({
       name: '21st-desktop',
       version: '1.0.0',
+    }, {
+      jsonSchemaValidator: lenientJsonSchemaValidator,
     });
 
     // Get shell environment with proper PATH (includes homebrew, nvm, etc.)
@@ -126,7 +155,11 @@ export async function fetchMcpToolsStdio(config: {
     console.log(`[MCP] Fetched ${tools.length} tools via stdio`);
     return tools.map(t => ({ name: t.name, description: t.description }));
   } catch (error) {
-    console.error('[MCP] Failed to fetch tools via stdio:', error);
+    if (isMcpAuthError(error)) {
+      console.warn('[MCP] Skipping stdio MCP tool discovery for server that needs authentication');
+    } else {
+      console.error('[MCP] Failed to fetch tools via stdio:', error);
+    }
     return [];
   } finally {
     try {
