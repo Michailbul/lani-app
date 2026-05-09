@@ -14,6 +14,7 @@ import {
   selectedChatIsRemoteAtom,
   previousAgentChatIdAtom,
   selectedDraftIdAtom,
+  selectedProjectAtom,
   showNewChatFormAtom,
   agentsMobileViewModeAtom,
   agentsPreviewSidebarOpenAtom,
@@ -38,6 +39,7 @@ import { KanbanView } from "../../kanban"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
 import { ScreenplayWorkspace } from "../../backlot"
+import { NoChatAssistantPanel } from "./no-chat-assistant-panel"
 import { api } from "../../../lib/mock-api"
 import { trpc } from "../../../lib/trpc"
 import { useIsMobile } from "../../../lib/hooks/use-mobile"
@@ -75,6 +77,11 @@ export function AgentsContent() {
   const chatSourceMode = useAtomValue(chatSourceModeAtom)
   const selectedDraftId = useAtomValue(selectedDraftIdAtom)
   const showNewChatForm = useAtomValue(showNewChatFormAtom)
+  const selectedProject = useAtomValue(selectedProjectAtom)
+
+  // Picking a project now lands on the Backlot project surface. Sessions are
+  // started explicitly from the assistant rail so the user chooses Claude or
+  // Codex before any agent state is created.
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const betaAutomationsEnabled = useAtomValue(betaAutomationsEnabledAtom)
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)
@@ -962,6 +969,19 @@ export function AgentsContent() {
             </div>
           ) : betaKanbanEnabled ? (
             <KanbanView />
+          ) : selectedProject ? (
+            // Project picked, no chat selected, no draft, no new-chat
+            // form open. Drop the user straight into the split-screen
+            // project view — file tree on the left, screenplay/file
+            // editor in the centre, a quiet "Start a chat" panel on
+            // the right where the assistant normally lives. Never
+            // force a write-an-initial-message form just to view
+            // their project.
+            <ScreenplayWorkspace
+              chatId={null}
+              directionName={selectedProject.name}
+              assistant={<NoChatAssistantPanel />}
+            />
           ) : (
             <div className="h-full flex flex-col relative overflow-hidden">
               <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />

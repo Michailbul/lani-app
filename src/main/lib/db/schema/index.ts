@@ -44,6 +44,7 @@ export const chats = sqliteTable("chats", {
     () => new Date(),
   ),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
+  provider: text("provider").notNull().default("claude-code"), // "claude-code" | "codex"
   // Worktree fields (for git isolation per chat)
   worktreePath: text("worktree_path"),
   branch: text("branch"),
@@ -91,6 +92,7 @@ export const subChats = sqliteTable("sub_chats", {
   sessionId: text("session_id"), // Claude SDK session ID for resume
   streamId: text("stream_id"), // Track in-progress streams
   mode: text("mode").notNull().default("agent"), // "plan" | "agent"
+  provider: text("provider").notNull().default("claude-code"), // "claude-code" | "codex"
   messages: text("messages").notNull().default("[]"), // JSON array
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date(),

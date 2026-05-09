@@ -14,7 +14,7 @@ import {
 } from "../../details-sidebar/atoms"
 import { chatSourceModeAtom } from "../../../lib/atoms"
 import { trpc } from "../../../lib/trpc"
-import { X, Plus, AlignJustify, Play, TerminalSquare } from "lucide-react"
+import { X, Plus, AlignJustify, Play, TerminalSquare, GitBranch, MessageSquarePlus } from "lucide-react"
 import {
   IconSpinner,
   PlanIcon,
@@ -45,6 +45,13 @@ import {
   ContextMenu,
   ContextMenuTrigger,
 } from "../../../components/ui/context-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../../components/ui/dropdown-menu"
 import { InlineEdit } from "./inline-edit"
 import { api } from "../../../lib/mock-api"
 import { toast } from "sonner"
@@ -98,6 +105,7 @@ const SearchHistoryPopover = memo(forwardRef<SearchHistoryPopoverRef, SearchHist
     const mode = subChat.mode || "agent"
     const hasPendingQuestion = pendingQuestionsMap.has(subChat.id)
     const hasPendingPlan = pendingPlanApprovals.has(subChat.id)
+    const providerLabel = subChat.provider === "codex" ? "Codex" : "Claude"
 
     return (
       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -122,6 +130,9 @@ const SearchHistoryPopover = memo(forwardRef<SearchHistoryPopoverRef, SearchHist
         </div>
         <span className="text-sm truncate flex-1">
           {subChat.name || "New Chat"}
+        </span>
+        <span className="text-[10px] text-muted-foreground/70 border border-border rounded px-1 leading-4">
+          {providerLabel}
         </span>
         <span className="text-sm text-muted-foreground whitespace-nowrap">
           {timeAgo}
@@ -165,7 +176,11 @@ const SearchHistoryPopover = memo(forwardRef<SearchHistoryPopoverRef, SearchHist
 }))
 
 interface SubChatSelectorProps {
-  onCreateNew: () => void
+  onCreateNew: (
+    options?:
+      | { kind: "fresh" }
+      | { kind: "branch" },
+  ) => void
   isMobile?: boolean
   onBackToChats?: () => void
   onOpenPreview?: () => void
@@ -287,6 +302,12 @@ export function SubChatSelector({
     // Unpinned maintain their order from openSubChatIds (user's tab order)
     return [...pinnedChats, ...unpinnedChats]
   }, [openSubChatIds, allSubChats, pinnedSubChatIds])
+  const activeSubChat = useMemo(
+    () => allSubChats.find((subChat) => subChat.id === activeSubChatId) ?? null,
+    [activeSubChatId, allSubChats],
+  )
+  const activeProviderLabel =
+    activeSubChat?.provider === "codex" ? "Codex" : "Claude"
 
   const onSwitch = useCallback(
     (subChatId: string) => {
@@ -664,6 +685,8 @@ export function SubChatSelector({
                 const hasUnseen = subChatUnseenChanges.has(subChat.id)
                 const hasTabsToRight = index < openSubChats.length - 1
                 const isPinned = pinnedSubChatIds.includes(subChat.id)
+                const providerLabel =
+                  subChat.provider === "codex" ? "Codex" : "Claude"
                 // Get mode from sub-chat itself (defaults to "agent")
                 const mode = subChat.mode || "agent"
                 // Check if this chat is waiting for user answer
@@ -772,18 +795,25 @@ export function SubChatSelector({
                             className="text-sm !px-1 !py-0 !h-6 min-w-[100px] border border-input rounded-md !ring-0 !shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-input"
                           />
                         ) : (
-                          <span
-                            ref={(el) => {
-                              if (el) {
-                                textRefs.current.set(subChat.id, el)
-                              } else {
-                                textRefs.current.delete(subChat.id)
-                              }
-                            }}
-                            className="relative z-0 text-left flex-1 min-w-0 pr-1 overflow-hidden block whitespace-nowrap"
-                          >
-                            {subChat.name || "New Chat"}
-                          </span>
+                          <div className="relative z-0 flex items-center gap-1 min-w-0 pr-1 overflow-hidden">
+                            <span
+                              ref={(el) => {
+                                if (el) {
+                                  textRefs.current.set(subChat.id, el)
+                                } else {
+                                  textRefs.current.delete(subChat.id)
+                                }
+                              }}
+                              className="text-left flex-1 min-w-0 overflow-hidden block whitespace-nowrap"
+                            >
+                              {subChat.name || "New Chat"}
+                            </span>
+                            {isActive && (
+                              <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 border border-border/70 rounded px-1 leading-3 flex-shrink-0">
+                                {providerLabel}
+                              </span>
+                            )}
+                          </div>
                         )}
 
                         {/* Gradient fade on the right when text is truncated and not editing - visibility controlled via DOM */}
@@ -860,22 +890,46 @@ export function SubChatSelector({
             {/* Gradient to cover content peeking from the left */}
             <div className="w-6 h-full bg-gradient-to-r from-transparent to-background" />
             <div className="h-full flex items-center bg-background pr-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onCreateNew}
-                    className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
+              <DropdownMenu>
+                <Tooltip>
+                  <DropdownMenuTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                  </DropdownMenuTrigger>
+                  <TooltipContent side="bottom">
+                    New thread
+                    {newAgentHotkey && <Kbd>{newAgentHotkey}</Kbd>}
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    disabled={!activeSubChatId}
+                    onClick={() => onCreateNew({ kind: "branch" })}
                   >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  New chat
-                  {newAgentHotkey && <Kbd>{newAgentHotkey}</Kbd>}
-                </TooltipContent>
-              </Tooltip>
+                    <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <div className="flex flex-col">
+                      <span>Branch from current</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Keep history, stay on {activeProviderLabel}
+                      </span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onCreateNew({ kind: "fresh" })}
+                  >
+                    <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
+                    Fresh {activeProviderLabel} thread
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         )}

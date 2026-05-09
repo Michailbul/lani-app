@@ -141,6 +141,7 @@ import {
   workspaceDiffCacheAtomFamily,
   pendingMentionAtom,
   suppressInputFocusAtom,
+  threadCreateRequestAtom,
   type AgentMode,
   type SelectedCommit
 } from "../atoms"
@@ -163,6 +164,7 @@ import {
   clearSubChatDraft,
   getSubChatDraftFull
 } from "../lib/drafts"
+import { ACPChatTransport } from "../lib/acp-chat-transport"
 import { IPCChatTransport } from "../lib/ipc-chat-transport"
 import {
   createQueueItem,
@@ -352,8 +354,35 @@ const claudeModels = [
 const agents = [
   { id: "claude-code", name: "Claude Code", hasModels: true },
   { id: "cursor", name: "Cursor CLI", disabled: true },
-  { id: "codex", name: "OpenAI Codex", disabled: true },
+  { id: "codex", name: "OpenAI Codex" },
 ]
+
+type AgentProviderId = "claude-code" | "codex"
+type CreateThreadOptions =
+  | { kind: "fresh" }
+  | { kind: "branch" }
+
+function inferProviderFromMessages(
+  messages: any[] | undefined,
+  explicitProvider?: string | null,
+): AgentProviderId {
+  if (explicitProvider === "codex") return "codex"
+  if (!Array.isArray(messages)) {
+    return explicitProvider === "claude-code" ? "claude-code" : "claude-code"
+  }
+
+  for (const message of messages) {
+    const provider = message?.metadata?.provider
+    if (provider === "codex") return "codex"
+    const model = message?.metadata?.model
+    if (typeof model === "string" && model.toLowerCase().includes("codex")) {
+      return "codex"
+    }
+  }
+
+  if (explicitProvider === "claude-code") return "claude-code"
+  return "claude-code"
+}
 
 // Helper function to get agent icon
 const getAgentIcon = (agentId: string, className?: string) => {
@@ -4293,6 +4322,8 @@ export function ChatView({
   const [subChatMode] = useAtom(subChatModeAtom)
   // Default mode for new sub-chats (used as fallback when no active sub-chat)
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom)
+  const threadCreateRequest = useAtomValue(threadCreateRequestAtom)
+  const lastHandledThreadRequestRef = useRef<number | null>(null)
   // Current mode - use subChatMode when there's an active sub-chat, otherwise use user's default preference
   const currentMode: AgentMode = activeSubChatIdForMode ? subChatMode : defaultAgentMode
 
@@ -5567,6 +5598,9 @@ Make sure to preserve all functionality from both branches when resolving confli
       freshState.allSubChats.map((sc) => [sc.id, sc]),
     )
 
+    const sessionProvider: AgentProviderId =
+      (agentChat as any)?.provider === "codex" ? "codex" : "claude-code"
+
     const dbSubChats: SubChatMeta[] = agentSubChats.map((sc) => {
       const existingLocal = existingSubChatsMap.get(sc.id)
       const createdAt =
@@ -5588,6 +5622,10 @@ Make sure to preserve all functionality from both branches when resolving confli
           (sc.mode as "plan" | "agent" | undefined) ||
           existingLocal?.mode ||
           "agent",
+        provider:
+          ((sc as any).provider as AgentProviderId | undefined) ||
+          existingLocal?.provider ||
+          sessionProvider,
       }
     })
     const dbSubChatIds = new Set(dbSubChats.map((sc) => sc.id))
@@ -5604,6 +5642,7 @@ Make sure to preserve all functionality from both branches when resolving confli
           id,
           name: "New Chat",
           created_at: new Date().toISOString(),
+          provider: sessionProvider,
         })
       }
     })
@@ -5699,16 +5738,21 @@ Make sure to preserve all functionality from both branches when resolving confli
       const chatSandboxId = (agentChat as any)?.sandboxId || (agentChat as any)?.sandbox_id
       const chatSandboxUrl = chatSandboxId ? `https://3003-${chatSandboxId}.e2b.app` : null
       const isRemoteChat = !!(agentChat as any)?.isRemote || !!chatSandboxId
+      const chatProvider = inferProviderFromMessages(
+        messages,
+        (subChat as any)?.provider,
+      )
 
       console.log("[getOrCreateChat] Transport selection", {
         subChatId: subChatId.slice(-8),
+        chatProvider,
         isRemoteChat,
         chatSandboxId,
         chatSandboxUrl,
         worktreePath: worktreePath ? "exists" : "none",
       })
 
-      let transport: IPCChatTransport | RemoteChatTransport | null = null
+      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
 
       if (isRemoteChat && chatSandboxUrl) {
         // Remote sandbox chat: use HTTP SSE transport
@@ -5724,14 +5768,24 @@ Make sure to preserve all functionality from both branches when resolving confli
           model: modelString,
         })
       } else if (worktreePath) {
-        // Local worktree chat: use IPC transport
-        transport = new IPCChatTransport({
-          chatId,
-          subChatId,
-          cwd: worktreePath,
-          projectPath,
-          mode: subChatMode,
-        })
+        if (chatProvider === "codex") {
+          transport = new ACPChatTransport({
+            chatId,
+            subChatId,
+            cwd: worktreePath,
+            projectPath,
+            mode: subChatMode,
+            provider: "codex",
+          })
+        } else {
+          transport = new IPCChatTransport({
+            chatId,
+            subChatId,
+            cwd: worktreePath,
+            projectPath,
+            mode: subChatMode,
+          })
+        }
       }
 
       if (!transport) {
@@ -5830,15 +5884,33 @@ Make sure to preserve all functionality from both branches when resolving confli
   )
 
   // Handle creating a new sub-chat
-  const handleCreateNewSubChat = useCallback(async () => {
+  const handleCreateNewSubChat = useCallback(async (options?: CreateThreadOptions) => {
     const store = useAgentSubChatStore.getState()
     // New sub-chats use the user's default mode preference
     const newSubChatMode = defaultAgentMode
+    const sessionProvider: AgentProviderId =
+      (agentChat as any)?.provider === "codex" ? "codex" : "claude-code"
+    const currentSubChat = store.activeSubChatId
+      ? agentSubChats.find((sc) => sc.id === store.activeSubChatId)
+      : null
+    const resolvedOptions: CreateThreadOptions =
+      options ?? { kind: "fresh" }
+    const sourceSubChat =
+      resolvedOptions.kind === "branch" && store.activeSubChatId
+        ? currentSubChat
+        : null
+    const sourceMessages = (sourceSubChat?.messages as any[] | undefined) || []
+    const newProvider: AgentProviderId = sessionProvider
+    const newSubChatName =
+      resolvedOptions.kind === "branch"
+        ? `Branch from ${sourceSubChat?.name?.trim() || "current thread"}`
+        : "New Thread"
 
     // Check if this is a remote sandbox chat
     const isRemoteChat = !!(agentChat as any)?.isRemote
 
     let newId: string
+    let initialMessages: any[] = resolvedOptions.kind === "branch" ? sourceMessages : []
 
     if (isRemoteChat) {
       // Sandbox mode: lazy creation (web app pattern)
@@ -5848,10 +5920,18 @@ Make sure to preserve all functionality from both branches when resolving confli
       // Local mode: create sub-chat in DB first to get the real ID
       const newSubChat = await trpcClient.chats.createSubChat.mutate({
         chatId,
-        name: "New Chat",
+        name: newSubChatName,
         mode: newSubChatMode,
+        sourceSubChatId:
+          resolvedOptions.kind === "branch" ? sourceSubChat?.id : undefined,
+        inheritMessages: resolvedOptions.kind === "branch",
       })
       newId = newSubChat.id
+      try {
+        initialMessages = newSubChat.messages ? JSON.parse(newSubChat.messages) : []
+      } catch {
+        initialMessages = []
+      }
       utils.agents.getAgentChat.invalidate({ chatId })
 
       // Optimistic update: add new sub-chat to React Query cache immediately
@@ -5865,11 +5945,12 @@ Make sure to preserve all functionality from both branches when resolving confli
             ...(old.subChats || []),
             {
               id: newId,
-              name: "New Chat",
+              name: newSubChat.name || newSubChatName,
               mode: newSubChatMode,
+              provider: newProvider,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-              messages: null,
+              messages: initialMessages,
               stream_id: null,
             },
           ],
@@ -5883,9 +5964,10 @@ Make sure to preserve all functionality from both branches when resolving confli
     // Add to allSubChats with placeholder name
     store.addToAllSubChats({
       id: newId,
-      name: "New Chat",
+      name: newSubChatName,
       created_at: new Date().toISOString(),
       mode: newSubChatMode,
+      provider: newProvider,
     })
 
     // Set the mode atomFamily for the new sub-chat (so currentMode reads correct value)
@@ -5900,15 +5982,17 @@ Make sure to preserve all functionality from both branches when resolving confli
     const newSubChatSandboxId = (agentChat as any)?.sandboxId || (agentChat as any)?.sandbox_id
     const newSubChatSandboxUrl = newSubChatSandboxId ? `https://3003-${newSubChatSandboxId}.e2b.app` : null
     const isNewSubChatRemote = !!(agentChat as any)?.isRemote || !!newSubChatSandboxId
+    const chatProvider = newProvider
 
     console.log("[createNewSubChat] Transport selection", {
       newId: newId.slice(-8),
+      chatProvider,
       isNewSubChatRemote,
       newSubChatSandboxId,
       newSubChatSandboxUrl,
     })
 
-    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | null = null
+    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
 
     if (isNewSubChatRemote && newSubChatSandboxUrl) {
       // Remote sandbox chat: use HTTP SSE transport
@@ -5917,20 +6001,30 @@ Make sure to preserve all functionality from both branches when resolving confli
       newSubChatTransport = new RemoteChatTransport({
         chatId,
         subChatId: newId,
-        subChatName: "New Chat",
+        subChatName: newSubChatName,
         sandboxUrl: newSubChatSandboxUrl,
         mode: subChatMode,
         model: modelString,
       })
     } else if (worktreePath) {
-      // Local worktree chat: use IPC transport
-      newSubChatTransport = new IPCChatTransport({
-        chatId,
-        subChatId: newId,
-        cwd: worktreePath,
-        projectPath,
-        mode: newSubChatMode,
-      })
+      if (chatProvider === "codex") {
+        newSubChatTransport = new ACPChatTransport({
+          chatId,
+          subChatId: newId,
+          cwd: worktreePath,
+          projectPath,
+          mode: newSubChatMode,
+          provider: "codex",
+        })
+      } else {
+        newSubChatTransport = new IPCChatTransport({
+          chatId,
+          subChatId: newId,
+          cwd: worktreePath,
+          projectPath,
+          mode: newSubChatMode,
+        })
+      }
     }
 
     if (newSubChatTransport) {
@@ -5938,7 +6032,7 @@ Make sure to preserve all functionality from both branches when resolving confli
 
       const newChat = new Chat<any>({
         id: newId,
-        messages: [],
+        messages: initialMessages,
         transport,
         onError: () => {
           // Sync status to global store on error (allows queue to continue)
@@ -6019,6 +6113,7 @@ Make sure to preserve all functionality from both branches when resolving confli
     notifyAgentComplete,
     agentChat?.isRemote,
     agentChat?.name,
+    agentSubChats,
   ])
 
   // Keyboard shortcut: New sub-chat
@@ -6045,6 +6140,15 @@ Make sure to preserve all functionality from both branches when resolving confli
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [handleCreateNewSubChat])
+
+  useEffect(() => {
+    if (!threadCreateRequest) return
+    if (threadCreateRequest.chatId !== chatId) return
+    if (lastHandledThreadRequestRef.current === threadCreateRequest.id) return
+
+    lastHandledThreadRequestRef.current = threadCreateRequest.id
+    void handleCreateNewSubChat(threadCreateRequest.options)
+  }, [chatId, handleCreateNewSubChat, threadCreateRequest])
 
   // NOTE: Desktop notifications for pending questions are now triggered directly
   // in ipc-chat-transport.ts when the ask-user-question chunk arrives.

@@ -18,6 +18,7 @@ import {
   AttachIcon,
   CheckIcon,
   ClaudeCodeIcon,
+  CodexIcon,
   OriginalMCPIcon,
   PlanIcon,
   SettingsIcon,
@@ -52,7 +53,15 @@ import {
 } from "../../../lib/atoms"
 import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
-import { lastSelectedModelIdAtom, subChatModeAtomFamily, getNextMode, type AgentMode, type SubChatFileChange } from "../atoms"
+import {
+  lastSelectedModelIdAtom,
+  subChatCodexModelIdAtomFamily,
+  subChatCodexThinkingAtomFamily,
+  subChatModeAtomFamily,
+  getNextMode,
+  type AgentMode,
+  type SubChatFileChange,
+} from "../atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import { AgentsSlashCommand, type SlashCommandOption } from "../commands"
 import { AgentSendButton } from "../components/agent-send-button"
@@ -61,7 +70,12 @@ import {
   clearSubChatDraft,
   saveSubChatDraftWithAttachments,
 } from "../lib/drafts"
-import { CLAUDE_MODELS } from "../lib/models"
+import {
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  formatCodexThinkingLabel,
+  type CodexThinkingLevel,
+} from "../lib/models"
 import type { DiffTextContext, SelectedTextContext } from "../lib/queue-utils"
 import {
   AgentsFileMention,
@@ -87,22 +101,45 @@ import {
 import { getResolvedHotkey } from "../../../lib/hotkeys"
 import { customHotkeysAtom } from "../../../lib/atoms"
 
+type OllamaStatus = {
+  internet: { online: boolean }
+  ollama: {
+    available: boolean
+    models: string[]
+    recommendedModel?: string | null
+  }
+}
+
+type ClaudeModel = (typeof CLAUDE_MODELS)[number]
+
+type AvailableModels = {
+  models: ClaudeModel[]
+  ollamaModels: string[]
+  recommendedModel?: string
+  isOffline: boolean
+  hasOllama: boolean
+}
+
+function getBacklotOllamaStatus(): OllamaStatus | undefined {
+  return undefined
+}
+
 // Hook to get available models. Backlot: Ollama integration stripped, so the
 // offline-models branch is unreachable. Kept structurally to minimise diff against
 // the upstream useAvailableModels hook.
-function useAvailableModels() {
+function useAvailableModels(): AvailableModels {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const ollamaStatus: undefined | {
-    internet: { online: boolean }
-    ollama: { available: boolean; models: string[]; recommendedModel?: string | null }
-  } = undefined
+  const ollamaStatus = getBacklotOllamaStatus()
 
   const baseModels = CLAUDE_MODELS
 
   const isOffline = ollamaStatus ? !ollamaStatus.internet.online : false
-  const hasOllama = ollamaStatus?.ollama.available && (ollamaStatus.ollama.models?.length ?? 0) > 0
+  const hasOllama = Boolean(
+    ollamaStatus?.ollama.available &&
+      (ollamaStatus.ollama.models?.length ?? 0) > 0,
+  )
   const ollamaModels = ollamaStatus?.ollama.models || []
-  const recommendedModel = ollamaStatus?.ollama.recommendedModel
+  const recommendedModel = ollamaStatus?.ollama.recommendedModel ?? undefined
 
   // Only show offline models if:
   // 1. Debug flag is enabled (showOfflineFeatures)
@@ -121,7 +158,7 @@ function useAvailableModels() {
   return {
     models: baseModels,
     ollamaModels: [] as string[],
-    recommendedModel: undefined as string | undefined,
+    recommendedModel: undefined,
     isOffline,
     hasOllama: false,
   }
@@ -410,10 +447,29 @@ export const ChatInputArea = memo(function ChatInputArea({
   // Model dropdown state
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [lastSelectedModelId, setLastSelectedModelId] = useAtom(lastSelectedModelIdAtom)
+  const subChatCodexModelAtom = useMemo(
+    () => subChatCodexModelIdAtomFamily(subChatId),
+    [subChatId],
+  )
+  const subChatCodexThinkingAtom = useMemo(
+    () => subChatCodexThinkingAtomFamily(subChatId),
+    [subChatId],
+  )
+  const [selectedCodexModelId, setSelectedCodexModelId] = useAtom(
+    subChatCodexModelAtom,
+  )
+  const [selectedCodexThinking, setSelectedCodexThinking] = useAtom(
+    subChatCodexThinkingAtom,
+  )
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
   const availableModels = useAvailableModels()
   const autoOfflineMode = useAtomValue(autoOfflineModeAtom)
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
+  const activeProvider = useAgentSubChatStore((state) => {
+    const activeSubChat = state.allSubChats.find((chat) => chat.id === subChatId)
+    return activeSubChat?.provider === "codex" ? "codex" : "claude-code"
+  })
+  const isCodexThread = activeProvider === "codex"
   const [selectedModel, setSelectedModel] = useState(
     () => availableModels.models.find((m) => m.id === lastSelectedModelId) || availableModels.models[0],
   )
@@ -430,6 +486,17 @@ export const ChatInputArea = memo(function ChatInputArea({
   const normalizedCustomClaudeConfig =
     normalizeCustomClaudeConfig(customClaudeConfig)
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig)
+  const shouldLockClaudeModelPicker = hasCustomClaudeConfig && !isCodexThread
+
+  const selectedCodexModel =
+    CODEX_MODELS.find((model) => model.id === selectedCodexModelId) ||
+    CODEX_MODELS[0]!
+  const normalizedCodexThinking: CodexThinkingLevel =
+    selectedCodexModel.thinkings.includes(selectedCodexThinking as CodexThinkingLevel)
+      ? (selectedCodexThinking as CodexThinkingLevel)
+      : selectedCodexModel.thinkings.includes("high")
+        ? "high"
+        : selectedCodexModel.thinkings[0]!
 
   // Determine current Ollama model (selected or recommended)
   const currentOllamaModel = selectedOllamaModel || availableModels.recommendedModel || availableModels.ollamaModels[0]
@@ -943,7 +1010,6 @@ export const ChatInputArea = memo(function ChatInputArea({
       // Process other files - for text files, read content and add as file mention
       for (const file of otherFiles) {
         // Get file path using Electron's webUtils API (more reliable than file.path)
-        // @ts-expect-error - Electron's webUtils API
         const filePath: string | undefined = window.webUtils?.getPathForFile?.(file) || (file as File & { path?: string }).path
 
         let mentionId: string
@@ -1358,79 +1424,159 @@ export const ChatInputArea = memo(function ChatInputArea({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   ) : (
-                    // Online mode: show Claude model selector
+                    // Online mode: show the active provider's model selector.
                     <DropdownMenu
-                      open={hasCustomClaudeConfig ? false : isModelDropdownOpen}
+                      open={shouldLockClaudeModelPicker ? false : isModelDropdownOpen}
                       onOpenChange={(open) => {
-                        if (!hasCustomClaudeConfig) {
+                        if (!shouldLockClaudeModelPicker) {
                           setIsModelDropdownOpen(open)
                         }
                       }}
                     >
                       <DropdownMenuTrigger asChild>
                         <button
-                          disabled={hasCustomClaudeConfig}
+                          disabled={shouldLockClaudeModelPicker}
                           className={cn(
                             "press flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
-                            hasCustomClaudeConfig
+                            shouldLockClaudeModelPicker
                               ? "opacity-70 cursor-not-allowed"
                               : "hover:text-foreground hover:bg-muted/50",
                           )}
                         >
-                          <ClaudeCodeIcon className="h-3.5 w-3.5 shrink-0" />
+                          {isCodexThread ? (
+                            <CodexIcon className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <ClaudeCodeIcon className="h-3.5 w-3.5 shrink-0" />
+                          )}
                           <span className="truncate">
-                            {hasCustomClaudeConfig ? (
+                            {isCodexThread ? (
+                              <>
+                                {selectedCodexModel.name}{" "}
+                                <span className="text-muted-foreground">
+                                  {formatCodexThinkingLabel(normalizedCodexThinking)}
+                                </span>
+                              </>
+                            ) : hasCustomClaudeConfig ? (
                               "Custom Model"
                             ) : (
                               <>
                                 {selectedModel?.name}{" "}
-                                <span className="text-muted-foreground">4.5</span>
+                                <span className="text-muted-foreground">
+                                  {selectedModel?.version || "4.5"}
+                                </span>
                               </>
                             )}
                           </span>
                           <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-[200px]">
-                        {availableModels.models.map((model) => {
-                          const isSelected = selectedModel?.id === model.id
-                          return (
-                            <DropdownMenuItem
-                              key={model.id}
-                              onClick={() => {
-                                setSelectedModel(model)
-                                setLastSelectedModelId(model.id)
-                              }}
-                              className="gap-2 justify-between"
+                      <DropdownMenuContent align="start" className="w-[240px]">
+                        {isCodexThread ? (
+                          <>
+                            <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              OpenAI Codex
+                            </div>
+                            {CODEX_MODELS.map((model) => {
+                              const isSelected = selectedCodexModel.id === model.id
+                              const nextThinking = model.thinkings.includes(
+                                normalizedCodexThinking,
+                              )
+                                ? normalizedCodexThinking
+                                : model.thinkings.includes("high")
+                                  ? "high"
+                                  : model.thinkings[0]!
+                              return (
+                                <DropdownMenuItem
+                                  key={model.id}
+                                  onClick={() => {
+                                    setSelectedCodexModelId(model.id)
+                                    setSelectedCodexThinking(nextThinking)
+                                  }}
+                                  className="gap-2 justify-between"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <CodexIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span>
+                                      {model.name}{" "}
+                                      <span className="text-muted-foreground">
+                                        {formatCodexThinkingLabel(nextThinking)}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  {isSelected && (
+                                    <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                </DropdownMenuItem>
+                              )
+                            })}
+                            <DropdownMenuSeparator />
+                            <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Reasoning
+                            </div>
+                            {selectedCodexModel.thinkings.map((thinking) => {
+                              const isSelected = normalizedCodexThinking === thinking
+                              return (
+                                <DropdownMenuItem
+                                  key={thinking}
+                                  onClick={() => setSelectedCodexThinking(thinking)}
+                                  className="gap-2 justify-between"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <ThinkingIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span>{formatCodexThinkingLabel(thinking)}</span>
+                                  </div>
+                                  {isSelected && (
+                                    <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                </DropdownMenuItem>
+                              )
+                            })}
+                          </>
+                        ) : (
+                          <>
+                            {availableModels.models.map((model) => {
+                              const isSelected = selectedModel?.id === model.id
+                              return (
+                                <DropdownMenuItem
+                                  key={model.id}
+                                  onClick={() => {
+                                    setSelectedModel(model)
+                                    setLastSelectedModelId(model.id)
+                                  }}
+                                  className="gap-2 justify-between"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <ClaudeCodeIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span>
+                                      {model.name}{" "}
+                                      <span className="text-muted-foreground">
+                                        {model.version || "4.5"}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  {isSelected && (
+                                    <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                </DropdownMenuItem>
+                              )
+                            })}
+                            <DropdownMenuSeparator />
+                            <div
+                              className="flex items-center justify-between px-1.5 py-1.5 mx-1"
+                              onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex items-center gap-1.5">
-                                <ClaudeCodeIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <span>
-                                  {model.name}{" "}
-                                  <span className="text-muted-foreground">4.5</span>
-                                </span>
+                                <ThinkingIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="text-sm">Thinking</span>
                               </div>
-                              {isSelected && (
-                                <CheckIcon className="h-3.5 w-3.5 shrink-0" />
-                              )}
-                            </DropdownMenuItem>
-                          )
-                        })}
-                        <DropdownMenuSeparator />
-                        <div
-                          className="flex items-center justify-between px-1.5 py-1.5 mx-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <ThinkingIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="text-sm">Thinking</span>
-                          </div>
-                          <Switch
-                            checked={thinkingEnabled}
-                            onCheckedChange={setThinkingEnabled}
-                            className="scale-75"
-                          />
-                        </div>
+                              <Switch
+                                checked={thinkingEnabled}
+                                onCheckedChange={setThinkingEnabled}
+                                className="scale-75"
+                              />
+                            </div>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}

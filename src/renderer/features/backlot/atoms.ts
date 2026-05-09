@@ -72,6 +72,15 @@ export type ActiveEntity =
       label: string
       path: string
     }
+  | {
+      // Generic file — anything in the worktree that doesn't match the
+      // canonical schema (brief / world / main-script / character /
+      // location / act / scene / shot). The Cursor-style file tree
+      // produces these for arbitrary user-created files.
+      kind: "file"
+      label: string
+      path: string
+    }
   | null
 
 export const activeEntityAtom = atomWithStorage<ActiveEntity>(

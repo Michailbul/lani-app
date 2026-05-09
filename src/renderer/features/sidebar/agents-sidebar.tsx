@@ -962,9 +962,13 @@ const ChatListSection = React.memo(function ChatListSection({
 
           // For remote chats, get repo info from meta; for local, from projectsMap
           const project = chat.projectId ? projectsMap.get(chat.projectId) : null
+          // Prefer the Backlot project NAME over the imported source's gitRepo —
+          // users name their Backlot projects ("daddy issues"), and that's the
+          // identity they recognise. The gitRepo basename ("laniameda-hq") is a
+          // last-resort fallback for projects that have no Backlot name yet.
           const repoName = chat.isRemote
             ? chat.meta?.repository
-            : (project?.gitRepo || project?.name)
+            : (project?.name || project?.gitRepo)
           const displayText = chat.branch
             ? repoName
               ? `${repoName} • ${chat.branch}`
@@ -1785,11 +1789,13 @@ export function AgentsSidebar({
   // Fetch all local chats (no project filter)
   const { data: localChats } = trpc.chats.list.useQuery({})
 
-  // Fetch user's teams (same as web) - always enabled to allow merged list
-  const { data: teams, isLoading: isTeamsLoading, isError: isTeamsError } = useUserTeams(true)
+  const remoteSandboxEnabled = selectedChatIsRemote && chatSourceMode === "sandbox"
 
-  // Fetch remote sandbox chats (same as web) - requires teamId
-  const { data: remoteChats } = useRemoteChats()
+  // Fetch remote sandbox data only when the user is actually in sandbox mode.
+  // Backlot's local-first workflow should not hit 21st.dev on startup with a
+  // stale cached team id.
+  useUserTeams(remoteSandboxEnabled)
+  const { data: remoteChats } = useRemoteChats(remoteSandboxEnabled)
 
   // Prefetch individual chat data on hover
   const prefetchRemoteChat = usePrefetchRemoteChat()
@@ -3105,7 +3111,7 @@ export function AgentsSidebar({
           <div className="relative">
             <Input
               ref={searchInputRef}
-              placeholder="Search workspaces..."
+              placeholder="Search projects..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -3170,11 +3176,11 @@ export function AgentsSidebar({
                   isMobileFullscreen ? "h-10" : "h-7",
                 )}
               >
-                <span className="text-sm font-medium">New Workspace</span>
+                <span className="text-sm font-medium">New Project</span>
               </ButtonCustom>
             </TooltipTrigger>
             <TooltipContent side="right" className="flex flex-col items-start gap-1">
-              <span>Start a new workspace</span>
+              <span>Start a new project</span>
               {newWorkspaceHotkey && (
                 <span className="flex items-center gap-1.5">
                   <Kbd>{newWorkspaceHotkey}</Kbd>
@@ -3244,7 +3250,7 @@ export function AgentsSidebar({
             <div className={cn("mb-4", isMultiSelectMode ? "px-0" : "-mx-1")}>
               {/* Pinned section */}
               <ChatListSection
-                title="Pinned workspaces"
+                title="Pinned projects"
                 chats={pinnedAgents}
                 selectedChatId={selectedChatId}
                 selectedChatIsRemote={selectedChatIsRemote}
@@ -3287,7 +3293,7 @@ export function AgentsSidebar({
 
               {/* Unpinned section */}
               <ChatListSection
-                title={pinnedAgents.length > 0 ? "Recent workspaces" : "Workspaces"}
+                title={pinnedAgents.length > 0 ? "Recent projects" : "Projects"}
                 chats={unpinnedAgents}
                 selectedChatId={selectedChatId}
                 selectedChatIsRemote={selectedChatIsRemote}

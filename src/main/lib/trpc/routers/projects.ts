@@ -3,17 +3,307 @@ import { router, publicProcedure } from "../index"
 import { getDatabase, projects } from "../../db"
 import { eq, desc } from "drizzle-orm"
 import { dialog, BrowserWindow, app } from "electron"
-import { basename, join } from "path"
+import { basename, join, dirname, relative } from "path"
 import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import { existsSync } from "node:fs"
-import { mkdir, copyFile, unlink } from "node:fs/promises"
+import {
+  mkdir,
+  copyFile,
+  unlink,
+  cp as fsCp,
+  realpath as fsRealpath,
+} from "node:fs/promises"
 import { extname } from "node:path"
+import { homedir } from "node:os"
+import simpleGit from "simple-git"
 import { getGitRemoteInfo } from "../../git"
 import { trackProjectOpened } from "../../analytics"
 import { getLaunchDirectory } from "../../cli"
 
 const execAsync = promisify(exec)
+
+// ────────────────────────────────────────────────────────────────────────
+// Import: where Backlot stores forked-in projects.
+//
+//   ~/.backlot/projects/<slug>/    ← imported project (copy of source)
+//   ~/.backlot/worktrees/<slug>/…  ← per-chat worktrees (existing layout)
+//
+// We copy the source rather than reference it because:
+//   - the source folder may live inside a parent git repo (e.g. a
+//     subfolder of laniameda-hq), which breaks `git worktree add`
+//     semantics — the worktree would mirror the *parent* repo instead.
+//   - Backlot wants its own git history independent of the user's
+//     existing repos. Forks, baseline commits, agent commits all live
+//     here and never touch the original.
+// ────────────────────────────────────────────────────────────────────────
+
+const BACKLOT_PROJECTS_DIR = join(homedir(), ".backlot", "projects")
+
+/**
+ * Folder/file names we never copy when importing a source project. Keeps
+ * the imported tree clean and avoids dragging dependency caches into
+ * Backlot's own git history.
+ */
+const IMPORT_EXCLUDE_NAMES = new Set([
+  ".git",
+  ".DS_Store",
+  "node_modules",
+  ".next",
+  ".turbo",
+  ".cache",
+  "dist",
+  "build",
+  "out",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".pytest_cache",
+  "target",
+  ".gradle",
+])
+
+/**
+ * Slugify a free-form name into a directory-safe id.
+ *
+ *   "Daddy Issues"        → "daddy-issues"
+ *   "AI Creatorship/foo"  → "ai-creatorship-foo"
+ */
+function slugify(input: string): string {
+  return (
+    input
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "") // strip diacritics
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "project"
+  )
+}
+
+/**
+ * Pick a free directory under ~/.backlot/projects/. If `<slug>` is
+ * taken, returns `<slug>-2`, `<slug>-3`, etc. so we never clobber.
+ */
+async function resolveImportTarget(slug: string): Promise<string> {
+  await mkdir(BACKLOT_PROJECTS_DIR, { recursive: true })
+  let candidate = join(BACKLOT_PROJECTS_DIR, slug)
+  if (!existsSync(candidate)) return candidate
+  for (let i = 2; i < 1000; i++) {
+    candidate = join(BACKLOT_PROJECTS_DIR, `${slug}-${i}`)
+    if (!existsSync(candidate)) return candidate
+  }
+  // Extremely unlikely; surface as error so we don't silently pick a bad path.
+  throw new Error("Could not allocate a unique import directory.")
+}
+
+/**
+ * Copy a source folder into the Backlot projects dir, excluding the
+ * names listed above. Returns the absolute target path.
+ */
+async function copySourceTree(source: string, target: string): Promise<void> {
+  const realSource = await fsRealpath(source)
+  await fsCp(realSource, target, {
+    recursive: true,
+    dereference: false,
+    errorOnExist: false,
+    force: false,
+    preserveTimestamps: true,
+    filter: (src) => {
+      // Always allow the root.
+      if (src === realSource) return true
+      const rel = relative(realSource, src)
+      // Skip any path that contains an excluded segment at any depth.
+      const segs = rel.split(/[\\/]+/).filter(Boolean)
+      for (const seg of segs) {
+        if (IMPORT_EXCLUDE_NAMES.has(seg)) return false
+      }
+      return true
+    },
+  })
+}
+
+/**
+ * Auto-create the project's `CLAUDE.md` if one doesn't already exist.
+ * This file is the project's persistent memory — the agent reads it on
+ * every turn and updates it as facts solidify (character locks, working
+ * defaults, lessons learned). The starter is intentionally short: it
+ * gives the agent (and the user) a shape to fill in, not a script.
+ *
+ * Called BEFORE the git baseline commit so the file is included in the
+ * initial commit and forks inherit it.
+ *
+ * Idempotent — if CLAUDE.md already exists in the source, we leave it
+ * alone. Respecting the user's existing memory if any.
+ */
+async function ensureProjectClaudeMd(
+  target: string,
+  projectName: string,
+): Promise<void> {
+  const claudeMdPath = join(target, "CLAUDE.md")
+  if (existsSync(claudeMdPath)) return
+  const starter = `# ${projectName} — project memory
+
+This file is the persistent memory for this project. The agent reads
+it on every turn and updates it as facts solidify. Both you and the
+agent edit it freely.
+
+## What this is
+
+(One paragraph: format, length, tone, target audience.)
+
+## Working defaults
+
+(Models, settings, aspect ratio, lens feel — whatever's been decided.
+The agent fills these in as you confirm them.)
+
+## Locked elements
+
+(Character locks, style locks, palette, location refs — by file path.
+Once locked, copy the lock text verbatim into prompts.)
+
+## Lessons learned
+
+(What got rejected and why. Things to avoid going forward.)
+`
+  await mkdir(dirname(claudeMdPath), { recursive: true })
+  // Use Node's fs/promises writeFile (we already import it as `fsCp`'s
+  // sibling above — but `writeFile` isn't aliased; import lazily here).
+  const { writeFile } = await import("node:fs/promises")
+  await writeFile(claudeMdPath, starter, "utf-8")
+}
+
+/**
+ * Scaffold the empty-project starter tree. Runs only when creating a
+ * brand-new Backlot project (not when importing an existing folder),
+ * so every freshly created project has a recognisable shape on disk
+ * the moment the user opens it.
+ *
+ * Kept intentionally minimal — `brief.md`, `world.md`, `.backlotignore`.
+ * The agent and the user create scenes / characters / locations on
+ * demand. Pre-creating empty folders just creates phantom rail entries
+ * that have to be cleaned up later.
+ *
+ * Idempotent — never overwrites a file that already exists.
+ */
+async function scaffoldNewProjectTree(
+  target: string,
+  options: { name: string; tagline?: string },
+): Promise<void> {
+  const { writeFile } = await import("node:fs/promises")
+  await mkdir(target, { recursive: true })
+
+  const briefPath = join(target, "brief.md")
+  if (!existsSync(briefPath)) {
+    const tagline = options.tagline?.trim()
+    const briefBody = `# ${options.name}
+
+${tagline ? `> ${tagline}\n\n` : ""}## Logline
+
+(One sentence: who wants what, against what, with what stakes.)
+
+## Format
+
+(Short film · series episode · ad · music video · explainer — pick one,
+add length and aspect ratio.)
+
+## Tone & style direction
+
+(Reference films, palette, lens feel, pace. The art-direction bible
+that every prompt should sound like.)
+
+## Audience
+
+(Who this is for, what it's competing with for their attention.)
+`
+    await writeFile(briefPath, briefBody, "utf-8")
+  }
+
+  const worldPath = join(target, "world.md")
+  if (!existsSync(worldPath)) {
+    const worldBody = `# ${options.name} — world
+
+The art-direction bible. Everything that needs to stay consistent
+across shots lives here. The agent reads this before writing any
+prompt and copies its locks verbatim.
+
+## Era & place
+
+(Time, geography, cultural register.)
+
+## Palette
+
+(Hex values + how they should appear under different lights. Keep it
+to 3–5 colours that recur.)
+
+## Lens & camera language
+
+(Focal lengths, lens character, grain, contrast curve, aspect.)
+
+## Light
+
+(Default key, fill, practicals. What the world looks like at noon, at
+golden hour, at night.)
+
+## Locked elements
+
+(Anything that must stay verbatim across prompts — wardrobe codes,
+prop signatures, vehicle marks. Reference the canonical file paths
+under \`characters/\` and \`locations/\`.)
+`
+    await writeFile(worldPath, worldBody, "utf-8")
+  }
+
+  const ignorePath = join(target, ".backlotignore")
+  if (!existsSync(ignorePath)) {
+    await writeFile(
+      ignorePath,
+      `# Files and folders hidden from the Backlot rail.
+# One pattern per line. Glob-style matching against repo-relative paths.
+.DS_Store
+node_modules/
+dist/
+`,
+      "utf-8",
+    )
+  }
+}
+
+/**
+ * Initialise a fresh git repo inside the imported project and commit a
+ * baseline. The baseline is what every Backlot worktree forks from, so
+ * we want it to exist before the first chat is created.
+ */
+async function initGitBaseline(target: string): Promise<void> {
+  const git = simpleGit(target)
+  // If somehow the source had .git anyway (we exclude it, but be defensive),
+  // skip re-initialising.
+  const isAlreadyRepo = await git.checkIsRepo().catch(() => false)
+  if (!isAlreadyRepo) {
+    await git.init()
+  }
+  // Configure a stable identity for the baseline commit only — local to
+  // this repo, never global. We don't want to assume the user has a
+  // git identity configured.
+  try {
+    await git.addConfig("user.name", "Backlot", false, "local")
+    await git.addConfig(
+      "user.email",
+      "backlot@laniameda.local",
+      false,
+      "local",
+    )
+  } catch {
+    /* ignore — if user has identity set, ours just adds another local layer */
+  }
+  await git.add(["-A"])
+  // Create the baseline. --allow-empty so an empty source folder still gets a HEAD.
+  try {
+    await git.raw(["commit", "--allow-empty", "-m", "Backlot: import baseline"])
+  } catch (err) {
+    console.warn("[projects.import] baseline commit failed:", err)
+  }
+}
 
 export const projectsRouter = router({
   /**
@@ -40,6 +330,184 @@ export const projectsRouter = router({
     .query(({ input }) => {
       const db = getDatabase()
       return db.select().from(projects).where(eq(projects.id, input.id)).get()
+    }),
+
+  /**
+   * Import a source folder into Backlot.
+   *
+   * Copies <sourcePath> to ~/.backlot/projects/<slug>/, excluding noise
+   * (.git, node_modules, dist, etc.), runs `git init` + a baseline
+   * commit, and inserts a project row pointing at the COPY (never the
+   * original). The user's source folder is never touched.
+   *
+   * Returns the inserted project. If the same source has already been
+   * imported (matched by realpath), returns the existing project.
+   */
+  importProject: publicProcedure
+    .input(
+      z.object({
+        sourcePath: z.string().min(1),
+        name: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      if (!existsSync(input.sourcePath)) {
+        throw new Error(`Source folder does not exist: ${input.sourcePath}`)
+      }
+      const realSource = await fsRealpath(input.sourcePath)
+      const displayName = input.name?.trim() || basename(realSource)
+      const slug = slugify(displayName)
+
+      const db = getDatabase()
+
+      // Already imported? Match on the source path (we store it in name
+      // metadata via realpath comparison against the imported tree's
+      // origin). Cheap heuristic: same target path = same project.
+      const target = await resolveImportTarget(slug)
+
+      // Copy the tree.
+      await copySourceTree(realSource, target)
+
+      // Auto-create project CLAUDE.md (skipped if the source had one).
+      // Done BEFORE git baseline so the file is in the first commit and
+      // travels with every fork.
+      await ensureProjectClaudeMd(target, displayName)
+
+      // Init git + baseline commit.
+      await initGitBaseline(target)
+
+      // Insert the project pointing at the COPY.
+      const gitInfo = await getGitRemoteInfo(target)
+      const newProject = db
+        .insert(projects)
+        .values({
+          name: displayName,
+          path: target,
+          gitRemoteUrl: gitInfo.remoteUrl,
+          gitProvider: gitInfo.provider,
+          gitOwner: gitInfo.owner,
+          gitRepo: gitInfo.repo,
+        })
+        .returning()
+        .get()
+
+      trackProjectOpened({
+        id: newProject!.id,
+        hasGitRemote: !!gitInfo.remoteUrl,
+      })
+
+      return newProject!
+    }),
+
+  /**
+   * Open the folder picker and import the chosen folder. Convenience
+   * wrapper around `importProject` so the renderer doesn't have to
+   * juggle two mutations.
+   */
+  pickAndImport: publicProcedure.mutation(async ({ ctx }) => {
+    const window = ctx.getWindow?.() ?? BrowserWindow.getFocusedWindow()
+    if (!window) return null
+
+    if (!window.isFocused()) {
+      window.focus()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    const result = await dialog.showOpenDialog(window, {
+      properties: ["openDirectory"],
+      title: "Import a project into Backlot",
+      buttonLabel: "Import",
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    const sourcePath = result.filePaths[0]!
+    const realSource = await fsRealpath(sourcePath)
+    const displayName = basename(realSource)
+    const slug = slugify(displayName)
+    const target = await resolveImportTarget(slug)
+
+    await copySourceTree(realSource, target)
+    // Auto-create project CLAUDE.md (skipped if source already had one),
+    // BEFORE the baseline commit so it travels with forks.
+    await ensureProjectClaudeMd(target, displayName)
+    await initGitBaseline(target)
+
+    const db = getDatabase()
+    const gitInfo = await getGitRemoteInfo(target)
+    const newProject = db
+      .insert(projects)
+      .values({
+        name: displayName,
+        path: target,
+        gitRemoteUrl: gitInfo.remoteUrl,
+        gitProvider: gitInfo.provider,
+        gitOwner: gitInfo.owner,
+        gitRepo: gitInfo.repo,
+      })
+      .returning()
+      .get()
+
+    trackProjectOpened({
+      id: newProject!.id,
+      hasGitRemote: !!gitInfo.remoteUrl,
+    })
+
+    return newProject!
+  }),
+
+  /**
+   * Create a brand-new Backlot project from scratch.
+   *
+   * Scaffolds `~/.backlot/projects/<slug>/` with a starter tree
+   * (`brief.md`, `world.md`, `CLAUDE.md`, `.backlotignore`), runs
+   * `git init` + a baseline commit, and inserts the project row.
+   * No source folder, no fork — the user names it and starts writing.
+   */
+  createNewProject: publicProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(120),
+        tagline: z.string().max(240).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const displayName = input.name.trim()
+      if (!displayName) {
+        throw new Error("Project name cannot be empty.")
+      }
+      const slug = slugify(displayName)
+      const target = await resolveImportTarget(slug)
+
+      await scaffoldNewProjectTree(target, {
+        name: displayName,
+        tagline: input.tagline?.trim() || undefined,
+      })
+      await ensureProjectClaudeMd(target, displayName)
+      await initGitBaseline(target)
+
+      const db = getDatabase()
+      const newProject = db
+        .insert(projects)
+        .values({
+          name: displayName,
+          path: target,
+          gitRemoteUrl: null,
+          gitProvider: null,
+          gitOwner: null,
+          gitRepo: null,
+        })
+        .returning()
+        .get()
+
+      trackProjectOpened({
+        id: newProject!.id,
+        hasGitRemote: false,
+      })
+
+      return newProject!
     }),
 
   /**

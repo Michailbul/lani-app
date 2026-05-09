@@ -30,9 +30,65 @@ const STRIPPED_ENV_KEYS = [
 let cachedBinaryPath: string | null = null
 let binaryPathComputed = false
 
+function isExecutableFile(filePath: string | undefined): filePath is string {
+  if (!filePath) return false
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function findInstalledClaudeBinary(): string | null {
+  const explicitPath =
+    process.env.BACKLOT_CLAUDE_CODE_EXECUTABLE ||
+    process.env.CLAUDE_CODE_EXECUTABLE ||
+    process.env.CLAUDE_CODE_EXECUTABLE_PATH
+
+  if (isExecutableFile(explicitPath)) {
+    return explicitPath
+  }
+
+  const extendedPath = platform.buildExtendedPath(process.env.PATH)
+  try {
+    const command = isWindows() ? "where claude" : "command -v claude"
+    const result = execSync(command, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "ignore"],
+      env: { ...process.env, PATH: extendedPath },
+    })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    const found = result.find(isExecutableFile)
+    if (found) return found
+  } catch {
+    // Fall through to common install locations.
+  }
+
+  const candidates =
+    process.platform === "darwin"
+      ? ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+      : process.platform === "win32"
+        ? [
+            path.join(os.homedir(), "AppData/Roaming/npm/claude.cmd"),
+            path.join(os.homedir(), "AppData/Roaming/npm/claude.exe"),
+          ]
+        : [
+            "/usr/local/bin/claude",
+            "/usr/bin/claude",
+            path.join(os.homedir(), ".local/bin/claude"),
+          ]
+
+  return candidates.find(isExecutableFile) ?? null
+}
+
 /**
  * Get path to the bundled Claude binary.
- * Returns the path to the native Claude executable bundled with the app.
+ * Returns the bundled native Claude executable when present, otherwise falls
+ * back to a user-installed Claude Code CLI.
  * CACHED - only computes path once and logs verbose info on first call.
  */
 export function getBundledClaudeBinaryPath(): string {
@@ -78,15 +134,25 @@ export function getBundledClaudeBinaryPath(): string {
   // Check if binary exists
   const exists = fs.existsSync(binaryPath)
 
-  // Always log if binary doesn't exist (critical error)
+  let resolvedBinaryPath = binaryPath
+
   if (!exists) {
-    console.error(
-      "[claude-binary] WARNING: Binary not found at path:",
-      binaryPath
-    )
-    console.error(
-      "[claude-binary] Run 'bun run claude:download' to download it"
-    )
+    const installedBinaryPath = findInstalledClaudeBinary()
+    if (installedBinaryPath) {
+      resolvedBinaryPath = installedBinaryPath
+      console.warn(
+        "[claude-binary] Bundled binary missing, using installed Claude Code CLI:",
+        installedBinaryPath,
+      )
+    } else {
+      console.error(
+        "[claude-binary] WARNING: Binary not found at path:",
+        binaryPath
+      )
+      console.error(
+        "[claude-binary] Run 'bun run claude:download' or install Claude Code"
+      )
+    }
   } else if (process.env.DEBUG_CLAUDE_BINARY) {
     const stats = fs.statSync(binaryPath)
     const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
@@ -98,10 +164,10 @@ export function getBundledClaudeBinaryPath(): string {
   }
 
   // Cache the result
-  cachedBinaryPath = binaryPath
+  cachedBinaryPath = resolvedBinaryPath
   binaryPathComputed = true
 
-  return binaryPath
+  return resolvedBinaryPath
 }
 
 /**

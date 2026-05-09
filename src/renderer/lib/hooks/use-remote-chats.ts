@@ -57,13 +57,13 @@ export function useUserTeams(enabled: boolean = true) {
  * Fetch all remote sandbox chats for the selected team
  * Uses stale-while-revalidate: show cached immediately, refresh in background
  */
-export function useRemoteChats() {
+export function useRemoteChats(enabled: boolean = true) {
   const teamId = useAtomValue(selectedTeamIdAtom)
 
   return useQuery({
     queryKey: ["remote-chats", teamId],
     queryFn: () => remoteApi.getAgentChats(teamId!),
-    enabled: !!teamId,
+    enabled: enabled && !!teamId,
     staleTime: 30 * 1000,       // Consider stale after 30s
     gcTime: 30 * 60 * 1000,     // Keep in cache 30 min
     refetchOnMount: true,       // Revalidate on mount
