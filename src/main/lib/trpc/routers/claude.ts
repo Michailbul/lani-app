@@ -19,8 +19,12 @@ import { getProjectMcpServers, GLOBAL_MCP_PATH, readClaudeConfig, removeMcpServe
 import { discoverPluginMcpServers } from "../../plugins"
 import { getEnabledPlugins, getApprovedPluginMcpServers } from "./claude-settings"
 import { getExistingClaudeCredentials, refreshClaudeToken, isTokenExpired } from "../../claude-token"
+import { buildBacklotHarnessBlock } from "../../claude/harness-prompt"
 import { chats, claudeCodeCredentials, getDatabase, subChats } from "../../db"
-import { ensurePrimaryArtifact, PRIMARY_ARTIFACT_FILENAME } from "./artifacts"
+// Note: `ensurePrimaryArtifact` and `PRIMARY_ARTIFACT_FILENAME` were
+// removed from this router when the inline screenplay-artifact note
+// was replaced by the Backlot harness block. Other routers
+// (artifacts.ts itself) still consume them.
 import { createRollbackStash } from "../../git/stash"
 import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStatus, startMcpOAuth, type McpToolInfo } from "../../mcp-auth"
 import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
@@ -1164,19 +1168,16 @@ export const claudeRouter = router({
               })
             }
 
-            // Read AGENTS.md from project root if it exists
-            let agentsMdContent: string | undefined
-            try {
-              const agentsMdPath = path.join(input.cwd, "AGENTS.md")
-              agentsMdContent = await fs.readFile(agentsMdPath, "utf-8")
-              if (agentsMdContent.trim()) {
-                console.log(`[claude] Found AGENTS.md at ${agentsMdPath} (${agentsMdContent.length} chars)`)
-              } else {
-                agentsMdContent = undefined
-              }
-            } catch {
-              // AGENTS.md doesn't exist or can't be read - that's fine
-            }
+            // Backlot harness — universal system-prompt block describing
+            // the canonical project schema, file conventions, and how the
+            // agent should work inside Backlot. Versioned in
+            // src/main/lib/claude/harness-prompt.ts. Same content shipped
+            // to every project; project-specific creative direction lives
+            // in the project's own files (brief.md, world.md, etc.) which
+            // the agent reads on demand. We deliberately do NOT read
+            // AGENTS.md or per-project CLAUDE.md here — Backlot has one
+            // universal harness, not per-project agent docs.
+            const backlotHarnessBlock = buildBacklotHarnessBlock()
 
             // For Ollama: embed context AND history directly in prompt
             // Ollama doesn't have server-side sessions, so we must include full history
@@ -1260,8 +1261,12 @@ ${history}
                 }
               }
 
+              // Ollama has no server-side system prompt and no SDK
+              // preset — we have to embed the harness inline. Same
+              // Backlot conventions as the Claude path; tool-name
+              // reminders specific to Ollama's looser tool use.
               const ollamaContext = `[CONTEXT]
-You are a coding assistant in OFFLINE mode (Ollama model: ${resolvedModel || 'unknown'}).
+You are operating in OFFLINE mode (Ollama model: ${resolvedModel || 'unknown'}).
 Project: ${input.projectPath || input.cwd}
 Working directory: ${input.cwd}
 
@@ -1272,14 +1277,9 @@ IMPORTANT: When using tools, use these EXACT parameter names:
 - Glob: use "pattern" (e.g. "**/*.ts") and optionally "path"
 - Grep: use "pattern" and optionally "path"
 - Bash: use "command"
+[/CONTEXT]
 
-When asked about the project, use Glob to find files and Read to examine them.
-Be concise and helpful.
-[/CONTEXT]${agentsMdContent ? `
-
-[AGENTS.MD]
-${agentsMdContent}
-[/AGENTS.MD]` : ''}
+${backlotHarnessBlock}
 
 ${historyText}[CURRENT REQUEST]
 ${prompt}
@@ -1288,45 +1288,24 @@ ${prompt}
               console.log('[Ollama] Context prefix added to prompt')
             }
 
-            // Backlot: seed the primary screenplay artifact in the worktree
-            // before the agent's turn. The system prompt below directs the
-            // agent to Edit/Write this file rather than paste screenplay
-            // content into the chat — without the seed file, the very first
-            // turn would force the agent into Write (creating the file from
-            // scratch); seeding lets it Edit in place from turn one.
-            let backlotArtifactNote = ""
-            try {
-              const artifact = await ensurePrimaryArtifact(input.cwd)
-              if (artifact.path) {
-                backlotArtifactNote = `\n\n# BACKLOT — SCREENPLAY ARTIFACT\n\nYou are working inside a Backlot direction. The user's screenplay artifact for this direction is:\n\n  ${artifact.path}\n\n(relative to the working directory: ${PRIMARY_ARTIFACT_FILENAME})\n\nWhen the user asks you to write, draft, revise, expand, rework, or otherwise change a scene, beat, line of dialogue, action, or any screenplay content — DO NOT paste the screenplay into the chat. Use the Edit or Write tool on the artifact above. Backlot's editor pane reads this file and shows the result; the chat is for direction, intent, questions, and small explanations.\n\nFormat: Fountain screenplay format. Scene headings as INT./EXT. LOCATION — TIME. Character names in CAPS, centered logically as Fountain auto-detects. Dialogue under character names. Parentheticals in (parens) below the character name. Action lines in normal sentence case. Title page metadata at the very top with \`Title:\`, \`Credit:\`, \`Author:\` keys.\n\nIn chat, your replies should be concise: a one-line summary of what you changed, followed by any questions or notes. Save full screenplay content for the artifact.`
-              } else {
-                console.warn(`[claude] No worktree path; skipping Backlot artifact seed.`)
-              }
-            } catch (artifactErr) {
-              console.warn(`[claude] Failed to seed primary artifact:`, artifactErr)
+            // System prompt config — Anthropic's `claude_code` preset
+            // plus the Backlot harness block (see harness-prompt.ts).
+            // The harness describes the canonical project schema,
+            // file conventions, and how the agent should work inside
+            // Backlot. Same content for every project.
+            //
+            // We deliberately removed the legacy `ensurePrimaryArtifact`
+            // seed + screenplay-artifact note here: the new harness
+            // describes the entire canonical schema (brief, world,
+            // characters, locations, scenes, prompts, queue, etc.),
+            // not a single magic file. Auto-seeding screenplay.fountain
+            // for new projects is no longer correct — projects may not
+            // have a top-level screenplay at all (just per-scene fountain).
+            const systemPromptConfig = {
+              type: "preset" as const,
+              preset: "claude_code" as const,
+              append: `\n\n${backlotHarnessBlock}`,
             }
-
-            // System prompt config - use preset for both Claude and Ollama.
-            // Layered append: AGENTS.md (if present) + Backlot screenplay note.
-            const systemPromptAppend = [
-              agentsMdContent
-                ? `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`
-                : "",
-              backlotArtifactNote,
-            ]
-              .filter(Boolean)
-              .join("")
-
-            const systemPromptConfig = systemPromptAppend
-              ? {
-                  type: "preset" as const,
-                  preset: "claude_code" as const,
-                  append: systemPromptAppend,
-                }
-              : {
-                  type: "preset" as const,
-                  preset: "claude_code" as const,
-                }
 
             const queryOptions = {
               prompt: finalQueryPrompt,
@@ -1348,7 +1327,14 @@ ${prompt}
                 }),
                 includePartialMessages: true,
                 // Load skills from project and user directories (skip for Ollama - not supported)
-                ...(!isUsingOllama && { settingSources: ["project" as const, "user" as const] }),
+                // Backlot owns the user-level prompt surface via its
+                // own Settings → Agent preferences pane (composed at
+                // runtime alongside the harness block in `append`). We
+                // intentionally DO NOT load `~/.claude/CLAUDE.md` so that
+                // a user's other Claude tooling doesn't bleed prompts
+                // into Backlot sessions. Project-level CLAUDE.md inside
+                // the worktree IS loaded — that's the per-project memory.
+                ...(!isUsingOllama && { settingSources: ["project" as const] }),
                 canUseTool: async (
                   toolName: string,
                   toolInput: Record<string, unknown>,

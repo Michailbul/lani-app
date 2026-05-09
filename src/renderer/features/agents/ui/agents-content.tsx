@@ -14,6 +14,7 @@ import {
   selectedChatIsRemoteAtom,
   previousAgentChatIdAtom,
   selectedDraftIdAtom,
+  selectedProjectAtom,
   showNewChatFormAtom,
   agentsMobileViewModeAtom,
   agentsPreviewSidebarOpenAtom,
@@ -38,6 +39,7 @@ import { KanbanView } from "../../kanban"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
 import { ScreenplayWorkspace } from "../../backlot"
+import { NoChatAssistantPanel } from "./no-chat-assistant-panel"
 import { api } from "../../../lib/mock-api"
 import { trpc } from "../../../lib/trpc"
 import { useIsMobile } from "../../../lib/hooks/use-mobile"
@@ -75,6 +77,83 @@ export function AgentsContent() {
   const chatSourceMode = useAtomValue(chatSourceModeAtom)
   const selectedDraftId = useAtomValue(selectedDraftIdAtom)
   const showNewChatForm = useAtomValue(showNewChatFormAtom)
+  const selectedProject = useAtomValue(selectedProjectAtom)
+
+  // ──────────────────────────────────────────────────────────────────
+  // Auto-resume / auto-create a chat on entry into a project.
+  //
+  // The user wants picking a project to land them in the working view
+  // (file tree + editor + live chat) — never the "What do you want
+  // to get done?" intro form. Two entry points:
+  //
+  //   1. Cold launch with a previously-selected project loaded from
+  //      localStorage (selectedProject set, selectedChatId null).
+  //   2. Switching projects from inside the app (clears chat, sets
+  //      project).
+  //
+  // SelectRepoPage handles its own click path inline; this effect is
+  // the safety net for everything else. Resumes the most-recent chat
+  // for the project, or creates a fresh one with `useWorktree: true`.
+  // ──────────────────────────────────────────────────────────────────
+  const utilsForResume = trpc.useUtils()
+  const createChatForResume = trpc.chats.create.useMutation()
+  const autoResumeInFlightRef = useRef(false)
+  useEffect(() => {
+    // Only run when we're in the "project but no chat" state.
+    if (!selectedProject) return
+    if (selectedChatId) return
+    if (selectedDraftId) return
+    if (showNewChatForm) return
+    if (autoResumeInFlightRef.current) return
+
+    let cancelled = false
+    autoResumeInFlightRef.current = true
+    void (async () => {
+      try {
+        const existing = await utilsForResume.client.chats.list.query({
+          projectId: selectedProject.id,
+        })
+        if (cancelled) return
+        if (existing && existing.length > 0) {
+          setSelectedChatId(existing[0]!.id)
+          return
+        }
+        const newChat = await createChatForResume.mutateAsync({
+          projectId: selectedProject.id,
+          useWorktree: true,
+        })
+        if (cancelled) return
+        utilsForResume.chats.list.setData(
+          { projectId: selectedProject.id },
+          (oldData) => {
+            const row = newChat as unknown as never
+            if (!oldData) return [row]
+            return [row, ...oldData]
+          },
+        )
+        setSelectedChatId(newChat.id)
+      } catch (err) {
+        // Surface — if both resume and create fail, the user gets the
+        // ScreenplayWorkspace + NoChatAssistantPanel fallback below
+        // and can retry from there.
+        console.warn("[auto-resume] failed:", err)
+      } finally {
+        if (!cancelled) autoResumeInFlightRef.current = false
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    selectedProject,
+    selectedChatId,
+    selectedDraftId,
+    showNewChatForm,
+    setSelectedChatId,
+    utilsForResume,
+    createChatForResume,
+  ])
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const betaAutomationsEnabled = useAtomValue(betaAutomationsEnabledAtom)
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)
@@ -962,6 +1041,19 @@ export function AgentsContent() {
             </div>
           ) : betaKanbanEnabled ? (
             <KanbanView />
+          ) : selectedProject ? (
+            // Project picked, no chat selected, no draft, no new-chat
+            // form open. Drop the user straight into the split-screen
+            // project view — file tree on the left, screenplay/file
+            // editor in the centre, a quiet "Start a chat" panel on
+            // the right where the assistant normally lives. Never
+            // force a write-an-initial-message form just to view
+            // their project.
+            <ScreenplayWorkspace
+              chatId={null}
+              directionName={selectedProject.name}
+              assistant={<NoChatAssistantPanel />}
+            />
           ) : (
             <div className="h-full flex flex-col relative overflow-hidden">
               <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />

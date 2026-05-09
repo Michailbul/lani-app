@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { AlignJustify, Plus, Zap } from "lucide-react"
+import { AlignJustify, FolderPlus, Plus, Zap } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "../../../components/ui/button"
@@ -952,6 +952,70 @@ export function NewChatForm({
     await openFolder.mutateAsync()
   }
 
+  // Backlot-style import: copies the picked folder to ~/.backlot/projects/<slug>/,
+  // inits a fresh git repo + baseline commit, and selects the resulting
+  // project so the next chat created here forks cleanly. The user's
+  // original folder is never touched.
+  const pickAndImport = trpc.projects.pickAndImport.useMutation({
+    onSuccess: (project) => {
+      if (!project) return
+      utils.projects.list.setData(undefined, (oldData) => {
+        if (!oldData) return [project]
+        const exists = oldData.some((p) => p.id === project.id)
+        if (exists) {
+          return oldData.map((p) =>
+            p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p,
+          )
+        }
+        return [project, ...oldData]
+      })
+      setSelectedProject({
+        id: project.id,
+        name: project.name,
+        path: project.path,
+        gitRemoteUrl: project.gitRemoteUrl,
+        gitProvider: project.gitProvider as
+          | "github"
+          | "gitlab"
+          | "bitbucket"
+          | null,
+        gitOwner: project.gitOwner,
+        gitRepo: project.gitRepo,
+      })
+    },
+    onError: (error) => {
+      toast.error(`Import failed: ${error.message}`)
+    },
+  })
+
+  const handleImportProject = async () => {
+    await pickAndImport.mutateAsync()
+  }
+
+  const handlePickProject = (project: {
+    id: string
+    name: string
+    path: string
+    gitRemoteUrl: string | null
+    gitProvider: string | null
+    gitOwner: string | null
+    gitRepo: string | null
+  }) => {
+    setSelectedProject({
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      gitRemoteUrl: project.gitRemoteUrl,
+      gitProvider: project.gitProvider as
+        | "github"
+        | "gitlab"
+        | "bitbucket"
+        | null,
+      gitOwner: project.gitOwner,
+      gitRepo: project.gitRepo,
+    })
+  }
+
   const getAgentIcon = (agentId: string, className?: string) => {
     switch (agentId) {
       case "claude-code":
@@ -1510,18 +1574,19 @@ export function NewChatForm({
             </div>
           )}
 
-          {/* Input Area or Select Repo State */}
+          {/* Input Area or Backlot project landing */}
           {!validatedProject ? (
-            // No project selected - show select repo button (like Sign in button)
-            <div className="flex justify-center">
-              <button
-                onClick={handleOpenFolder}
-                disabled={openFolder.isPending}
-                className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {openFolder.isPending ? "Opening..." : "Select repo"}
-              </button>
-            </div>
+            // No project selected - show Backlot's projects landing.
+            // Imported projects live under ~/.backlot/projects/<slug>/;
+            // their original sources are never modified. Forks branch
+            // from the imported tree, not from the user's source folder.
+            <BacklotProjectLanding
+              projects={projectsList ?? []}
+              isLoading={isLoadingProjects}
+              onPick={handlePickProject}
+              onImport={handleImportProject}
+              importing={pickAndImport.isPending}
+            />
           ) : (
             // Project selected - show input form
             <div
@@ -2146,4 +2211,260 @@ export function NewChatForm({
       )}
     </div>
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Backlot project landing
+//
+// The first thing the user sees when no project is selected. Editorial
+// not utilitarian — Backlot is the writer's workspace, the entry
+// point should feel that way.
+//
+//   "Pick up where you left off"
+//   ┌──────────────────────────────────────┐
+//   │ Daddy Issues                         │
+//   │ ~/.backlot/projects/daddy-issues     │
+//   │ touched 4h ago                       │
+//   ├──────────────────────────────────────┤
+//   │ ...                                  │
+//   └──────────────────────────────────────┘
+//   + Import a project
+//
+// "Import" copies the picked folder into ~/.backlot/projects/<slug>/
+// and inits a fresh git baseline so forks always work cleanly. The
+// source folder stays untouched.
+// ─────────────────────────────────────────────────────────────────────
+function BacklotProjectLanding({
+  projects,
+  isLoading,
+  onPick,
+  onImport,
+  importing,
+}: {
+  projects: Array<{
+    id: string
+    name: string
+    path: string
+    updatedAt: Date | string | null
+    gitRemoteUrl: string | null
+    gitProvider: string | null
+    gitOwner: string | null
+    gitRepo: string | null
+  }>
+  isLoading: boolean
+  onPick: (project: {
+    id: string
+    name: string
+    path: string
+    gitRemoteUrl: string | null
+    gitProvider: string | null
+    gitOwner: string | null
+    gitRepo: string | null
+  }) => void
+  onImport: () => void
+  importing: boolean
+}) {
+  const hasProjects = projects.length > 0
+  return (
+    <div className="space-y-10 w-full max-w-[640px] mx-auto">
+      {/* Masthead — kicker → display headline → subtitle. The kicker
+          orients you to where you are; the headline is the reason you
+          opened the app; the subtitle is the explanation that earns its
+          place by being short. */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block w-[18px] h-[1px] bg-primary"
+            aria-hidden
+          />
+          <span
+            className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground/75"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            Backlot · Projects
+          </span>
+        </div>
+        <h1
+          className="text-[44px] md:text-[52px] leading-[1.02] tracking-[-0.018em] text-foreground"
+          style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+        >
+          {hasProjects
+            ? "Pick up where you left off."
+            : "Bring a project into Backlot."}
+        </h1>
+        <p
+          className="text-[15px] leading-[1.6] text-muted-foreground/85 max-w-[520px]"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          {hasProjects
+            ? "Choose a project to open, or import a new one. Backlot keeps forks isolated so the original folder stays untouched."
+            : "Backlot copies your folder into its own workspace so forks and history stay separate from your source."}
+        </p>
+      </div>
+
+      {/* Contents page — projects laid out like a manuscript TOC: name in
+          display weight, path in mono, time right-aligned. A leader rule
+          would be too literal — the row's hairline does the connecting
+          for us. */}
+      {hasProjects && (
+        <div>
+          <div className="flex items-baseline justify-between mb-3 px-1">
+            <span
+              className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/55"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              Recent
+            </span>
+            <span
+              className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/45"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              {projects.length} {projects.length === 1 ? "project" : "projects"}
+            </span>
+          </div>
+          <ul className="border-t border-border/70">
+            {projects.slice(0, 8).map((project) => (
+              <ProjectLandingRow
+                key={project.id}
+                project={project}
+                onPick={() => onPick(project)}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Import — set as a typographic CTA, not a candy-button. A row
+          treatment matching the project rows, with a Coral underline
+          marking it as the active call. */}
+      <div className="border-t border-border/70 pt-2">
+        <button
+          onClick={onImport}
+          disabled={importing || isLoading}
+          className={cn(
+            "group w-full flex items-baseline justify-between gap-6",
+            "px-1 py-4",
+            "transition-colors duration-150",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+        >
+          <span className="flex items-baseline gap-3 min-w-0">
+            <FolderPlus
+              className="h-4 w-4 self-center text-primary shrink-0"
+              aria-hidden
+            />
+            <span
+              className="text-[20px] leading-[1.1] tracking-[-0.005em] text-foreground group-hover:text-primary transition-colors"
+              style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+            >
+              {importing ? "Importing…" : "Import a project"}
+            </span>
+          </span>
+          <span
+            className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/55 group-hover:text-primary/80 transition-colors shrink-0"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            Pick a folder
+          </span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Single row in the contents-page treatment. The hover state slides a
+ * subtle Coral hairline under the name — feels like the editor's nib
+ * touching the page. Path stays muted so it doesn't compete with the
+ * project name; the time stamp is right-rule mono.
+ */
+function ProjectLandingRow({
+  project,
+  onPick,
+}: {
+  project: {
+    id: string
+    name: string
+    path: string
+    updatedAt: Date | string | null
+  }
+  onPick: () => void
+}) {
+  const lastTouched = formatRelativeTime(project.updatedAt)
+  const displayPath = abbreviatePath(project.path)
+  return (
+    <li className="border-b border-border/60">
+      <button
+        type="button"
+        onClick={onPick}
+        className="group w-full text-left flex items-baseline justify-between gap-6 px-1 py-4 transition-colors"
+      >
+        <span className="flex-1 min-w-0 flex flex-col gap-1">
+          <span className="flex items-baseline gap-3">
+            <span
+              className="relative inline-block text-[20px] leading-[1.1] tracking-[-0.005em] text-foreground transition-colors group-hover:text-primary"
+              style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+            >
+              {project.name}
+              <span
+                className="absolute left-0 right-0 -bottom-0.5 h-[1px] bg-primary scale-x-0 origin-left transition-transform duration-300 ease-out group-hover:scale-x-100"
+                aria-hidden
+              />
+            </span>
+          </span>
+          <span
+            className="text-[11px] text-muted-foreground/65 truncate"
+            style={{ fontFamily: "var(--font-mono)" }}
+            title={project.path}
+          >
+            {displayPath}
+          </span>
+        </span>
+        {lastTouched && (
+          <span
+            className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/65 shrink-0 self-center"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            {lastTouched}
+          </span>
+        )}
+      </button>
+    </li>
+  )
+}
+
+/**
+ * Render an absolute path with the home directory abbreviated to `~`,
+ * keeping the trailing two segments most prominent. Returned strings
+ * are used inline as muted captions.
+ */
+function abbreviatePath(absolute: string): string {
+  if (typeof window === "undefined") return absolute
+  // Best-effort: most projects live under HOME. We don't have direct
+  // access to os.homedir() in the renderer, so detect the typical
+  // /Users/<name>/ prefix and collapse it.
+  const m = absolute.match(/^\/Users\/[^/]+(\/.*)?$/)
+  if (m) {
+    return `~${m[1] ?? ""}`
+  }
+  return absolute
+}
+
+/**
+ * Format a Date / ISO string as a coarse relative-time caption.
+ * "just now", "12m ago", "4h ago", "yesterday", "3d ago", or YYYY-MM-DD.
+ */
+function formatRelativeTime(value: Date | string | null): string {
+  if (!value) return ""
+  const date = value instanceof Date ? value : new Date(value)
+  if (isNaN(date.getTime())) return ""
+  const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000)
+  if (seconds < 30) return "just now"
+  if (seconds < 60 * 60) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 60 * 60 * 24) return `${Math.floor(seconds / 3600)}h ago`
+  if (seconds < 60 * 60 * 24 * 2) return "yesterday"
+  if (seconds < 60 * 60 * 24 * 14) {
+    return `${Math.floor(seconds / (60 * 60 * 24))}d ago`
+  }
+  return date.toISOString().slice(0, 10)
 }

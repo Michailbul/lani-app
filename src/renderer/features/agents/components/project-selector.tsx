@@ -51,11 +51,16 @@ export function ProjectSelector() {
   // Get tRPC utils for cache management
   const utils = trpc.useUtils()
 
-  // Open folder mutation
-  const openFolder = trpc.projects.openFolder.useMutation({
+  // Backlot-style import. Replaces the old `openFolder` flow which only
+  // registered the source path as a project — that path could be a
+  // subfolder of a parent git repo, which broke `git worktree add` (it
+  // would mirror the parent repo's contents instead). The import flow
+  // copies the chosen folder to ~/.backlot/projects/<slug>/, runs
+  // `git init` + a baseline commit there, and registers the COPY. The
+  // user's original folder is never touched.
+  const pickAndImport = trpc.projects.pickAndImport.useMutation({
     onSuccess: (project) => {
       if (project) {
-        // Optimistically update the projects list cache to prevent validation failures
         utils.projects.list.setData(undefined, (oldData) => {
           if (!oldData) return [project]
           const exists = oldData.some((p) => p.id === project.id)
@@ -120,7 +125,7 @@ export function ProjectSelector() {
 
   const handleOpenFolder = async () => {
     setOpen(false)
-    await openFolder.mutateAsync()
+    await pickAndImport.mutateAsync()
   }
 
   const handleCloneFromGitHub = async () => {
@@ -169,11 +174,11 @@ export function ProjectSelector() {
     return (
       <button
         onClick={handleOpenFolder}
-        disabled={openFolder.isPending}
+        disabled={pickAndImport.isPending}
         className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
       >
         <FolderPlusIcon className="h-3.5 w-3.5" />
-        <span>{openFolder.isPending ? "Adding..." : "Add repository"}</span>
+        <span>{pickAndImport.isPending ? "Importing…" : "Import a project"}</span>
       </button>
     )
   }
@@ -244,11 +249,11 @@ export function ProjectSelector() {
           <div className="border-t border-border/50 py-1">
             <button
               onClick={handleOpenFolder}
-              disabled={openFolder.isPending}
+              disabled={pickAndImport.isPending}
               className="flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 w-[calc(100%-8px)] rounded-md text-sm cursor-default select-none outline-none dark:hover:bg-neutral-800 hover:text-foreground transition-colors"
             >
               <FolderPlusIcon className="h-4 w-4 text-muted-foreground" />
-              <span>{openFolder.isPending ? "Adding..." : "Add repository"}</span>
+              <span>{pickAndImport.isPending ? "Importing…" : "Import a project"}</span>
             </button>
             <button
               onClick={() => {

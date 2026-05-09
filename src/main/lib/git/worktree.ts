@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { devNull, homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -914,6 +914,29 @@ export async function createWorktreeForChat(
 		const isRepo = await git.checkIsRepo();
 
 		if (!isRepo) {
+			return { success: true, worktreePath: projectPath };
+		}
+
+		// Guard: `checkIsRepo()` walks UP the filesystem until it finds a
+		// `.git`. So a subfolder of a parent repo passes this check even
+		// though it isn't itself a repo root — and `git worktree add`
+		// would then fork the *parent* repo, not the subfolder. Detect
+		// that case by comparing the resolved toplevel to projectPath.
+		try {
+			const toplevelRaw = await git.revparse(["--show-toplevel"]);
+			const toplevel = toplevelRaw.trim();
+			const realToplevel = await realpath(toplevel);
+			const realProject = await realpath(projectPath);
+			if (realToplevel !== realProject) {
+				console.warn(
+					`[worktree] projectPath="${projectPath}" is a subfolder of parent repo "${toplevel}". Skipping worktree fork; chat will run directly in the source folder. Re-import the project to enable forks.`,
+				);
+				return { success: true, worktreePath: projectPath };
+			}
+		} catch (err) {
+			console.warn(
+				`[worktree] Could not verify repo toplevel for "${projectPath}": ${err}. Skipping fork.`,
+			);
 			return { success: true, worktreePath: projectPath };
 		}
 

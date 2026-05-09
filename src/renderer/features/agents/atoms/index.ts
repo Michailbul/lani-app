@@ -40,10 +40,16 @@ export const previousAgentChatIdAtom = atom<string | null>(null)
 // Reset to null when "New Workspace" is clicked or chat is created
 export const selectedDraftIdAtom = atom<string | null>(null)
 
-// Show new chat form explicitly - true by default so new users see the form, not kanban
-// Set to false when kanban is explicitly opened (via hotkey or button)
-// Set to true when "New Workspace" is clicked
-export const showNewChatFormAtom = atom<boolean>(true)
+// Show new chat form explicitly. False by default in Backlot — a project's
+// natural landing is the ProjectHomeView (recent chats + "Start a new chat"
+// CTA), NOT a forced "What do you want to get done?" form. The form is opened
+// explicitly: by clicking the sidebar's "New Project" button, by the new-chat
+// hotkey, or by ProjectHomeView's primary action.
+//
+// Upstream 1Code defaulted this to `true` so cold-start landed in the form
+// instead of the (then-default) kanban view. Backlot inherits that wiring
+// but routes the cold-start case differently — see agents-content.tsx.
+export const showNewChatFormAtom = atom<boolean>(false)
 
 // When true, suppress auto-focus on chat input (e.g. during sidebar keyboard navigation)
 export const suppressInputFocusAtom = atom<boolean>(false)

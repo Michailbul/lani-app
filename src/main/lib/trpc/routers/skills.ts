@@ -6,6 +6,11 @@ import * as os from "os"
 import matter from "gray-matter"
 import { discoverInstalledPlugins, getPluginComponentPaths } from "../../plugins"
 import { getEnabledPlugins } from "./claude-settings"
+import {
+  BACKLOT_SKILL_REGISTRY,
+  getAllRegistrySkillNames,
+} from "../../skills/registry"
+import { readSkillFilter, writeSkillFilter } from "../../skills/filter"
 
 export interface FileSkill {
   name: string
@@ -194,6 +199,67 @@ export const skillsRouter = router({
    * Alias for list - used by @ mention
    */
   listEnabled: listSkillsProcedure,
+
+  /**
+   * The Backlot curated registry — the AI-creatorship skills the
+   * settings UI surfaces, grouped by category. The agent's actual
+   * inclusion / exclusion preference is in `getFilter` below.
+   */
+  registry: publicProcedure.query(async () => {
+    const userSkillsDir = path.join(os.homedir(), ".claude", "skills")
+    const allOnDisk = await scanSkillsDirectory(userSkillsDir, "user")
+    const byName = new Map(allOnDisk.map((s) => [s.name, s]))
+
+    return BACKLOT_SKILL_REGISTRY.map((cat) => ({
+      label: cat.label,
+      blurb: cat.blurb,
+      skills: cat.skills.map((skill) => {
+        const found = byName.get(skill.name)
+        return {
+          name: skill.name,
+          description: found?.description ?? null,
+          installed: !!found,
+          path: found?.path ?? null,
+        }
+      }),
+    }))
+  }),
+
+  /**
+   * Read the user's current filter (mode + selection).
+   */
+  getFilter: publicProcedure.query(async () => {
+    return await readSkillFilter()
+  }),
+
+  /**
+   * Persist a new filter. Returns the normalised value the file ended
+   * up holding (selections intersected with the registry, mode coerced).
+   */
+  setFilter: publicProcedure
+    .input(
+      z.object({
+        mode: z.enum(["allow", "deny"]),
+        selected: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await writeSkillFilter(input)
+      return await readSkillFilter()
+    }),
+
+  /**
+   * Active set — the resolved list of skill names that pass the filter.
+   * Used by injection (Phase 2) and surfaced in the UI as a counter.
+   */
+  active: publicProcedure.query(async () => {
+    const filter = await readSkillFilter()
+    const all = getAllRegistrySkillNames()
+    const sel = new Set(filter.selected)
+    return filter.mode === "allow"
+      ? all.filter((n) => sel.has(n))
+      : all.filter((n) => !sel.has(n))
+  }),
 
   /**
    * Create a new skill

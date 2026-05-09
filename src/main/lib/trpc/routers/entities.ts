@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
 import { z } from "zod"
-import { chats, getDatabase } from "../../db"
+import { chats, getDatabase, projects } from "../../db"
 import { publicProcedure, router } from "../index"
 
 /**
@@ -205,6 +205,52 @@ function lookupWorktree(chatId: string): WorktreeLookup | null {
     .get()
   if (!row) return null
   return { worktreePath: row.worktreePath }
+}
+
+/**
+ * Resolve the filesystem root that an entity-router procedure should
+ * operate against. Two flavours:
+ *
+ *   1. **Chat-scoped** (`chatId`) — the chat's worktree. Edits go to
+ *      the per-chat fork; the agent and the user work on the same tree.
+ *      Default mode while a chat is active.
+ *
+ *   2. **Project-scoped** (`projectId`) — the canonical project at
+ *      `~/.backlot/projects/<slug>/`. Used when no chat has been
+ *      started yet (the user is browsing the project home view) and
+ *      we still want the file tree + editor to work. Edits land
+ *      directly on the canonical project.
+ *
+ * Exactly one of `chatId` / `projectId` must be supplied. Returns
+ * `{ root: null }` when neither resolves; callers decide whether to
+ * surface that as an empty tree, a placeholder, or an error.
+ */
+interface RootLookup {
+  root: string | null
+  kind: "worktree" | "project" | null
+}
+
+function resolveRoot(input: {
+  chatId?: string | null
+  projectId?: string | null
+}): RootLookup {
+  if (input.chatId) {
+    const lookup = lookupWorktree(input.chatId)
+    return {
+      root: lookup?.worktreePath ?? null,
+      kind: lookup?.worktreePath ? "worktree" : null,
+    }
+  }
+  if (input.projectId) {
+    const db = getDatabase()
+    const row = db
+      .select({ path: projects.path })
+      .from(projects)
+      .where(eq(projects.id, input.projectId))
+      .get()
+    return { root: row?.path ?? null, kind: row?.path ? "project" : null }
+  }
+  return { root: null, kind: null }
 }
 
 /**
@@ -639,20 +685,21 @@ export const entitiesRouter = router({
   read: publicProcedure
     .input(
       z.object({
-        chatId: z.string(),
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
         entityPath: z.string().min(1),
       }),
     )
     .query(async ({ input }) => {
-      const lookup = lookupWorktree(input.chatId)
-      if (!lookup?.worktreePath) {
+      const { root } = resolveRoot(input)
+      if (!root) {
         return { exists: false, content: null as string | null }
       }
-      const full = join(lookup.worktreePath, input.entityPath)
+      const full = join(root, input.entityPath)
       // Guard against path-escape attempts. Renderer should only send
       // paths returned by `list`, but a defensive check is cheap.
-      if (!full.startsWith(lookup.worktreePath)) {
-        throw new Error("Entity path escapes the worktree.")
+      if (!full.startsWith(root)) {
+        throw new Error("Entity path escapes the root.")
       }
       if (!existsSync(full)) {
         return { exists: false, content: null }
@@ -671,22 +718,200 @@ export const entitiesRouter = router({
   write: publicProcedure
     .input(
       z.object({
-        chatId: z.string(),
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
         entityPath: z.string().min(1),
         content: z.string(),
       }),
     )
     .mutation(async ({ input }) => {
-      const lookup = lookupWorktree(input.chatId)
-      if (!lookup?.worktreePath) {
-        throw new Error("Chat has no worktree.")
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
       }
-      const full = join(lookup.worktreePath, input.entityPath)
-      if (!full.startsWith(lookup.worktreePath)) {
-        throw new Error("Entity path escapes the worktree.")
+      const full = join(root, input.entityPath)
+      if (!full.startsWith(root)) {
+        throw new Error("Entity path escapes the root.")
       }
       await mkdir(dirname(full), { recursive: true })
       await writeFile(full, input.content, "utf-8")
       return { written: true, path: input.entityPath }
     }),
+
+  /**
+   * Walk the worktree and return a recursive folder/file tree, skipping
+   * developer noise (.git, node_modules, build artefacts). The renderer
+   * uses this for the Cursor-style ProjectFileTree — generic, not
+   * coupled to the canonical schema. Files keep their full names with
+   * extensions so the tree reads exactly like what's on disk.
+   *
+   * Folders sort alphabetically before files; everything is sorted by
+   * leading-numeric prefix where present (so "01-opening" comes before
+   * "02-cafe-talk") then by name.
+   */
+  listTree: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+      }),
+    )
+    .query(async ({ input }): Promise<TreeNode | null> => {
+      const { root } = resolveRoot(input)
+      if (!root) return null
+      return walkTree(root, "")
+    }),
+
+  /**
+   * Create a new empty file (or with starter content) at an arbitrary
+   * relative path inside the worktree. Refuses if the target already
+   * exists — frontends should append "-2" / "-copy" themselves to
+   * avoid silent overwrites. Parent directories are created as needed.
+   */
+  createFile: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        path: z.string().min(1),
+        content: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+      const full = join(root, input.path)
+      if (!full.startsWith(root)) {
+        throw new Error("Path escapes the root.")
+      }
+      if (existsSync(full)) {
+        throw new Error(`File already exists: ${input.path}`)
+      }
+      await mkdir(dirname(full), { recursive: true })
+      await writeFile(full, input.content ?? "", "utf-8")
+      return { created: true, path: input.path }
+    }),
+
+  /**
+   * Create a new folder at an arbitrary relative path. Adds a `.keep`
+   * placeholder file so the empty folder is committable (git ignores
+   * truly-empty folders). The placeholder is conventional in this
+   * codebase — the walker skips files starting with a dot.
+   */
+  createFolder: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        path: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+      const full = join(root, input.path)
+      if (!full.startsWith(root)) {
+        throw new Error("Path escapes the root.")
+      }
+      if (existsSync(full)) {
+        throw new Error(`Folder already exists: ${input.path}`)
+      }
+      await mkdir(full, { recursive: true })
+      // Placeholder so git can track the otherwise-empty folder.
+      await writeFile(join(full, ".keep"), "", "utf-8")
+      return { created: true, path: input.path }
+    }),
 })
+
+// ────────────────────────────────────────────────────────────────────────
+// Tree walker — generic file-system view used by the Cursor-style
+// ProjectFileTree on the renderer. Lives down here so the public
+// router stays the visual focus of the file.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface TreeNode {
+  kind: "folder" | "file"
+  /** Display name (basename). Files keep their extension. */
+  name: string
+  /** Path relative to the worktree root. The root itself is "". */
+  path: string
+  /** Only present on folders. Sorted: folders before files, then by leading-numeric prefix, then by name. */
+  children?: TreeNode[]
+}
+
+/** Names the walker NEVER descends into / NEVER lists. Mirrors the import allowlist. */
+const TREE_EXCLUDE = new Set([
+  ".git",
+  ".DS_Store",
+  "node_modules",
+  ".next",
+  ".turbo",
+  ".cache",
+  "dist",
+  "build",
+  "out",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".pytest_cache",
+  "target",
+  ".gradle",
+])
+
+/**
+ * Sort entries: folders before files, then by leading-numeric prefix
+ * ("01-foo" → 1) so scene folders read in story order, then by name.
+ */
+function sortTreeEntries(a: TreeNode, b: TreeNode): number {
+  if (a.kind !== b.kind) {
+    return a.kind === "folder" ? -1 : 1
+  }
+  const orderA = orderFromId(a.name)
+  const orderB = orderFromId(b.name)
+  if (orderA !== null && orderB !== null && orderA !== orderB) {
+    return orderA - orderB
+  }
+  if (orderA !== null && orderB === null) return -1
+  if (orderA === null && orderB !== null) return 1
+  return a.name.localeCompare(b.name)
+}
+
+async function walkTree(absRoot: string, relPath: string): Promise<TreeNode> {
+  const absPath = relPath ? join(absRoot, relPath) : absRoot
+  const name = relPath ? relPath.split("/").pop()! : ""
+
+  let entries: Array<{ name: string; isDir: boolean }> = []
+  try {
+    const raw = await readdir(absPath, { withFileTypes: true } as any) as any[]
+    entries = raw
+      .map((e: any) => {
+        if (typeof e === "string") {
+          // Older Node fallback — should be rare on Electron 39.
+          return { name: e, isDir: false }
+        }
+        return { name: e.name as string, isDir: e.isDirectory() }
+      })
+      .filter((e) => !TREE_EXCLUDE.has(e.name))
+      // Hide dotfiles by convention (matches Cursor / VS Code's "show hidden" off).
+      .filter((e) => !e.name.startsWith("."))
+  } catch {
+    return { kind: "folder", name, path: relPath, children: [] }
+  }
+
+  const children: TreeNode[] = []
+  for (const e of entries) {
+    const childRel = relPath ? `${relPath}/${e.name}` : e.name
+    if (e.isDir) {
+      children.push(await walkTree(absRoot, childRel))
+    } else {
+      children.push({ kind: "file", name: e.name, path: childRel })
+    }
+  }
+  children.sort(sortTreeEntries)
+
+  return { kind: "folder", name, path: relPath, children }
+}

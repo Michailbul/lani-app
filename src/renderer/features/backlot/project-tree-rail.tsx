@@ -12,7 +12,7 @@
  * persisted in `projectTreeWidthAtom`).
  */
 
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
+import { useAtom, useSetAtom } from "jotai"
 import {
   BookOpen,
   ChevronDown,
@@ -31,13 +31,13 @@ import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
-import { selectedAgentChatIdAtom } from "../agents/atoms"
 import {
   activeEntityAtom,
   projectTreeOpenAtom,
   projectTreeWidthAtom,
   type ActiveEntity,
 } from "./atoms"
+import { ProjectFileTree } from "./project-file-tree"
 import { Resizer } from "./resizer"
 
 // ────────────────────────────────────────────────────────────────────────
@@ -186,193 +186,16 @@ export function ProjectTreeRail() {
 // ────────────────────────────────────────────────────────────────────────
 
 function ProjectTreeContent() {
-  const chatId = useAtomValue(selectedAgentChatIdAtom)
-  const setActive = useSetAtom(activeEntityAtom)
-  const tree = trpc.entities.list.useQuery(
-    { chatId: chatId ?? "" },
-    {
-      enabled: !!chatId,
-      refetchInterval: 5000,
-      refetchOnWindowFocus: true,
-    },
-  )
-  const bootstrap = trpc.entities.bootstrap.useMutation({
-    onSuccess: (res) => {
-      tree.refetch()
-      toast.success(
-        res.count > 0
-          ? `Created ${res.count} starter file${res.count === 1 ? "" : "s"}.`
-          : "Project structure already in place.",
-      )
-    },
-    onError: (err) => toast.error(err.message || "Couldn't bootstrap."),
-  })
-  const write = trpc.entities.write.useMutation({
-    onSuccess: () => tree.refetch(),
-    onError: (err) => toast.error(err.message || "Couldn't create file."),
-  })
-
-  // What kind of entity is being created right now (inline input shown).
-  const [creating, setCreating] = useState<
-    null | "scene" | "character" | "location"
-  >(null)
-
-  const onCreate = async (
-    kind: "scene" | "character" | "location",
-    label: string,
-  ) => {
-    if (!chatId || !label.trim()) {
-      setCreating(null)
-      return
-    }
-    const slug = slugify(label) || `untitled-${Date.now()}`
-    let entityPath: string
-    let active: ActiveEntity
-    let template: string
-    if (kind === "character") {
-      entityPath = `characters/${slug}.md`
-      template = characterTemplate(label)
-      active = {
-        kind: "character",
-        id: slug,
-        label,
-        path: entityPath,
-      } as ActiveEntity
-    } else if (kind === "location") {
-      entityPath = `locations/${slug}.md`
-      template = locationTemplate(label)
-      active = {
-        kind: "location",
-        id: slug,
-        label,
-        path: entityPath,
-      } as ActiveEntity
-    } else {
-      // scene — compute next order from existing scenes
-      const existing = tree.data?.scenes ?? []
-      const nextNum =
-        Math.max(0, ...existing.map((s) => s.order ?? 0)) + 1
-      const order = String(nextNum).padStart(2, "0")
-      const folderId = `${order}-${slug}`
-      entityPath = `scenes/${folderId}/scene.fountain`
-      template = sceneTemplate(label)
-      active = {
-        kind: "scene",
-        id: folderId,
-        label,
-        path: entityPath,
-      } as ActiveEntity
-    }
-    try {
-      await write.mutateAsync({ chatId, entityPath, content: template })
-      setActive(active)
-      setCreating(null)
-      toast.success(`Created ${entityPath}`)
-    } catch {
-      // mutation onError already toasts
-      setCreating(null)
-    }
-  }
-
-  if (!chatId) {
-    return (
-      <div className="px-4 py-6 text-[12px] text-muted-foreground">
-        Open a chat to see its project.
-      </div>
-    )
-  }
-  if (tree.isPending) {
-    return <div className="px-4 py-6 text-[12px] text-muted-foreground/70">Loading…</div>
-  }
-  const data = tree.data
-  if (!data) {
-    return (
-      <div className="px-4 py-6 text-[12px] text-muted-foreground/70">
-        Couldn't read this project.
-      </div>
-    )
-  }
-
-  if (!data.bootstrapped) {
-    return (
-      <EmptyState
-        onBootstrap={() => bootstrap.mutate({ chatId })}
-        isPending={bootstrap.isPending}
-      />
-    )
-  }
-
+  // ProjectFileTree handles its own root resolution: it reads the
+  // selected chat's worktree when a chat is active, otherwise it falls
+  // back to the canonical project root from `selectedProjectAtom`. The
+  // tree shows files in both modes — there's no "open a chat first"
+  // gate. When no project is selected at all, ProjectFileTree renders
+  // its own "No project" empty state.
   return (
-    <div className="py-3">
-      {/* Top-level singletons — always rendered, "empty" badge when missing */}
-      <SingletonRow
-        icon={BookOpen}
-        label="Brief"
-        kind="brief"
-        path={data.brief.path}
-        exists={data.brief.exists}
-      />
-      <SingletonRow
-        icon={Globe2}
-        label="World"
-        kind="world"
-        path={data.world.path}
-        exists={data.world.exists}
-      />
-      <SingletonRow
-        icon={Clapperboard}
-        label="Main script"
-        kind="main-script"
-        path={data.mainScript.path}
-        exists={data.mainScript.exists}
-      />
-
-      <Divider />
-
-      {/* Scenes — flat or grouped by acts depending on what exists */}
-      <ScenesAndActsSection
-        acts={data.acts}
-        scenes={data.scenes}
-        creating={creating === "scene"}
-        onStart={() => setCreating("scene")}
-        onCancel={() => setCreating(null)}
-        onCreate={(label) => onCreate("scene", label)}
-      />
-
-      <Divider />
-
-      <EntityGroup
-        icon={User}
-        label="Characters"
-        items={data.characters.map((c) => ({
-          id: c.id,
-          label: c.label,
-          entity: { kind: "character", id: c.id, label: c.label, path: c.path } as ActiveEntity,
-        }))}
-        addCta="Add character"
-        creating={creating === "character"}
-        onStart={() => setCreating("character")}
-        onCancel={() => setCreating(null)}
-        onCreate={(label) => onCreate("character", label)}
-      />
-
-      <EntityGroup
-        icon={MapPin}
-        label="Locations"
-        items={data.locations.map((l) => ({
-          id: l.id,
-          label: l.label,
-          entity: { kind: "location", id: l.id, label: l.label, path: l.path } as ActiveEntity,
-        }))}
-        addCta="Add location"
-        creating={creating === "location"}
-        onStart={() => setCreating("location")}
-        onCancel={() => setCreating(null)}
-        onCreate={(label) => onCreate("location", label)}
-      />
-
-      <Divider />
-
+    <div className="py-2">
+      <ProjectFileTree />
+      <div className="mx-3 mt-3 mb-1 h-px bg-border/70" />
       <DemoTrigger />
     </div>
   )
@@ -496,14 +319,33 @@ function ScenesAndActsSection({
   }
 
   return (
-    <section className="px-1.5">
-      <div className="flex items-center justify-between px-2 py-1">
+    <section className="group/section px-1.5">
+      {/* Section header. Hover surfaces a "+" button on the right —
+          one click adds a scene without scrolling to the bottom of the
+          list (especially helpful once the project has many scenes). */}
+      <div className="flex items-center justify-between gap-2 px-2 py-1">
         <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
           Scenes
         </span>
-        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
-          {scenes.length}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+            {scenes.length}
+          </span>
+          <button
+            type="button"
+            onClick={onStart}
+            aria-label="Add scene"
+            title="Add scene"
+            className={cn(
+              "shrink-0 flex items-center justify-center",
+              "text-muted-foreground/40 hover:text-primary",
+              "opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
+              "transition-opacity duration-150",
+            )}
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
       {scenes.length === 0 && acts.length === 0 ? (
@@ -815,28 +657,51 @@ function EntityGroup({
   if (creating && collapsed) setCollapsed(false)
 
   return (
-    <section className="mt-1 px-1.5">
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className={cn(
-          "press w-full flex items-center gap-1.5 px-2 py-1",
-          "text-[10px] uppercase tracking-[0.16em] font-mono",
-          "text-muted-foreground/70 hover:text-foreground/90",
-          "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
-        )}
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )}
-        <Icon className="h-3 w-3" />
-        <span className="flex-1 text-left">{label}</span>
-        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
-          {items.length}
-        </span>
-      </button>
+    <section className="group/section mt-1 px-1.5">
+      {/* Header row — clicking the label toggles collapse; the "+" on the
+          right always creates (and auto-expands) without first having to
+          discover that the section is collapsible. Two affordances, one
+          row, no overlap. Both buttons get `.press` so they share the
+          standardised interactive feedback from the animation pass. */}
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className={cn(
+            "press flex-1 flex items-center gap-1.5 px-2 py-1",
+            "text-[10px] uppercase tracking-[0.16em] font-mono",
+            "text-muted-foreground/70 hover:text-foreground/90",
+          )}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )}
+          <Icon className="h-3 w-3" />
+          <span className="flex-1 text-left">{label}</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+            {items.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setCollapsed(false)
+            onStart()
+          }}
+          aria-label={addCta}
+          title={addCta}
+          className={cn(
+            "press shrink-0 px-1.5 flex items-center justify-center",
+            "text-muted-foreground/40 hover:text-primary",
+            "opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
+            "transition-opacity duration-150",
+          )}
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
 
       {!collapsed && (
         <ul className="space-y-px">
