@@ -45,24 +45,33 @@ function safeParseFrontmatter(content: string): {
   data: Record<string, unknown> | null
   body: string
 } {
-  // Quick sniff — gray-matter only looks for `---\n` at the very start.
-  if (!content.startsWith("---")) {
+  const normalized = content.replace(/^\uFEFF/, "")
+  const frontmatterMatch = normalized.match(
+    /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/,
+  )
+
+  if (!frontmatterMatch) {
     return { data: null, body: content }
   }
+
+  const fallbackBody = normalized
+    .slice(frontmatterMatch[0].length)
+    .replace(/^\r?\n+/, "")
+
   try {
-    const parsed = matter(content)
+    const parsed = matter(normalized)
     const data = parsed.data ?? {}
     if (Object.keys(data).length === 0) {
       // Empty frontmatter or parse no-op. Drop the delimiters anyway.
-      return { data: null, body: parsed.content.trim() }
+      return { data: null, body: fallbackBody.trim() }
     }
     return {
       data: data as Record<string, unknown>,
-      body: parsed.content.trim(),
+      body: fallbackBody.trim(),
     }
   } catch {
-    // Malformed YAML. Render whole content as body.
-    return { data: null, body: content }
+    // Malformed YAML. Still hide the wrapper delimiters in preview.
+    return { data: null, body: fallbackBody }
   }
 }
 
@@ -114,12 +123,10 @@ function FrontmatterBlock({
   if (entries.length === 0) return null
 
   return (
+    // The editor header already terminates in a hairline rule, so the
+    // frontmatter strip does not add its own divider.
     <section
-      className={cn(
-        "relative not-prose mb-8",
-        "border-t border-primary/40",
-        "pt-4",
-      )}
+      className="relative not-prose mb-8"
       aria-label="File metadata"
     >
       <dl className="grid grid-cols-[110px_1fr] gap-x-5 gap-y-2 max-w-[640px]">
@@ -144,7 +151,6 @@ function FrontmatterBlock({
           </div>
         ))}
       </dl>
-      <div className="mt-5 h-px bg-border/60" />
     </section>
   )
 }
@@ -270,14 +276,16 @@ const editorialComponents = {
     </blockquote>
   ),
   hr: ({ ...props }: any) => (
-    <div
+    // Plain hairline — no absolute-positioned Coral notch. The earlier
+    // version centered an `absolute` accent badge over the rule but the
+    // wrapper had no `relative` ancestor, so the badge escaped up the
+    // tree and rendered as a stray dash floating between the editor
+    // header and body. Files with multiple `---` separators turned it
+    // into a swarm. Clean rule reads better anyway.
+    <hr
       {...props}
-      className="my-8 flex items-center justify-center"
-      role="separator"
-    >
-      <div className="h-px w-full bg-border/60" />
-      <span className="absolute inline-block w-[18px] h-[2px] bg-primary" />
-    </div>
+      className="my-8 h-px w-full border-0 bg-border/60"
+    />
   ),
   a: ({ href, children, ...props }: any) => (
     <a

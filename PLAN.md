@@ -16,6 +16,12 @@ Six commits in:
 
 `bun install` running. Once green, `bun run dev` is the boot attempt.
 
+## Session note — 2026-05-10
+
+Shipped: tightened Backlot markdown frontmatter rendering in the main editor preview so YAML `---` wrappers no longer draw duplicate horizontal rules, and removed the extra metadata-strip divider under the entity header.
+
+Next: run a visual pass in the app once the local browser/debug tooling is available; the repo-wide type check is still blocked by existing baseline TypeScript errors and the missing `tsgo` binary.
+
 ## Week 1 — v1 backbone (UI + auth + chat)
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING
