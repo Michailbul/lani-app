@@ -32,6 +32,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   Plus,
+  Trash2,
 } from "lucide-react"
 import { motion } from "motion/react"
 import { toast } from "sonner"
@@ -409,9 +410,32 @@ function ThreadSwitcher() {
   const addToOpenSubChats = useAgentSubChatStore(
     (state) => state.addToOpenSubChats,
   )
+  const removeFromOpenSubChats = useAgentSubChatStore(
+    (state) => state.removeFromOpenSubChats,
+  )
   const activeSubChat = allSubChats.find((s) => s.id === activeSubChatId)
   const activeProviderLabel =
     activeSubChat?.provider === "codex" ? "Codex" : "Claude"
+
+  const utils = trpc.useUtils()
+  const deleteSubChat = trpc.chats.deleteSubChat.useMutation({
+    onSuccess: (_data, variables) => {
+      // Pull the close-tab state through the same hook the keyboard
+      // shortcut uses — it auto-promotes the last remaining tab to
+      // active if we just deleted the active one.
+      removeFromOpenSubChats(variables.id)
+      // Re-fetch the workspace so allSubChats drops the row. The
+      // upstream code path is `utils.agents.getAgentChat.invalidate`,
+      // which is a wrapper around chats.get — calling chats.get
+      // directly avoids the wrapper-typed indirection.
+      if (activeChatId) {
+        utils.chats.get.invalidate({ id: activeChatId })
+      }
+    },
+    onError: (err) => {
+      toast.error(err.message || "Couldn't delete thread")
+    },
+  })
 
   // Sort by recency. updated_at is optional in the metadata; missing
   // entries sink so freshly opened ones still surface.
@@ -429,6 +453,33 @@ function ThreadSwitcher() {
     if (subChatId === activeSubChatId) return
     addToOpenSubChats(subChatId)
     setActiveSubChat(subChatId)
+  }
+
+  // Delete a thread. Native confirm is ugly but unambiguous; this is a
+  // hard delete (existing chats.deleteSubChat is destructive — no
+  // archive table for sub-chats), so the friction is the safety. If
+  // the user is deleting only one thread, refuse — the workspace must
+  // keep at least one sub-chat for the rail to render coherently; in
+  // that case the empty path is to delete the workspace from the
+  // sidebar, not the thread.
+  const handleDelete = (
+    e: React.MouseEvent,
+    thread: { id: string; name?: string },
+  ) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (sortedSubChats.length <= 1) {
+      toast.message("Can't delete the only thread", {
+        description:
+          "A workspace needs at least one thread. Create another, then delete this one.",
+      })
+      return
+    }
+    const ok = window.confirm(
+      `Delete thread "${thread.name?.trim() || "Untitled"}"?\nThis can't be undone.`,
+    )
+    if (!ok) return
+    deleteSubChat.mutate({ id: thread.id })
   }
 
   const createThread = (options: { kind: "fresh" } | { kind: "branch" }) => {
@@ -480,7 +531,7 @@ function ThreadSwitcher() {
                   <DropdownMenuItem
                     key={thread.id}
                     onClick={() => handleSelect(thread.id)}
-                    className="flex items-start gap-2 py-2"
+                    className="group flex items-start gap-2 py-2"
                   >
                     <span className="mt-0.5 w-3.5 shrink-0 flex items-center justify-center">
                       {isActive ? (
@@ -515,6 +566,24 @@ function ThreadSwitcher() {
                         </span>
                       </div>
                     </div>
+                    {/* Delete affordance — hover-revealed so the row stays
+                        clean while still giving the user a clear destructive
+                        path. Stops propagation so clicking it doesn't also
+                        switch the thread. */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleDelete(e, thread)}
+                      className={cn(
+                        "shrink-0 ml-1 mt-0.5 h-6 w-6 rounded flex items-center justify-center",
+                        "text-muted-foreground/0 group-hover:text-muted-foreground/70 hover:!text-rose-600 dark:hover:!text-rose-400",
+                        "hover:bg-rose-500/10",
+                        "transition-colors duration-150",
+                      )}
+                      title="Delete thread"
+                      aria-label={`Delete thread ${thread.name?.trim() || "Untitled"}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </DropdownMenuItem>
                 )
               })}

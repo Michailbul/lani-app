@@ -26,8 +26,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useAtom, useAtomValue } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
+  AtSign,
   ChevronDown,
   ChevronRight,
   Clapperboard,
@@ -38,10 +39,22 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Trash2,
 } from "lucide-react"
-import { selectedAgentChatIdAtom, selectedProjectAtom } from "../agents/atoms"
+import {
+  pendingMentionAtom,
+  selectedAgentChatIdAtom,
+  selectedProjectAtom,
+} from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "../../components/ui/context-menu"
 import { activeEntityAtom } from "./atoms"
 import { activeEntityFromPath, labelFromFilename } from "./entity-kind"
 import { toast } from "sonner"
@@ -301,7 +314,12 @@ function FolderChildren({
               onChanged={onChanged}
             />
           ) : (
-            <FileRow node={child} depth={depth} />
+            <FileRow
+              node={child}
+              depth={depth}
+              entityRoot={entityRoot}
+              onChanged={onChanged}
+            />
           )}
         </li>
       ))}
@@ -332,32 +350,38 @@ function FolderRow({
 
   return (
     <div>
-      <div
-        className={cn(
-          "group/row relative w-full flex items-center pr-1 py-[3px] rounded-md",
-          "hover:bg-secondary/45 transition-colors",
-        )}
+      <RowContextMenu
+        node={node}
+        entityRoot={entityRoot}
+        onChanged={onChanged}
       >
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-1 flex-1 min-w-0 text-left"
-          style={{ paddingLeft: indentFor(depth) }}
+        <div
+          className={cn(
+            "group/row relative w-full flex items-center pr-1 py-[3px] rounded-md",
+            "hover:bg-secondary/45 transition-colors",
+          )}
         >
-          <Chevron className="h-3 w-3 text-muted-foreground/55 shrink-0" />
-          <Icon className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-          <span
-            className="truncate text-[12.5px] text-foreground/90"
-            style={{ fontFamily: "var(--font-body)", fontWeight: 500 }}
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1 flex-1 min-w-0 text-left"
+            style={{ paddingLeft: indentFor(depth) }}
           >
-            {node.name}
-          </span>
-        </button>
-        <FolderActions
-          onNewFile={() => startCreate("file")}
-          onNewFolder={() => startCreate("folder")}
-        />
-      </div>
+            <Chevron className="h-3 w-3 text-muted-foreground/55 shrink-0" />
+            <Icon className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+            <span
+              className="truncate text-[12.5px] text-foreground/90"
+              style={{ fontFamily: "var(--font-body)", fontWeight: 500 }}
+            >
+              {node.name}
+            </span>
+          </button>
+          <FolderActions
+            onNewFile={() => startCreate("file")}
+            onNewFolder={() => startCreate("folder")}
+          />
+        </div>
+      </RowContextMenu>
 
       {open && (
         <>
@@ -412,45 +436,168 @@ function FolderActions({
   )
 }
 
-function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
+function FileRow({
+  node,
+  depth,
+  entityRoot,
+  onChanged,
+}: {
+  node: TreeNode
+  depth: number
+  entityRoot: EntityRoot
+  onChanged: () => void
+}) {
   const [active, setActive] = useAtom(activeEntityAtom)
   const isActive = active?.path === node.path
   const label = labelFromFilename(node.name)
   const Icon = iconForFile(node.name, node.path)
 
+  // Selection visual: neutral grey fill on the row, slightly heavier
+  // text. No left accent bar, no Coral tint — same restrained idiom
+  // as the 21st nav (and the settings tab list). Hover and active
+  // share the foreground/5 fill so movement between rows feels like
+  // a single drift of weight, not a colour switch.
   return (
-    <button
-      type="button"
-      onClick={() => setActive(activeEntityFromPath(node.path, label))}
-      className={cn(
-        "relative w-full flex items-center gap-1.5 pr-2 py-[3px] rounded-md",
-        "transition-colors",
-        isActive
-          ? "bg-primary/12 text-foreground"
-          : "text-foreground/85 hover:bg-secondary/45",
-      )}
-      style={{ paddingLeft: indentFor(depth) + 16 }}
-      title={node.path}
-    >
-      {isActive && (
-        <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r bg-primary" />
-      )}
-      <Icon
+    <RowContextMenu node={node} entityRoot={entityRoot} onChanged={onChanged}>
+      <button
+        type="button"
+        onClick={() => setActive(activeEntityFromPath(node.path, label))}
         className={cn(
-          "h-3.5 w-3.5 shrink-0",
-          isActive ? "text-primary" : "text-muted-foreground/65",
+          "relative w-full flex items-center gap-1.5 pr-2 py-[3px] rounded-md",
+          "transition-colors",
+          isActive
+            ? "bg-foreground/[0.06] text-foreground dark:bg-foreground/[0.08]"
+            : "text-foreground/80 hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.05]",
         )}
-      />
-      <span
-        className={cn(
-          "truncate text-[12.5px] text-left",
-          isActive && "font-medium",
-        )}
-        style={{ fontFamily: "var(--font-body)" }}
+        style={{ paddingLeft: indentFor(depth) + 16 }}
+        title={node.path}
       >
-        {node.name}
-      </span>
-    </button>
+        <Icon
+          className={cn(
+            "h-3.5 w-3.5 shrink-0",
+            isActive ? "text-foreground/90" : "text-muted-foreground/65",
+          )}
+        />
+        <span
+          className={cn(
+            "truncate text-[12.5px] text-left",
+            isActive && "font-medium",
+          )}
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          {node.name}
+        </span>
+      </button>
+    </RowContextMenu>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Right-click affordances — one menu shape for both files and folders.
+//
+// • Add to context — pushes a FileMentionOption into the renderer-wide
+//   pendingMentionAtom; active-chat picks it up, calls the editor's
+//   insertMention(), and the file lands as a chip in the agent input.
+//   Same path the @-trigger picker uses, just driven from the tree.
+// • Delete — calls entities.delete (recursive for folders). Native
+//   confirm so the destruction is unmistakable; this is a hard rm.
+// ─────────────────────────────────────────────────────────────────────
+function RowContextMenu({
+  node,
+  entityRoot,
+  onChanged,
+  children,
+}: {
+  node: TreeNode
+  entityRoot: EntityRoot
+  onChanged: () => void
+  children: React.ReactNode
+}) {
+  const [active, setActive] = useAtom(activeEntityAtom)
+  const setPendingMention = useSetAtom(pendingMentionAtom)
+  const selectedProject = useAtomValue(selectedProjectAtom)
+  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
+  const deleteEntity = trpc.entities.delete.useMutation({
+    onSuccess: () => {
+      // If the deleted entity was open in the editor, clear it so we
+      // don't leave a stale buffer pointing at a non-existent path.
+      if (active?.path === node.path) setActive(null)
+      onChanged()
+      toast.success(
+        node.kind === "folder"
+          ? `Deleted folder "${node.name}"`
+          : `Deleted "${node.name}"`,
+      )
+    },
+    onError: (err) => {
+      toast.error(err.message || `Couldn't delete "${node.name}"`)
+    },
+  })
+
+  const repository =
+    selectedProject?.id ?? entityRoot.projectId ?? entityRoot.chatId ?? "backlot"
+
+  const handleAddToContext = () => {
+    if (!activeChatId) {
+      toast.message("Open a chat first", {
+        description: "There's no active assistant thread to add this to.",
+      })
+      return
+    }
+    const kindPrefix = node.kind === "folder" ? "folder" : "file"
+    setPendingMention({
+      id: `${kindPrefix}:${repository}:${node.path}`,
+      label: node.name,
+      path: node.path,
+      repository,
+      truncatedPath: node.path.includes("/")
+        ? node.path.split("/").slice(0, -1).join("/")
+        : "/",
+      type: node.kind === "folder" ? "folder" : "file",
+    })
+  }
+
+  const handleDelete = () => {
+    const what = node.kind === "folder" ? "folder" : "file"
+    const ok = window.confirm(
+      `Delete ${what} "${node.name}"?\n${
+        node.kind === "folder"
+          ? "All files inside will be removed. "
+          : ""
+      }This can't be undone.`,
+    )
+    if (!ok) return
+    deleteEntity.mutate({ ...entityRoot, path: node.path })
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem
+          onClick={handleAddToContext}
+          disabled={!activeChatId}
+        >
+          <AtSign className="h-4 w-4 mr-2 text-muted-foreground" />
+          <div className="flex flex-col">
+            <span>Add to context</span>
+            <span className="text-[11px] text-muted-foreground">
+              {activeChatId
+                ? "Insert as @-mention in the chat"
+                : "Open a chat first"}
+            </span>
+          </div>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={handleDelete}
+          className="text-rose-600 dark:text-rose-400 focus:text-rose-600 dark:focus:text-rose-400"
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Delete {node.kind === "folder" ? "folder" : "file"}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

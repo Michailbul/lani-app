@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
@@ -824,6 +824,36 @@ export const entitiesRouter = router({
       // Placeholder so git can track the otherwise-empty folder.
       await writeFile(join(full, ".keep"), "", "utf-8")
       return { created: true, path: input.path }
+    }),
+
+  /**
+   * Delete a file or folder under the project/worktree root. Folders
+   * are removed recursively. The root itself is refused (path === "")
+   * so a stray empty input can't wipe the project. Anything outside
+   * the resolved root is refused too.
+   */
+  delete: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        path: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+      const full = join(root, input.path)
+      if (!full.startsWith(root) || full === root) {
+        throw new Error("Path escapes the root.")
+      }
+      if (!existsSync(full)) {
+        throw new Error(`Path does not exist: ${input.path}`)
+      }
+      await rm(full, { recursive: true, force: true })
+      return { deleted: true, path: input.path }
     }),
 })
 
