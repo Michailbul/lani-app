@@ -7,6 +7,7 @@ import { claudeSettingsRouter } from "./claude-settings"
 import { anthropicAccountsRouter } from "./anthropic-accounts"
 import { codexRouter } from "./codex"
 import { artifactsRouter } from "./artifacts"
+import { pathsRouter } from "./paths"
 import { entitiesRouter } from "./entities"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
@@ -39,6 +40,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     anthropicAccounts: anthropicAccountsRouter,
     codex: codexRouter,
     artifacts: artifactsRouter,
+    paths: pathsRouter,
     entities: entitiesRouter,
     terminal: terminalRouter,
     external: externalRouter,

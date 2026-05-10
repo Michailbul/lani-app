@@ -29,12 +29,15 @@ import {
   Clapperboard,
   Film,
   FileText,
+  GitCompare,
   Globe2,
   Layers,
   Loader2,
   MapPin,
+  Undo2,
   User,
 } from "lucide-react"
+import { toast } from "sonner"
 import { MarkdownIcon, CodeIcon } from "../../components/ui/icons"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip"
 import { Button } from "../../components/ui/button"
@@ -46,6 +49,7 @@ import { Button } from "../../components/ui/button"
 // (markdown rendering outside the entity-editor flow).
 import { RichMarkdownEditor } from "./rich-markdown-editor"
 import { FountainEditor } from "./fountain-editor"
+import { DiffSurface, type DiffHunk } from "./diff-surface"
 import { selectedAgentChatIdAtom, selectedProjectAtom } from "../agents/atoms"
 import { activeEntityAtom, type ActiveEntity } from "./atoms"
 import { trpc } from "../../lib/trpc"
@@ -99,6 +103,9 @@ function ActiveEntityFile({
   active: NonNullable<ActiveEntity>
 }) {
   const path = "path" in active ? active.path : ""
+  // chatId is the diff root — only chats have worktrees we can diff
+  // against HEAD. In project-mode the diff query stays disabled.
+  const chatId = entityRoot.chatId ?? null
 
   const read = trpc.entities.read.useQuery(
     { ...entityRoot, entityPath: path },
@@ -147,6 +154,81 @@ function ActiveEntityFile({
     setViewMode(previewable ? "rendered" : "source")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
+
+  // ── Cursor-style diff review ─────────────────────────────────────
+  // When the active file has uncommitted changes vs HEAD (whether the
+  // agent or the user wrote them), show a diff layer over the editor:
+  // a banner with Accept / Revert at the top, and DiffSurface with
+  // per-hunk Approve / Dismiss in the body. Toggle to "View file"
+  // pulls the user back to the live content if they want to see
+  // what they'd be approving.
+  //
+  // Only meaningful inside a chat — without a chatId there's no
+  // worktree to diff against. In project-mode (no chat) the diff
+  // query is disabled and the editor renders as before.
+  const diff = trpc.paths.diff.useQuery(
+    { chatId: chatId ?? "", relPath: path },
+    {
+      enabled: !!chatId && !!path,
+      refetchInterval: POLL_MS,
+      refetchOnWindowFocus: true,
+    },
+  )
+  const diffStatus = diff.data?.status ?? "missing"
+  const hunks = (diff.data?.hunks ?? []) as DiffHunk[]
+  const hasPending = diffStatus === "modified" || diffStatus === "untracked"
+
+  // User can override the auto-show. Defaults to showing the diff
+  // whenever there are pending changes; clicking "View file" flips
+  // to false. Reset on entity change so each file's default takes
+  // over again.
+  const [showDiff, setShowDiff] = useState<boolean>(true)
+  useEffect(() => {
+    setShowDiff(true)
+  }, [path])
+
+  const utils = trpc.useUtils()
+  const refreshDiff = useCallback(() => {
+    if (!chatId) return
+    utils.paths.diff.invalidate({ chatId, relPath: path })
+    utils.paths.changedFiles.invalidate({ chatId })
+    void read.refetch()
+  }, [chatId, path, utils, read])
+
+  const acceptFile = trpc.paths.accept.useMutation({
+    onSuccess: refreshDiff,
+    onError: (err) => toast.error(err.message || "Couldn't accept changes"),
+  })
+  const rejectFile = trpc.paths.reject.useMutation({
+    onSuccess: refreshDiff,
+    onError: (err) => toast.error(err.message || "Couldn't revert changes"),
+  })
+
+  const [busyHunkIndex, setBusyHunkIndex] = useState<number | null>(null)
+  const acceptHunk = trpc.paths.acceptHunk.useMutation({
+    onSettled: () => {
+      setBusyHunkIndex(null)
+      refreshDiff()
+    },
+    onError: (err) => toast.error(err.message || "Couldn't approve hunk"),
+  })
+  const rejectHunk = trpc.paths.rejectHunk.useMutation({
+    onSettled: () => {
+      setBusyHunkIndex(null)
+      refreshDiff()
+    },
+    onError: (err) => toast.error(err.message || "Couldn't dismiss hunk"),
+  })
+  const onAcceptHunk = (hunkIndex: number) => {
+    if (!chatId) return
+    setBusyHunkIndex(hunkIndex)
+    acceptHunk.mutate({ chatId, relPath: path, hunkIndex })
+  }
+  const onRejectHunk = (hunkIndex: number) => {
+    if (!chatId) return
+    setBusyHunkIndex(hunkIndex)
+    rejectHunk.mutate({ chatId, relPath: path, hunkIndex })
+  }
 
   // Pull server content into the buffer when the user is idle. Same idiom
   // as the screenplay editor — don't blow away mid-typing edits.
@@ -357,10 +439,90 @@ function ActiveEntityFile({
         <div className="mt-5 h-px bg-border/70" />
       </header>
 
+      {/* Pending-changes banner — when the active file differs from
+          HEAD (whether the agent or the user wrote them), surface a
+          Cursor-style review bar with file-level Accept/Revert and a
+          "View file"/"View diff" toggle. Per-hunk approve/dismiss
+          lives inside the DiffSurface body below. */}
+      {hasPending && (
+        <div
+          className={cn(
+            "shrink-0 flex items-center justify-between px-6 py-2 border-b border-border",
+            "bg-primary/10",
+          )}
+        >
+          <div className="flex items-center gap-2 text-xs text-foreground min-w-0">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+            <span className="font-medium shrink-0">
+              {diffStatus === "untracked"
+                ? "New file from the agent."
+                : "Pending changes."}
+            </span>
+            <span className="text-muted-foreground truncate">
+              Approve hunks below — or accept the whole file / revert.
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowDiff((v) => !v)}
+              className={cn(
+                "press flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium",
+                "border border-border bg-background hover:bg-secondary",
+                "text-foreground/80 hover:text-foreground",
+                "transition-[color,background-color] duration-150",
+              )}
+              title={showDiff ? "Show the working file" : "Show the diff"}
+            >
+              <GitCompare className="h-3 w-3" />
+              {showDiff ? "View file" : "View diff"}
+            </button>
+            <button
+              type="button"
+              onClick={() => chatId && rejectFile.mutate({ chatId, relPath: path })}
+              disabled={rejectFile.isPending || acceptFile.isPending}
+              className={cn(
+                "press flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium",
+                "border border-border bg-background hover:bg-secondary",
+                "text-foreground/80 hover:text-foreground",
+                "transition-[color,background-color] duration-150",
+                "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
+              )}
+            >
+              <Undo2 className="h-3 w-3" />
+              Revert
+            </button>
+            <button
+              type="button"
+              onClick={() => chatId && acceptFile.mutate({ chatId, relPath: path })}
+              disabled={acceptFile.isPending || rejectFile.isPending}
+              className={cn(
+                "press flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium",
+                "bg-primary text-primary-foreground",
+                "shadow-[0_1px_2px_-1px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.18)]",
+                "transition-[box-shadow] duration-150 [transition-timing-function:var(--ease-out)]",
+                "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
+              )}
+            >
+              <Check className="h-3 w-3" />
+              Accept
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Body — manuscript surface. Constrained max-width so the writer's
           eye doesn't have to track edge-to-edge across a 27" display. */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {read.isPending ? (
+        {hasPending && showDiff ? (
+          <DiffSurface
+            hunks={hunks}
+            perHunkEnabled={diffStatus === "modified"}
+            onAcceptHunk={onAcceptHunk}
+            onRejectHunk={onRejectHunk}
+            busyHunkIndex={busyHunkIndex}
+          />
+        ) : read.isPending ? (
           <div className="px-10 py-12">
             <div className="max-w-[720px] mx-auto">
               <span

@@ -25,7 +25,14 @@
  * same thing the file system sees.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
   AtSign,
@@ -83,6 +90,18 @@ type EntityRoot =
   | { chatId: string; projectId?: undefined }
   | { chatId?: undefined; projectId: string }
 
+/** Cursor-style status letters per path. Read from `paths.changedFiles`
+ *  and threaded through the tree via context so every FileRow / FolderRow
+ *  can render a badge without prop-drilling. */
+type FileStatus =
+  | "modified"
+  | "added"
+  | "untracked"
+  | "deleted"
+  | "renamed"
+  | "clean"
+const ChangedFilesContext = createContext<Map<string, FileStatus>>(new Map())
+
 export function ProjectFileTree() {
   const [chatId] = useAtom(selectedAgentChatIdAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
@@ -102,6 +121,25 @@ export function ProjectFileTree() {
       retry: false,
     },
   )
+
+  // Pending-changes overlay — only meaningful inside a chat (worktrees
+  // have a HEAD to diff against). Polled at the same cadence as the
+  // tree so a fresh agent edit shows its status badge promptly.
+  const changedFilesQuery = trpc.paths.changedFiles.useQuery(
+    { chatId: chatId ?? "" },
+    {
+      enabled: !!chatId,
+      refetchInterval: 3000,
+      refetchOnWindowFocus: true,
+    },
+  )
+  const changedFilesMap = useMemo(() => {
+    const map = new Map<string, FileStatus>()
+    for (const entry of changedFilesQuery.data ?? []) {
+      map.set(entry.relPath, entry.status as FileStatus)
+    }
+    return map
+  }, [changedFilesQuery.data])
 
   if (!entityRoot) {
     return (
@@ -142,6 +180,7 @@ export function ProjectFileTree() {
   const isEmpty = (tree.data.children ?? []).length === 0
 
   return (
+    <ChangedFilesContext.Provider value={changedFilesMap}>
     <div className="px-1">
       <RootRow
         tree={tree.data}
@@ -168,6 +207,7 @@ export function ProjectFileTree() {
         />
       )}
     </div>
+    </ChangedFilesContext.Provider>
   )
 }
 
@@ -451,6 +491,8 @@ function FileRow({
   const isActive = active?.path === node.path
   const label = labelFromFilename(node.name)
   const Icon = iconForFile(node.name, node.path)
+  const changedFiles = useContext(ChangedFilesContext)
+  const fileStatus = changedFiles.get(node.path)
 
   // Selection visual: neutral grey fill on the row, slightly heavier
   // text. No left accent bar, no Coral tint — same restrained idiom
@@ -480,15 +522,58 @@ function FileRow({
         />
         <span
           className={cn(
-            "truncate text-[12.5px] text-left",
+            "truncate text-[12.5px] text-left flex-1 min-w-0",
             isActive && "font-medium",
+            // Cursor-style emphasis on changed files: shift the row text
+            // to a Coral-tinted weight so the eye finds them without
+            // hunting the gutter. Not bold (avoids visual chunking).
+            fileStatus &&
+              fileStatus !== "clean" &&
+              "text-primary/90 dark:text-primary",
           )}
           style={{ fontFamily: "var(--font-body)" }}
         >
           {node.name}
         </span>
+        {fileStatus && fileStatus !== "clean" && (
+          <FileStatusBadge status={fileStatus} />
+        )}
       </button>
     </RowContextMenu>
+  )
+}
+
+/** Cursor-style single-letter status indicator: M (modified) / A (added) /
+ *  U (untracked) / D (deleted) / R (renamed). Coral on a faint pill,
+ *  uppercase mono. */
+function FileStatusBadge({ status }: { status: FileStatus }) {
+  const letter =
+    status === "modified"
+      ? "M"
+      : status === "added"
+        ? "A"
+        : status === "untracked"
+          ? "U"
+          : status === "deleted"
+            ? "D"
+            : status === "renamed"
+              ? "R"
+              : ""
+  if (!letter) return null
+  const tone =
+    status === "deleted"
+      ? "text-rose-600 dark:text-rose-400"
+      : "text-primary"
+  return (
+    <span
+      className={cn(
+        "shrink-0 inline-flex items-center justify-center w-4 text-[10px] font-mono font-semibold tabular-nums",
+        tone,
+      )}
+      title={status}
+    >
+      {letter}
+    </span>
   )
 }
 
