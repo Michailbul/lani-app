@@ -46,14 +46,10 @@ import {
   detailsSidebarWidthAtom,
 } from "../details-sidebar/atoms"
 import {
-  desktopViewAtom,
   selectedAgentChatIdAtom,
-  selectedChatIsRemoteAtom,
   selectedProjectAtom,
-  showNewChatFormAtom,
   threadCreateRequestAtom,
 } from "../agents/atoms"
-import { chatSourceModeAtom } from "../../lib/atoms"
 import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
 import {
   DropdownMenu,
@@ -389,57 +385,50 @@ function fallbackColor(chatId: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// ThreadSwitcher — single entry point for thread navigation AND creation
-// in the Backlot rail.
+// ThreadSwitcher — sub-chat picker for the Backlot rail.
 //
-// The screenwriter shape hides the upstream chat-list tab strip, so without
-// this control the user has no way to see other threads from the rail. They
-// can chat, leave to settings, come back, and have no in-rail affordance to
-// navigate to a sibling thread or back to a recent one. The dropdown lists
-// the project's recent threads (sorted by activity), marks the active one,
-// and keeps the "branch / fresh" create actions below the list.
+// In Backlot lingo: a workspace ("Direction") owns many sub-chats
+// ("threads"). Messages live inside a sub-chat. The screenwriter layout
+// hides the upstream sub-chat tab strip, so without this control the
+// user has no in-rail affordance to switch threads. The visible symptom
+// is the one that surfaced this fix — chat with the agent, leave to
+// settings, come back, and the rail mounts a fresh empty "New Thread"
+// sub-chat instead of the one with your messages. The previous sub-chat
+// still exists in the DB; the user just can't see it.
 //
-// Always enabled — even with no active chat, the switcher lets the user
-// pick an existing thread or start a fresh one.
+// The dropdown lists every sub-chat of the active workspace (sorted by
+// activity), marks the active one, lets the user click to switch back,
+// and keeps the branch/fresh create actions in a footer.
 // ────────────────────────────────────────────────────────────────────────
 function ThreadSwitcher() {
-  const project = useAtomValue(selectedProjectAtom)
-  const [activeChatId, setActiveChatId] = useAtom(selectedAgentChatIdAtom)
-  const setSelectedChatIsRemote = useSetAtom(selectedChatIsRemoteAtom)
-  const setChatSourceMode = useSetAtom(chatSourceModeAtom)
-  const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
-  const setDesktopView = useSetAtom(desktopViewAtom)
+  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
   const setThreadCreateRequest = useSetAtom(threadCreateRequestAtom)
   const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId)
   const allSubChats = useAgentSubChatStore((state) => state.allSubChats)
+  const setActiveSubChat = useAgentSubChatStore((state) => state.setActiveSubChat)
+  const addToOpenSubChats = useAgentSubChatStore(
+    (state) => state.addToOpenSubChats,
+  )
   const activeSubChat = allSubChats.find((s) => s.id === activeSubChatId)
   const activeProviderLabel =
     activeSubChat?.provider === "codex" ? "Codex" : "Claude"
 
-  // Recent threads for this project. Polled at the same interval as the
-  // lineage breadcrumb so a freshly created thread shows up here without
-  // a manual refresh.
-  const chatsQuery = trpc.chats.list.useQuery(
-    { projectId: project?.id ?? "" },
-    { enabled: !!project?.id, refetchInterval: 5000 },
-  )
-  const threads = (chatsQuery.data ?? []).slice(0, 8)
+  // Sort by recency. updated_at is optional in the metadata; missing
+  // entries sink so freshly opened ones still surface.
+  const sortedSubChats = [...allSubChats].sort((a, b) => {
+    const aT = a.updated_at ? new Date(a.updated_at).getTime() : 0
+    const bT = b.updated_at ? new Date(b.updated_at).getTime() : 0
+    return bT - aT
+  })
 
-  // Mirror the sidebar's selection logic — without resetting source mode
-  // and remote-ness, ChatView mounts with a chatId but reads from the
-  // wrong source and renders empty (the bug that surfaced this fix).
-  // Remote chats use a `remote_` prefix in the sidebar; chats.list returns
-  // local ones with plain IDs, so detection covers both even though only
-  // local should appear here today.
-  const handleSelect = (chatId: string) => {
-    if (chatId === activeChatId) return
-    const isRemote = chatId.startsWith("remote_")
-    const originalId = isRemote ? chatId.replace(/^remote_/, "") : chatId
-    setActiveChatId(originalId)
-    setSelectedChatIsRemote(isRemote)
-    setChatSourceMode(isRemote ? "sandbox" : "local")
-    setShowNewChatForm(false)
-    setDesktopView(null)
+  // Switching a sub-chat is store-side only. The workspace (chatId)
+  // doesn't change, so no atom plumbing for source mode is needed.
+  // Add to open tabs so the upstream tab logic treats it as a real
+  // active session.
+  const handleSelect = (subChatId: string) => {
+    if (subChatId === activeSubChatId) return
+    addToOpenSubChats(subChatId)
+    setActiveSubChat(subChatId)
   }
 
   const createThread = (options: { kind: "fresh" } | { kind: "branch" }) => {
@@ -451,37 +440,42 @@ function ThreadSwitcher() {
     })
   }
 
+  const triggerDisabled = !activeChatId
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          disabled={triggerDisabled}
           className={cn(
             "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
             "text-muted-foreground hover:text-primary hover:bg-primary/10",
             "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+            "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
           )}
           title="Switch threads, or start a new one"
           aria-label="Threads"
         >
           <MessageSquare className="h-3 w-3" />
           Threads
-          {threads.length > 0 && (
+          {sortedSubChats.length > 0 && (
             <span className="ml-0.5 tabular-nums text-muted-foreground/60">
-              {threads.length}
+              {sortedSubChats.length}
             </span>
           )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1">
-        {threads.length > 0 && (
+        {sortedSubChats.length > 0 && (
           <>
             <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-              Recent threads
+              Threads
             </div>
             <div className="max-h-[280px] overflow-y-auto">
-              {threads.map((thread) => {
-                const isActive = thread.id === activeChatId
+              {sortedSubChats.map((thread) => {
+                const isActive = thread.id === activeSubChatId
+                const isCodex = thread.provider === "codex"
                 return (
                   <DropdownMenuItem
                     key={thread.id}
@@ -492,19 +486,7 @@ function ThreadSwitcher() {
                       {isActive ? (
                         <Check className="h-3.5 w-3.5 text-primary" />
                       ) : (
-                        <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{
-                            backgroundColor:
-                              (thread as { directionColor?: string })
-                                .directionColor || "transparent",
-                            border:
-                              !((thread as { directionColor?: string })
-                                .directionColor)
-                                ? "1px solid hsl(var(--border))"
-                                : undefined,
-                          }}
-                        />
+                        <span className="w-1.5 h-1.5 rounded-full border border-border" />
                       )}
                     </span>
                     <div className="flex-1 min-w-0">
@@ -521,16 +503,15 @@ function ThreadSwitcher() {
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-                        {thread.branch && (
-                          <span className="inline-flex items-center gap-0.5 truncate font-mono">
-                            <GitBranch className="h-2.5 w-2.5" />
-                            <span className="truncate max-w-[120px]">
-                              {thread.branch}
-                            </span>
-                          </span>
-                        )}
+                        <span className="font-mono uppercase tracking-wider text-[10px]">
+                          {thread.mode === "plan" ? "Plan" : "Agent"}
+                        </span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="font-mono text-[10px]">
+                          {isCodex ? "Codex" : "Claude"}
+                        </span>
                         <span className="ml-auto tabular-nums shrink-0">
-                          {formatThreadRelative(thread.updatedAt)}
+                          {formatThreadRelative(thread.updated_at)}
                         </span>
                       </div>
                     </div>
