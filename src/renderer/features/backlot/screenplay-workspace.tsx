@@ -25,6 +25,7 @@ import { type ReactNode, useEffect, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   GitBranch,
@@ -177,7 +178,7 @@ export function ScreenplayWorkspace({
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <ThreadMenuButton />
+              <ThreadSwitcher />
               <ForkActiveButton />
               <button
                 type="button"
@@ -384,18 +385,37 @@ function fallbackColor(chatId: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// ThreadMenuButton — visible entry point for chat threads in the Backlot rail.
-// The internal upstream tab strip is hidden in this layout, so expose the
-// actions here where the user can actually find them.
+// ThreadSwitcher — single entry point for thread navigation AND creation
+// in the Backlot rail.
+//
+// The screenwriter shape hides the upstream chat-list tab strip, so without
+// this control the user has no way to see other threads from the rail. They
+// can chat, leave to settings, come back, and have no in-rail affordance to
+// navigate to a sibling thread or back to a recent one. The dropdown lists
+// the project's recent threads (sorted by activity), marks the active one,
+// and keeps the "branch / fresh" create actions below the list.
+//
+// Always enabled — even with no active chat, the switcher lets the user
+// pick an existing thread or start a fresh one.
 // ────────────────────────────────────────────────────────────────────────
-function ThreadMenuButton() {
-  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
+function ThreadSwitcher() {
+  const project = useAtomValue(selectedProjectAtom)
+  const [activeChatId, setActiveChatId] = useAtom(selectedAgentChatIdAtom)
   const setThreadCreateRequest = useSetAtom(threadCreateRequestAtom)
   const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId)
   const allSubChats = useAgentSubChatStore((state) => state.allSubChats)
-  const activeSubChat = allSubChats.find((subChat) => subChat.id === activeSubChatId)
+  const activeSubChat = allSubChats.find((s) => s.id === activeSubChatId)
   const activeProviderLabel =
     activeSubChat?.provider === "codex" ? "Codex" : "Claude"
+
+  // Recent threads for this project. Polled at the same interval as the
+  // lineage breadcrumb so a freshly created thread shows up here without
+  // a manual refresh.
+  const chatsQuery = trpc.chats.list.useQuery(
+    { projectId: project?.id ?? "" },
+    { enabled: !!project?.id, refetchInterval: 5000 },
+  )
+  const threads = (chatsQuery.data ?? []).slice(0, 8)
 
   const createThread = (options: { kind: "fresh" } | { kind: "branch" }) => {
     if (!activeChatId) return
@@ -411,21 +431,93 @@ function ThreadMenuButton() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          disabled={!activeChatId}
           className={cn(
             "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
             "text-muted-foreground hover:text-primary hover:bg-primary/10",
             "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-            "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
           )}
-          title="Start or branch an assistant thread"
-          aria-label="New assistant thread"
+          title="Switch threads, or start a new one"
+          aria-label="Threads"
         >
-          <MessageSquarePlus className="h-3 w-3" />
-          Thread
+          <MessageSquare className="h-3 w-3" />
+          Threads
+          {threads.length > 0 && (
+            <span className="ml-0.5 tabular-nums text-muted-foreground/60">
+              {threads.length}
+            </span>
+          )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-72 p-1">
+        {threads.length > 0 && (
+          <>
+            <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+              Recent threads
+            </div>
+            <div className="max-h-[280px] overflow-y-auto">
+              {threads.map((thread) => {
+                const isActive = thread.id === activeChatId
+                return (
+                  <DropdownMenuItem
+                    key={thread.id}
+                    onClick={() => {
+                      if (!isActive) setActiveChatId(thread.id)
+                    }}
+                    className="flex items-start gap-2 py-2"
+                  >
+                    <span className="mt-0.5 w-3.5 shrink-0 flex items-center justify-center">
+                      {isActive ? (
+                        <Check className="h-3.5 w-3.5 text-primary" />
+                      ) : (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{
+                            backgroundColor:
+                              (thread as { directionColor?: string })
+                                .directionColor || "transparent",
+                            border:
+                              !((thread as { directionColor?: string })
+                                .directionColor)
+                                ? "1px solid hsl(var(--border))"
+                                : undefined,
+                          }}
+                        />
+                      )}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "truncate text-sm",
+                            isActive
+                              ? "text-foreground font-medium"
+                              : "text-foreground/85",
+                          )}
+                        >
+                          {thread.name?.trim() || "Untitled thread"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+                        {thread.branch && (
+                          <span className="inline-flex items-center gap-0.5 truncate font-mono">
+                            <GitBranch className="h-2.5 w-2.5" />
+                            <span className="truncate max-w-[120px]">
+                              {thread.branch}
+                            </span>
+                          </span>
+                        )}
+                        <span className="ml-auto tabular-nums shrink-0">
+                          {formatThreadRelative(thread.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                )
+              })}
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem
           disabled={!activeSubChatId}
           onClick={() => createThread({ kind: "branch" })}
@@ -438,8 +530,8 @@ function ThreadMenuButton() {
             </span>
           </div>
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem
+          disabled={!activeChatId}
           onClick={() => createThread({ kind: "fresh" })}
         >
           <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -448,6 +540,24 @@ function ThreadMenuButton() {
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+/** Compact relative-time formatter for the threads dropdown. Mirrors the
+ *  one in NoChatAssistantPanel so the visual register stays consistent. */
+function formatThreadRelative(input: string | Date | null | undefined): string {
+  if (!input) return "—"
+  const d = input instanceof Date ? input : new Date(input)
+  const now = Date.now()
+  const diff = now - d.getTime()
+  const min = Math.floor(diff / 60000)
+  const hr = Math.floor(min / 60)
+  const day = Math.floor(hr / 24)
+  if (min < 1) return "now"
+  if (min < 60) return `${min}m`
+  if (hr < 24) return `${hr}h`
+  if (day === 1) return "1d"
+  if (day < 7) return `${day}d`
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
 // ────────────────────────────────────────────────────────────────────────
