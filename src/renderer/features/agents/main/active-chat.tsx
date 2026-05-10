@@ -5757,7 +5757,7 @@ Make sure to preserve all functionality from both branches when resolving confli
       if (isRemoteChat && chatSandboxUrl) {
         // Remote sandbox chat: use HTTP SSE transport
         const subChatName = subChat?.name || "Chat"
-        const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
+        const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["sonnet"]
         console.log("[getOrCreateChat] Using RemoteChatTransport", { sandboxUrl: chatSandboxUrl, model: modelString })
         transport = new RemoteChatTransport({
           chatId,
@@ -5996,7 +5996,7 @@ Make sure to preserve all functionality from both branches when resolving confli
 
     if (isNewSubChatRemote && newSubChatSandboxUrl) {
       // Remote sandbox chat: use HTTP SSE transport
-      const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
+      const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["sonnet"]
       console.log("[createNewSubChat] Using RemoteChatTransport", { model: modelString })
       newSubChatTransport = new RemoteChatTransport({
         chatId,

@@ -37,7 +37,7 @@ export const AUTOMATION_TABS = [
 // ==============================================================================
 
 export const CLAUDE_MODELS = [
-  { id: "opus", name: "Opus" },
-  { id: "sonnet", name: "Sonnet" },
-  { id: "haiku", name: "Haiku" },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+  { id: "claude-opus-4-7", name: "Opus 4.7" },
+  { id: "claude-haiku-4-5", name: "Haiku 4.5" },
 ] as const

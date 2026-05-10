@@ -6,6 +6,12 @@
 
 v1 scope locked: **UI in place, auth in place, chat in the UI of Backlot.** Ship the screenwriter-specific surface (Fountain editor, preview, direction tree, MCP tools) in v1.5+.
 
+2026-05-09 session note:
+- Hardened skill discovery so malformed personal `SKILL.md` YAML frontmatter is recovered with a concise warning instead of dumping a full YAML exception during chat startup.
+- Changed Codex chat transport auth/request failures to close the UI stream with an error chunk instead of throwing through the stream controller, which avoids React concurrent-render recovery noise on send.
+- Updated model defaults and selectors for current official model aliases: Codex `gpt-5.5`, Claude `claude-sonnet-4-6`, `claude-opus-4-7`, and `claude-haiku-4-5`.
+- Verified the malformed `~/.claude/skills/laniameda-hq-update/SKILL.md` shape recovers name, description, and content; `bun run build` passes.
+
 Six commits in:
 1. `genesis` — PRD, plan, CLAUDE.md, naming, license attribution
 2. `fork` — 1code source imported as Apache-2.0 substrate

@@ -345,7 +345,7 @@ export function NewChatForm({
   const selectedChatModel =
     selectedAgent.id === "codex"
       ? `${selectedCodexModel.id}/${selectedCodexThinking}`
-      : selectedModel?.id || "opus"
+      : selectedModel?.id || "sonnet"
   const [repoPopoverOpen, setRepoPopoverOpen] = useState(false)
   const [branchPopoverOpen, setBranchPopoverOpen] = useState(false)
   const [lastSelectedBranches, setLastSelectedBranches] = useAtom(
