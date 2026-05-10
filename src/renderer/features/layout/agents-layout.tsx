@@ -18,6 +18,7 @@ import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
 import { ClaudeLoginModal } from "../../components/dialogs/claude-login-modal"
+import { SkillProposalsHost } from "../skills/skill-proposals-host"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
 import { AgentsSidebar } from "../sidebar/agents-sidebar"
@@ -241,6 +242,9 @@ export function AgentsLayout() {
       {/* Global queue processor - handles message queues for all sub-chats */}
       <QueueProcessor />
       <ClaudeLoginModal />
+      {/* Renders the SkillDiffModal whenever the in-process MCP tool
+          `propose_skill_change` fires. One host for the whole app. */}
+      <SkillProposalsHost />
       <div className="flex flex-col w-full h-full relative overflow-hidden bg-background select-none">
         {/* Windows Title Bar (only shown on Windows with frameless window) */}
         <WindowsTitleBar />

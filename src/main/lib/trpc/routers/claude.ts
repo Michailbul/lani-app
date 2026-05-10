@@ -1149,6 +1149,29 @@ export const claudeRouter = router({
               }
             }
 
+            // Inject Backlot's in-process skills MCP server. It exposes
+            // `propose_skill_change`, which surfaces a diff modal in the
+            // renderer for any skill edit the agent suggests. We add it
+            // even when the user has zero other MCP servers configured —
+            // the tool is a Backlot product feature, not user MCP config.
+            // Skipped under Ollama (no MCP plumbing there).
+            if (!isUsingOllama) {
+              try {
+                const { buildSkillsMcpServer, SKILLS_MCP_SERVER_NAME } =
+                  await import("../../skills/mcp-server")
+                const skillsServer = buildSkillsMcpServer({ cwd: input.cwd })
+                mcpServersFiltered = {
+                  ...(mcpServersFiltered ?? {}),
+                  [SKILLS_MCP_SERVER_NAME]: skillsServer,
+                }
+              } catch (err) {
+                console.error(
+                  "[skills-mcp] Failed to build in-process skills MCP server:",
+                  err,
+                )
+              }
+            }
+
             // Log SDK configuration for debugging
             if (isUsingOllama) {
               console.log('[Ollama Debug] SDK Configuration:', {
@@ -1392,6 +1415,74 @@ ${prompt}
                       toolInput.command = toolInput.cmd
                       delete toolInput.cmd
                       console.log('[Ollama] Fixed Bash tool: cmd -> command')
+                    }
+                  }
+
+                  // ── Skill-edit gate ──────────────────────────────────
+                  // Any direct Edit/Write/MultiEdit on a SKILL.md must
+                  // be redirected to the in-process MCP tool
+                  // `mcp__backlot-skills__propose_skill_change`. The
+                  // tool opens a diff modal in the renderer; the user
+                  // clicks Apply or Dismiss; the file is written (or
+                  // not) on the main side. The soft nudge in the
+                  // harness prompt isn't enough — Claude defaults to
+                  // Edit on muscle memory. This is the hard floor.
+                  //
+                  // We also block Bash one-liners that target SKILL.md
+                  // (echo/cat/sed/tee redirected at a SKILL.md path) —
+                  // those would silently bypass the gate.
+                  if (
+                    toolName === "Edit" ||
+                    toolName === "Write" ||
+                    toolName === "MultiEdit"
+                  ) {
+                    const filePath =
+                      typeof toolInput.file_path === "string"
+                        ? toolInput.file_path
+                        : ""
+                    if (/(?:^|[\\/])SKILL\.md$/i.test(filePath)) {
+                      console.log(
+                        `[skills-gate] Blocking ${toolName} on ${filePath} — redirecting to propose_skill_change`,
+                      )
+                      return {
+                        behavior: "deny",
+                        message:
+                          `Direct ${toolName} on SKILL.md is blocked. ` +
+                          `Use the \`mcp__backlot-skills__propose_skill_change\` ` +
+                          `tool instead — it shows the user a diff modal ` +
+                          `and writes the file only after they click Apply. ` +
+                          `Call it with: skill_path="${filePath}", ` +
+                          `new_content=<full proposed file content>, ` +
+                          `summary=<one-line description of the change>.`,
+                      }
+                    }
+                  }
+                  if (toolName === "Bash") {
+                    const cmd =
+                      typeof toolInput.command === "string"
+                        ? toolInput.command
+                        : ""
+                    // Match common write idioms targeting SKILL.md.
+                    // Conservative — false positives are fine here, the
+                    // user can always re-prompt.
+                    if (
+                      /SKILL\.md/i.test(cmd) &&
+                      /(>\s*|>>\s*|tee\b|sed\s+-i|perl\s+-i|awk\s+-i|cp\s+\S+\s+\S*SKILL\.md|mv\s+\S+\s+\S*SKILL\.md|rm\s+\S*SKILL\.md)/i.test(
+                        cmd,
+                      )
+                    ) {
+                      console.log(
+                        `[skills-gate] Blocking Bash write to SKILL.md: ${cmd.slice(0, 120)}`,
+                      )
+                      return {
+                        behavior: "deny",
+                        message:
+                          `Bash write to SKILL.md is blocked. ` +
+                          `Use the \`mcp__backlot-skills__propose_skill_change\` ` +
+                          `tool — it routes the change through the user's ` +
+                          `diff-and-approve modal. Pass the full proposed ` +
+                          `file content as new_content.`,
+                      }
                     }
                   }
 

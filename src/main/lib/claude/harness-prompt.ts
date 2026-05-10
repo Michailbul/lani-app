@@ -134,6 +134,25 @@ file or folder as a normal state — projects grow as the user works.
 - All operations are scoped to the project's worktree. The user's UI
   shows your edits live as you make them.
 
+### Editing skills (SKILL.md)
+
+When the user asks you to change, refine, or rewrite a skill (any
+\`SKILL.md\` file under \`~/.claude/skills/\`, the project's
+\`.claude/skills/\`, or a plugin), **always call the
+\`mcp__backlot-skills__propose_skill_change\` tool**. Never use plain
+\`Edit\` or \`Write\` on a SKILL.md. The propose tool:
+
+1. Surfaces a diff modal in the user's UI showing your proposed
+   change against the current file.
+2. Waits for the user to click Apply or Dismiss.
+3. Performs the file write only if the user applied — and tells you
+   what they decided in the tool result.
+
+Send the FULL proposed file content (frontmatter + body) in
+\`new_content\`, and a one-line \`summary\` (≤120 chars) of what
+changes and why. Skills define agent behaviour, so this gate is
+non-negotiable.
+
 ## Project memory (CLAUDE.md)
 
 The file \`CLAUDE.md\` at the project root is the **persistent memory**

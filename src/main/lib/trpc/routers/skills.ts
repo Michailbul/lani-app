@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { observable } from "@trpc/server/observable"
 import { router, publicProcedure } from "../index"
 import * as fs from "fs/promises"
 import * as path from "path"
@@ -11,6 +12,12 @@ import {
   getAllRegistrySkillNames,
 } from "../../skills/registry"
 import { readSkillFilter, writeSkillFilter } from "../../skills/filter"
+import {
+  listPendingProposals,
+  resolveProposal,
+  subscribeProposalEvents,
+  type ProposalEvent,
+} from "../../skills/proposals"
 
 export interface FileSkill {
   name: string
@@ -420,4 +427,60 @@ export const skillsRouter = router({
 
       return { success: true }
     }),
+
+  /**
+   * Stream of skill-proposal events. The renderer subscribes once
+   * (mounted at the layout root via SkillProposalsHost) and uses the
+   * `proposed` events to open the diff modal. On reconnect we replay
+   * any still-pending proposals so the modal survives a renderer
+   * reload.
+   */
+  proposalEvents: publicProcedure.subscription(() => {
+    return observable<ProposalEvent>((emit) => {
+      // Replay still-pending proposals so a fresh subscriber sees
+      // anything the modal would otherwise have missed.
+      for (const proposal of listPendingProposals()) {
+        emit.next({ type: "proposed", proposal })
+      }
+      const unsubscribe = subscribeProposalEvents((event) => {
+        try {
+          emit.next(event)
+        } catch {
+          // Already closed — ignore.
+        }
+      })
+      return () => {
+        unsubscribe()
+      }
+    })
+  }),
+
+  /**
+   * Renderer calls this when the user clicks Apply or Dismiss in the
+   * SkillDiffModal. The corresponding tool handler in the in-process
+   * MCP server is awaiting this verdict and will resume on resolve.
+   */
+  resolveProposal: publicProcedure
+    .input(
+      z.object({
+        proposalId: z.string().min(1),
+        action: z.enum(["apply", "dismiss"]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const ok = resolveProposal(input.proposalId, { action: input.action })
+      if (!ok) {
+        return { success: false, reason: "unknown-or-already-resolved" as const }
+      }
+      return { success: true as const }
+    }),
+
+  /**
+   * Currently-pending proposals. Used as a one-shot fallback if a
+   * renderer can't keep a subscription open (rare; mostly for
+   * debugging).
+   */
+  listPendingProposals: publicProcedure.query(() => {
+    return listPendingProposals()
+  }),
 })
