@@ -33,14 +33,37 @@ type ImageAttachment = {
 
 // When a sub-chat hits auth-error, force one fresh Codex ACP session on next send.
 const forceFreshSessionSubChats = new Set<string>()
-const DEFAULT_CODEX_MODEL = "gpt-5.3-codex/high"
+const DEFAULT_CODEX_MODEL = "gpt-5.5/high"
+
+function closeWithUiError(
+  controller: ReadableStreamDefaultController<UIMessageChunk>,
+  message: string,
+) {
+  try {
+    controller.enqueue({ type: "error", errorText: message })
+  } catch {
+    // Stream already closed.
+  }
+
+  try {
+    controller.enqueue({ type: "finish", finishReason: "error" })
+  } catch {
+    // Stream already closed.
+  }
+
+  try {
+    controller.close()
+  } catch {
+    // Stream already closed.
+  }
+}
 
 function getSelectedCodexModel(subChatId: string): string {
   const selectedModelId = appStore.get(subChatCodexModelIdAtomFamily(subChatId))
   const selectedThinking = appStore.get(subChatCodexThinkingAtomFamily(subChatId))
   const selectedModel =
     CODEX_MODELS.find((model) => model.id === selectedModelId) ||
-    CODEX_MODELS.find((model) => model.id === "gpt-5.3-codex") ||
+    CODEX_MODELS.find((model) => model.id === "gpt-5.5") ||
     CODEX_MODELS[0]
 
   if (!selectedModel) {
@@ -158,8 +181,11 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
                     // No-op
                   })
 
-                // Force stream status reset so retry can start once auth succeeds.
-                controller.error(new Error("Codex authentication required"))
+                closeWithUiError(
+                  controller,
+                  chunk.errorText || "Codex authentication required",
+                )
+                safeUnsubscribe()
                 return
               }
 
@@ -188,7 +214,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
               toast.error("Codex request failed", {
                 description: error.message,
               })
-              controller.error(error)
+              closeWithUiError(controller, error.message || "Codex request failed")
               safeUnsubscribe()
             },
             onComplete: () => {

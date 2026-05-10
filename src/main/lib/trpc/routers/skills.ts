@@ -21,10 +21,66 @@ export interface FileSkill {
   content: string
 }
 
+function stripYamlQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length < 2) return trimmed
+  const quote = trimmed[0]
+  if ((quote !== `"` && quote !== "'") || trimmed[trimmed.length - 1] !== quote) {
+    return trimmed
+  }
+
+  if (quote === `"`) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return trimmed.slice(1, -1)
+    }
+  }
+
+  return trimmed.slice(1, -1).replaceAll("''", "'")
+}
+
+function parseLooseFrontmatter(
+  rawContent: string,
+): { name?: string; description?: string; content: string } | null {
+  if (!rawContent.startsWith("---")) return null
+
+  const closeMatch = rawContent.match(/\r?\n---\r?\n/)
+  if (!closeMatch || closeMatch.index === undefined) return null
+
+  const frontmatter = rawContent.slice(3, closeMatch.index)
+  const body = rawContent.slice(closeMatch.index + closeMatch[0].length)
+  const parsed: { name?: string; description?: string; content: string } = {
+    content: body.trim(),
+  }
+
+  for (const line of frontmatter.split(/\r?\n/)) {
+    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/)
+    if (!match) continue
+    const [, key, rawValue] = match
+    if (key === "name") parsed.name = stripYamlQuotes(rawValue)
+    if (key === "description") parsed.description = stripYamlQuotes(rawValue)
+  }
+
+  return parsed
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value)
+}
+
 /**
- * Parse SKILL.md frontmatter to extract name and description
+ * Parse SKILL.md frontmatter to extract name and description.
+ *
+ * Some personal skill files contain plain scalars with additional colons
+ * (for example `description: ... Trigger when: ...`). That is invalid YAML,
+ * but it should not make Backlot's settings or chat boot path noisy. Fall
+ * back to a line-oriented parser for the fields Backlot needs.
  */
-function parseSkillMd(rawContent: string): { name?: string; description?: string; content: string } {
+function parseSkillMd(
+  rawContent: string,
+  filePath?: string,
+): { name?: string; description?: string; content: string } {
   try {
     const { data, content } = matter(rawContent)
     return {
@@ -33,7 +89,19 @@ function parseSkillMd(rawContent: string): { name?: string; description?: string
       content: content.trim(),
     }
   } catch (err) {
-    console.error("[skills] Failed to parse frontmatter:", err)
+    const loose = parseLooseFrontmatter(rawContent)
+    if (loose) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(
+        `[skills] Recovered malformed frontmatter${filePath ? ` in ${filePath}` : ""}: ${message}`,
+      )
+      return loose
+    }
+
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(
+      `[skills] Failed to parse frontmatter${filePath ? ` in ${filePath}` : ""}: ${message}`,
+    )
     return { content: rawContent.trim() }
   }
 }
@@ -84,7 +152,7 @@ async function scanSkillsDirectory(
       try {
         await fs.access(skillMdPath)
         const content = await fs.readFile(skillMdPath, "utf-8")
-        const parsed = parseSkillMd(content)
+        const parsed = parseSkillMd(content, skillMdPath)
 
         // For project skills, show relative path; for user skills, show ~/.claude/... path
         let displayPath: string
@@ -170,9 +238,9 @@ const listSkillsProcedure = publicProcedure
  */
 function generateSkillMd(skill: { name: string; description: string; content: string }): string {
   const frontmatter: string[] = []
-  frontmatter.push(`name: ${skill.name}`)
+  frontmatter.push(`name: ${yamlString(skill.name)}`)
   if (skill.description) {
-    frontmatter.push(`description: ${skill.description}`)
+    frontmatter.push(`description: ${yamlString(skill.description)}`)
   }
   return `---\n${frontmatter.join("\n")}\n---\n\n${skill.content}`
 }

@@ -229,19 +229,19 @@ export const lastSelectedAgentIdAtom = atomWithStorage<string>(
 
 export const lastSelectedModelIdAtom = atomWithStorage<string>(
   "agents:lastSelectedModelId",
-  "opus",
+  "sonnet",
   undefined,
   { getOnInit: true },
 )
 
 export const lastSelectedCodexModelIdAtom = atomWithStorage<string>(
   "agents:lastSelectedCodexModelId",
-  "gpt-5.3-codex",
+  "gpt-5.5",
   undefined,
   { getOnInit: true },
 )
 
-export type CodexThinkingPreference = "low" | "medium" | "high" | "xhigh"
+export type CodexThinkingPreference = "none" | "low" | "medium" | "high" | "xhigh"
 
 export const lastSelectedCodexThinkingAtom =
   atomWithStorage<CodexThinkingPreference>(
@@ -358,9 +358,12 @@ export const subChatModeAtomFamily = atomFamily((subChatId: string) =>
 
 // Model ID to full Claude model string mapping
 export const MODEL_ID_MAP: Record<string, string> = {
-  opus: "opus",
-  sonnet: "sonnet",
-  haiku: "haiku",
+  opus: "claude-opus-4-7",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+  "claude-opus-4-7": "claude-opus-4-7",
+  "claude-sonnet-4-6": "claude-sonnet-4-6",
+  "claude-haiku-4-5": "claude-haiku-4-5",
 }
 
 // Sidebar state - window-scoped so each window has independent sidebar visibility
