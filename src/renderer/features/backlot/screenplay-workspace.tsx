@@ -65,6 +65,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu"
+import { GlassFilter } from "../../components/ui/liquid-glass-filter"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 
@@ -168,10 +169,9 @@ export function ScreenplayWorkspace({
           className="relative shrink-0 flex flex-col min-w-0 bl-island rounded-2xl overflow-hidden"
           style={{ width: railWidth }}
         >
-          {/* Rail header — a thread tab strip. */}
-          <ThreadTabs />
-
-          {/* Chat — existing ChatView, unchanged. */}
+          {/* Chat — the existing ChatView. The thread tab strip lives
+              in the AppTopBar now, so the rail itself is purely the
+              conversation: chat fills it top to bottom. */}
           <div className="flex-1 min-h-0 min-w-0 overflow-hidden">{assistant}</div>
         </aside>
       )}
@@ -204,9 +204,10 @@ function AmbientCanvas() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// ModeDock — the workflow-stage switcher. A floating macOS-style dock
+// ModeDock — the workflow-stage switcher. A floating liquid-glass dock
 // pinned to the bottom-centre of the editor: Screenwriting · Prompts ·
-// Shotlist · Canvas. The active stage carries a lime fill.
+// Shotlist · Canvas. A kiwi thumb slides under the active stage; the
+// glass surface refracts the canvas through an SVG displacement filter.
 // ────────────────────────────────────────────────────────────────────────
 
 const WORKFLOW_MODES = [
@@ -218,9 +219,38 @@ const WORKFLOW_MODES = [
 
 function ModeDock() {
   const [mode, setMode] = useAtom(viewModeAtom)
+  const activeIndex = Math.max(
+    0,
+    WORKFLOW_MODES.findIndex((m) => m.id === mode),
+  )
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-1 rounded-2xl bl-island p-1">
+      <GlassFilter />
+      <div
+        className={cn(
+          "pointer-events-auto relative grid grid-cols-4 h-11 p-1 rounded-2xl",
+          "border border-white/55",
+          "shadow-[0_1px_2px_rgba(20,22,14,0.06),0_14px_34px_-12px_rgba(20,22,14,0.30)]",
+        )}
+        style={{
+          background: "hsl(0 0% 100% / 0.5)",
+          backdropFilter: "url(#bl-glass-displace) blur(3px) saturate(150%)",
+          WebkitBackdropFilter: "url(#bl-glass-displace) blur(3px) saturate(150%)",
+        }}
+      >
+        {/* Sliding kiwi thumb — the active-stage marker. */}
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-y-1 left-1 rounded-xl bg-primary",
+            "shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(20,22,14,0.18),0_3px_10px_-2px_hsl(var(--primary)/0.55)]",
+            "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
+          )}
+          style={{
+            width: "calc((100% - 0.5rem) / 4)",
+            transform: `translateX(${activeIndex * 100}%)`,
+          }}
+        />
         {WORKFLOW_MODES.map(({ id, label, Icon }) => {
           const active = mode === id
           return (
@@ -229,11 +259,11 @@ function ModeDock() {
               type="button"
               onClick={() => setMode(id)}
               className={cn(
-                "press flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12px]",
-                "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                "press relative z-10 flex items-center justify-center gap-1.5 rounded-xl px-3 text-[12px]",
+                "transition-colors duration-200 [transition-timing-function:var(--ease-natural)]",
                 active
-                  ? "bg-primary text-primary-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/70",
+                  ? "text-primary-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -352,85 +382,6 @@ function fallbackColor(chatId: string): string {
   let h = 0
   for (let i = 0; i < chatId.length; i++) h = (h * 31 + chatId.charCodeAt(i)) | 0
   return FALLBACK_PALETTE[Math.abs(h) % FALLBACK_PALETTE.length]
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// ThreadTabs — the assistant rail's header. The workspace's sub-chats
-// ("threads") are shown as a tab strip; the active one is filled, and a
-// trailing + opens a fresh thread. Replaces the old Threads/Fork/Hide
-// dropdown row.
-// ────────────────────────────────────────────────────────────────────────
-
-function ThreadTabs() {
-  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
-  const setThreadCreateRequest = useSetAtom(threadCreateRequestAtom)
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId)
-  const allSubChats = useAgentSubChatStore((s) => s.allSubChats)
-  const setActiveSubChat = useAgentSubChatStore((s) => s.setActiveSubChat)
-  const addToOpenSubChats = useAgentSubChatStore((s) => s.addToOpenSubChats)
-
-  // Oldest first, so the tabs read in creation order (thread 1, 2, …).
-  const threads = [...allSubChats].sort((a, b) => {
-    const aT = a.updated_at ? new Date(a.updated_at).getTime() : 0
-    const bT = b.updated_at ? new Date(b.updated_at).getTime() : 0
-    return aT - bT
-  })
-
-  const handleSelect = (id: string) => {
-    if (id === activeSubChatId) return
-    addToOpenSubChats(id)
-    setActiveSubChat(id)
-  }
-
-  const handleNew = () => {
-    if (!activeChatId) return
-    setThreadCreateRequest({
-      id: Date.now(),
-      chatId: activeChatId,
-      options: { kind: "fresh", provider: "claude-code" },
-    })
-  }
-
-  return (
-    <div className="flex items-center gap-1 h-10 px-2 border-b border-border select-none shrink-0 overflow-x-auto scrollbar-hide">
-      {threads.map((thread, i) => {
-        const active = thread.id === activeSubChatId
-        const name = thread.name?.trim() || `Thread ${i + 1}`
-        return (
-          <button
-            key={thread.id}
-            type="button"
-            onClick={() => handleSelect(thread.id)}
-            title={name}
-            className={cn(
-              "press shrink-0 max-w-[150px] truncate rounded-lg px-2.5 py-1 text-[12px]",
-              "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-              active
-                ? "bg-primary/15 text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/70",
-            )}
-          >
-            {name}
-          </button>
-        )
-      })}
-      <button
-        type="button"
-        onClick={handleNew}
-        disabled={!activeChatId}
-        title="New thread"
-        aria-label="New thread"
-        className={cn(
-          "press shrink-0 flex items-center justify-center h-6 w-6 rounded-lg",
-          "text-muted-foreground hover:text-foreground hover:bg-secondary/70",
-          "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-          "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-        )}
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
 }
 
 // ────────────────────────────────────────────────────────────────────────
