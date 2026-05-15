@@ -30,8 +30,6 @@ import {
   type VSCodeFullTheme,
 } from "../atoms"
 import {
-  generateCSSVariables,
-  applyCSSVariables,
   removeCSSVariables,
   getThemeTypeFromColors,
 } from "./vscode-to-css-mapping"
@@ -182,18 +180,26 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
     }
   }, [currentTheme, setFullThemeData])
   
-  // Apply CSS variables when theme changes
+  // Theme sync.
+  //
+  // Backlot's brand chrome — canvas, surfaces, the lime accent — is owned
+  // entirely by globals.css. The VS Code theme must NOT override those
+  // tokens: doing so repaints the whole app in the editor theme's colours
+  // (this is exactly what was turning the lime accent blue). So we no
+  // longer apply the VS Code colour map to the root element — we only
+  // sync the light/dark class. The VS Code theme still drives syntax
+  // highlighting (Shiki) and the terminal (xterm) through their own
+  // code paths below.
   useEffect(() => {
+    // Clear any VS Code colour vars a previous build left as inline
+    // styles on the root element, so globals.css wins.
+    removeCSSVariables()
+
     if (fullThemeData?.colors) {
-      // Generate and apply CSS variables
-      const cssVars = generateCSSVariables(fullThemeData.colors)
-      applyCSSVariables(cssVars)
-      
-      // For system mode, let next-themes handle the class
+      // For system mode, let next-themes handle the class.
       if (selectedThemeId === null) {
         setNextTheme("system")
       } else {
-        // Sync next-themes with the theme type
         const themeType = getThemeTypeFromColors(fullThemeData.colors)
         if (themeType === "dark") {
           document.documentElement.classList.add("dark")
@@ -204,13 +210,9 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
         }
         setNextTheme(themeType)
       }
-    } else {
-      // Remove custom CSS variables when no theme is selected
-      removeCSSVariables()
     }
-    
+
     return () => {
-      // Cleanup on unmount
       removeCSSVariables()
     }
   }, [fullThemeData, selectedThemeId, setNextTheme])

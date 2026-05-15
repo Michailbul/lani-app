@@ -290,8 +290,16 @@ function ModeToggleStrip() {
           onClick={() => setMode("canvas")}
         />
       </div>
-      {/* Right edge: a tracked-mono caption naming the current stage. */}
-      <div className="ml-auto flex items-center pr-5">
+      {/* Right edge: a build/version flag + a tracked-mono stage caption.
+          The flag confirms which UI build is running and, because it's
+          tinted with the brand accent, doubles as a lime-vs-blue check. */}
+      <div className="ml-auto flex items-center gap-3 pr-5">
+        <span
+          className="rounded-full bg-primary/20 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--accent-deep))]"
+          title="Backlot UI build marker"
+        >
+          design v4 · lime
+        </span>
         <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground/55">
           {mode === "screenwriting"
             ? "The page"
