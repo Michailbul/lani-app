@@ -23,14 +23,16 @@
 
 import { type ReactNode, useEffect, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { atomWithStorage } from "jotai/utils"
 import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   GitBranch,
+  LayoutGrid,
   MessageSquare,
   MessageSquarePlus,
+  PenLine,
   Plus,
   Trash2,
 } from "lucide-react"
@@ -42,7 +44,12 @@ import { CanvasModeView } from "./canvas-mode-view"
 import { EntityEditor } from "./entity-editor"
 import { Resizer } from "./resizer"
 import { ShotlistSurface } from "./shotlist-surface"
-import { activeEntityAtom, assistantRailWidthAtom, viewModeAtom } from "./atoms"
+import {
+  activeEntityAtom,
+  assistantRailOpenAtom,
+  assistantRailWidthAtom,
+  viewModeAtom,
+} from "./atoms"
 import { Sparkles } from "lucide-react"
 import {
   selectedAgentChatIdAtom,
@@ -60,8 +67,6 @@ import {
 } from "../../components/ui/dropdown-menu"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
-
-const ASSISTANT_RAIL_OPEN_ATOM = atomWithStorage("backlot:assistant-rail-open", true)
 
 // The assistant rail is drag-resizable via the handle on its left edge.
 // It can be made narrower, but never wider than its default: the chat
@@ -84,7 +89,7 @@ export function ScreenplayWorkspace({
   directionName,
   assistant,
 }: ScreenplayWorkspaceProps) {
-  const [railOpen, setRailOpen] = useAtom(ASSISTANT_RAIL_OPEN_ATOM)
+  const [railOpen, setRailOpen] = useAtom(assistantRailOpenAtom)
   const [railUserWidth, setRailUserWidth] = useAtom(assistantRailWidthAtom)
 
   // Clamp the rendered width to the current bounds, and heal any value
@@ -127,8 +132,8 @@ export function ScreenplayWorkspace({
         {/* Left rail — project tree navigator. */}
         <ProjectTreeRail />
 
-        {/* Center column — the editor on the bare canvas. The workflow
-            mode tabs live in the global AppTopBar. */}
+        {/* Center column — the editor on the bare canvas, with the
+            workflow mode dock floating at its bottom edge. */}
         <div className="relative flex-1 min-w-0 flex flex-col">
           <div className="relative flex-1 min-h-0 flex flex-col">
             <LineageBreadcrumb />
@@ -136,41 +141,8 @@ export function ScreenplayWorkspace({
               <ModeAwareCenter chatId={chatId} directionName={directionName} />
             </div>
           </div>
-
-        {/* Show-assistant pill — vertical label on the right edge. Big enough
-            to find without hunting; clickable across the whole pill. */}
-        {!railOpen && (
-          // Positioning shell — handles vertical centering. The button
-          // child handles its own press/hover transforms without fighting
-          // the centering translate.
-          <div className="absolute top-1/2 -translate-y-1/2 right-0 z-30 [animation:rail-pill-enter_220ms_var(--ease-out)_forwards]">
-            <button
-              type="button"
-              onClick={() => setRailOpen(true)}
-              className={cn(
-                "press group",
-                "flex flex-col items-center justify-center gap-2",
-                "w-9 py-4 rounded-xl",
-                "bg-primary text-primary-foreground",
-                "shadow-lg",
-                "transition-shadow duration-200 [transition-timing-function:var(--ease-out)]",
-                "hover:shadow-xl",
-              )}
-              title="Show assistant (Cmd+\\)"
-              aria-label="Show assistant"
-            >
-              <MessageSquare className="h-4 w-4" />
-              <span
-                className="text-[10px] uppercase tracking-[0.18em] font-mono"
-                style={{ writingMode: "vertical-rl" }}
-              >
-                Assistant
-              </span>
-              <ChevronLeft className="h-3 w-3 transition-transform duration-200 [transition-timing-function:var(--ease-out)] group-hover:-translate-x-0.5" />
-            </button>
-          </div>
-        )}
-      </div>
+          <ModeDock />
+        </div>
 
       {/* Right-rail resize handle — drag to set the assistant width. The
           handle sits on the rail's LEFT edge, so dragging left (negative
@@ -246,6 +218,49 @@ function AmbientCanvas() {
             "radial-gradient(ellipse 58% 100% at 50% 0%, hsl(var(--primary) / 0.06) 0%, transparent 72%)",
         }}
       />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ModeDock — the workflow-stage switcher. A floating macOS-style dock
+// pinned to the bottom-centre of the editor: Screenwriting · Prompts ·
+// Shotlist · Canvas. The active stage carries a lime fill.
+// ────────────────────────────────────────────────────────────────────────
+
+const WORKFLOW_MODES = [
+  { id: "screenwriting", label: "Screenwriting", Icon: PenLine },
+  { id: "prompts", label: "Prompts", Icon: Sparkles },
+  { id: "shotlist", label: "Shotlist", Icon: Clapperboard },
+  { id: "canvas", label: "Canvas", Icon: LayoutGrid },
+] as const
+
+function ModeDock() {
+  const [mode, setMode] = useAtom(viewModeAtom)
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center">
+      <div className="pointer-events-auto flex items-center gap-1 rounded-2xl bl-island p-1">
+        {WORKFLOW_MODES.map(({ id, label, Icon }) => {
+          const active = mode === id
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMode(id)}
+              className={cn(
+                "press flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12px]",
+                "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                active
+                  ? "bg-primary text-primary-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/70",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

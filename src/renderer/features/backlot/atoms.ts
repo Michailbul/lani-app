@@ -150,3 +150,9 @@ export const assistantRailWidthAtom = atomWithStorage<number>(
   "backlot:assistant-rail-width",
   420,
 )
+
+/** Assistant rail — open/closed. The toggle lives in the AppTopBar. */
+export const assistantRailOpenAtom = atomWithStorage<boolean>(
+  "backlot:assistant-rail-open",
+  true,
+)

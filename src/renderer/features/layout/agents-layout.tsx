@@ -7,10 +7,10 @@ import {
   type ReactNode,
 } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { FolderTree, PanelLeft } from "lucide-react"
+import { FolderTree, PanelLeft, PanelRight } from "lucide-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { cn } from "../../lib/utils"
-import { projectTreeOpenAtom, viewModeAtom } from "../backlot/atoms"
+import { assistantRailOpenAtom, projectTreeOpenAtom } from "../backlot/atoms"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
 import {
@@ -325,8 +325,7 @@ function AppTopBar() {
   const isFullscreen = useAtomValue(isFullscreenAtom)
   const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
   const [treeOpen, setTreeOpen] = useAtom(projectTreeOpenAtom)
-  const [viewMode, setViewMode] = useAtom(viewModeAtom)
-  const desktopView = useAtomValue(desktopViewAtom)
+  const [assistantOpen, setAssistantOpen] = useAtom(assistantRailOpenAtom)
 
   const isMac =
     typeof navigator !== "undefined" &&
@@ -334,15 +333,6 @@ function AppTopBar() {
 
   // Windows has its own WindowsTitleBar; the web build has no chrome.
   if (!isDesktop || !isMac) return null
-
-  // The workflow tabs belong to the screenwriting workspace only —
-  // not settings / automations / inbox.
-  const showModes = ![
-    "settings",
-    "automations",
-    "automations-detail",
-    "inbox",
-  ].includes(desktopView)
 
   return (
     <div
@@ -378,37 +368,21 @@ function AppTopBar() {
         </div>
       </div>
 
-      {/* Center — workflow mode tabs, centered in the bar. */}
-      {showModes && (
-        <div
-          className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 flex items-stretch"
-          style={{
-            // @ts-expect-error - WebKit-specific property
-            WebkitAppRegion: "no-drag",
-          }}
+      {/* Right — assistant rail toggle. */}
+      <div
+        className="ml-auto flex items-center pr-2"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        <TopBarToggle
+          onClick={() => setAssistantOpen((v) => !v)}
+          title={assistantOpen ? "Hide assistant" : "Show assistant"}
         >
-          <ModeTab
-            label="Screenwriting"
-            active={viewMode === "screenwriting"}
-            onClick={() => setViewMode("screenwriting")}
-          />
-          <ModeTab
-            label="Prompts"
-            active={viewMode === "prompts"}
-            onClick={() => setViewMode("prompts")}
-          />
-          <ModeTab
-            label="Shotlist"
-            active={viewMode === "shotlist"}
-            onClick={() => setViewMode("shotlist")}
-          />
-          <ModeTab
-            label="Canvas"
-            active={viewMode === "canvas"}
-            onClick={() => setViewMode("canvas")}
-          />
-        </div>
-      )}
+          <PanelRight className="h-4 w-4" />
+        </TopBarToggle>
+      </div>
     </div>
   )
 }
@@ -435,36 +409,6 @@ function TopBarToggle({
       )}
     >
       {children}
-    </button>
-  )
-}
-
-// Workflow mode tab — a text tab with a lime underline when active.
-function ModeTab({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "press relative flex items-center px-3.5 text-[12.5px]",
-        active
-          ? "text-foreground font-medium"
-          : "text-muted-foreground/65 hover:text-foreground/85",
-      )}
-      style={{ fontFamily: "var(--font-body)" }}
-    >
-      {label}
-      {active && (
-        <span className="absolute inset-x-2.5 bottom-0 h-[2px] rounded-full bg-primary" />
-      )}
     </button>
   )
 }
