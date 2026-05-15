@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useState, useMemo, useRef } from "react"
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { PanelLeftOpen } from "lucide-react"
+import { FolderTree, PanelLeft } from "lucide-react"
 import { isDesktopApp } from "../../lib/utils/platform"
+import { cn } from "../../lib/utils"
+import { projectTreeOpenAtom } from "../backlot/atoms"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
 import {
@@ -145,8 +154,10 @@ export function AgentsLayout() {
     )
       return
 
-    window.desktopApi.setTrafficLightVisibility(sidebarOpen)
-  }, [sidebarOpen, isDesktop])
+    // Traffic lights live in the always-present AppTopBar now, so keep
+    // them visible regardless of the Projects-sidebar state.
+    window.desktopApi.setTrafficLightVisibility(true)
+  }, [isDesktop])
 
   const setChatId = useAgentSubChatStore((state) => state.setChatId)
 
@@ -258,6 +269,9 @@ export function AgentsLayout() {
       <div className="flex flex-col w-full h-full relative overflow-hidden bg-background select-none">
         {/* Windows Title Bar (only shown on Windows with frameless window) */}
         <WindowsTitleBar />
+        {/* macOS chrome strip — reserves the top band for the native
+            traffic lights and the panel collapse/expand toggles. */}
+        <AppTopBar />
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - switches between chat list and settings nav */}
           <ResizableSidebar
@@ -286,25 +300,6 @@ export function AgentsLayout() {
           )}
         </ResizableSidebar>
 
-          {/* Reopen rail — the app sidebar collapses to width 0, and its
-              only built-in toggle lives in ChatView's header, which is
-              hidden inside Backlot's assistant rail. Without this strip
-              there is no way to bring the Projects + Settings sidebar
-              back. A slim always-present activity strip fixes that. */}
-          {!isMobile && !sidebarOpen && (
-            <div className="shrink-0 w-12 flex flex-col items-center pt-2.5 bg-background">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                title="Show sidebar"
-                aria-label="Show projects and settings sidebar"
-                className="press flex items-center justify-center h-9 w-9 rounded-lg bl-island text-muted-foreground hover:text-foreground hover:border-primary/40 transition-[color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]"
-              >
-                <PanelLeftOpen className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          )}
-
           {/* Main Content */}
           <div className="flex-1 overflow-hidden flex flex-col min-w-0">
             <AgentsContent />
@@ -315,5 +310,95 @@ export function AgentsLayout() {
         <UpdateBanner />
       </div>
     </TooltipProvider>
+  )
+}
+
+// ============================================================================
+// AppTopBar — the macOS chrome strip. A reserved full-width band at the very
+// top of the window: it holds the native traffic lights on the left and the
+// panel collapse/expand toggles. The band is itself a window-drag region, so
+// no app content sits in it and nothing collides with the OS controls.
+// ============================================================================
+
+function AppTopBar() {
+  const isDesktop = useAtomValue(isDesktopAtom)
+  const isFullscreen = useAtomValue(isFullscreenAtom)
+  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
+  const [treeOpen, setTreeOpen] = useAtom(projectTreeOpenAtom)
+
+  const isMac =
+    typeof navigator !== "undefined" &&
+    navigator.platform.toUpperCase().includes("MAC")
+
+  // Windows has its own WindowsTitleBar; the web build has no chrome.
+  if (!isDesktop || !isMac) return null
+
+  return (
+    <div
+      className="relative z-30 shrink-0 flex items-center gap-1 h-9 bg-background border-b border-border/70"
+      style={{
+        // @ts-expect-error - WebKit-specific property
+        WebkitAppRegion: "drag",
+      }}
+    >
+      {/* Reserve + un-drag the native traffic-light cluster so the OS
+          buttons stay clickable. */}
+      {!isFullscreen && (
+        <div
+          aria-hidden
+          className="w-[72px] shrink-0 self-stretch"
+          style={{
+            // @ts-expect-error - WebKit-specific property
+            WebkitAppRegion: "no-drag",
+          }}
+        />
+      )}
+      <div
+        className="flex items-center gap-0.5"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        <TopBarToggle
+          onClick={() => setSidebarOpen((v) => !v)}
+          title={sidebarOpen ? "Hide projects sidebar" : "Show projects sidebar"}
+        >
+          <PanelLeft className="h-4 w-4" />
+        </TopBarToggle>
+        <TopBarToggle
+          onClick={() => setTreeOpen((v) => !v)}
+          title={treeOpen ? "Hide file explorer" : "Show file explorer"}
+        >
+          <FolderTree className="h-4 w-4" />
+        </TopBarToggle>
+      </div>
+    </div>
+  )
+}
+
+function TopBarToggle({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={cn(
+        "press flex items-center justify-center h-7 w-7 rounded-md",
+        "text-muted-foreground hover:text-foreground hover:bg-foreground/10",
+        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+      )}
+    >
+      {children}
+    </button>
   )
 }

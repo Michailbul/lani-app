@@ -39,15 +39,7 @@ import {
   useRenameRemoteChat,
 } from "../../lib/hooks/use-remote-chats"
 import { ArchivePopover } from "../agents/ui/archive-popover"
-import {
-  ChevronDown,
-  MoreHorizontal,
-  Columns3,
-  ArrowUpRight,
-  FolderTree,
-  PanelLeftClose,
-} from "lucide-react"
-import { projectTreeOpenAtom } from "../backlot/atoms"
+import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { remoteTrpc } from "../../lib/remote-trpc"
 // import { useRouter } from "next/navigation" // Desktop doesn't use next/navigation
@@ -1310,7 +1302,6 @@ const SidebarHeader = memo(function SidebarHeader({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
   const toggleSidebarHotkey = useResolvedHotkeyDisplay("toggle-sidebar")
-  const [treeOpen, setTreeOpen] = useAtom(projectTreeOpenAtom)
 
   return (
     <div
@@ -1330,12 +1321,6 @@ const SidebarHeader = memo(function SidebarHeader({
         />
       )}
 
-      {/* No-drag zone over native traffic lights */}
-      <TrafficLights
-        isFullscreen={isFullscreen}
-        isDesktop={isDesktop}
-        className="absolute left-[15px] top-[12px] z-20"
-      />
 
       {/* Close button - positioned at top right */}
       {!isMobileFullscreen && (
@@ -1372,8 +1357,6 @@ const SidebarHeader = memo(function SidebarHeader({
         </div>
       )}
 
-      {/* Spacer for macOS traffic lights */}
-      <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
 
       {/* Team dropdown - below traffic lights */}
       <div className="px-2 pt-2 pb-2">
@@ -1599,25 +1582,6 @@ const SidebarHeader = memo(function SidebarHeader({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {/* F — toggle the file explorer · D — collapse this sidebar */}
-          <button
-            type="button"
-            onClick={() => setTreeOpen((v) => !v)}
-            className="press flex items-center justify-center h-6 w-6 shrink-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/10"
-            title={treeOpen ? "Hide file explorer" : "Show file explorer"}
-            aria-label={treeOpen ? "Hide file explorer" : "Show file explorer"}
-          >
-            <FolderTree className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="press flex items-center justify-center h-6 w-6 shrink-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/10"
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
         </div>
       </div>
     </div>
