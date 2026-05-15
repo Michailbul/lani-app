@@ -243,9 +243,9 @@ function ModeDock() {
         <span
           aria-hidden
           className={cn(
-            "absolute inset-y-1 left-1 rounded-xl bg-background/80",
+            "absolute inset-y-1 left-1 rounded-xl bg-primary",
             "shadow-[0_0_6px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3px_rgba(0,0,0,0.9),inset_-3px_-3px_0.5px_-3px_rgba(0,0,0,0.85),inset_1px_1px_1px_-0.5px_rgba(0,0,0,0.6),inset_-1px_-1px_1px_-0.5px_rgba(0,0,0,0.6),inset_0_0_6px_6px_rgba(0,0,0,0.12),inset_0_0_2px_2px_rgba(0,0,0,0.06),0_0_12px_rgba(255,255,255,0.15)]",
-            "dark:bg-foreground/10 dark:shadow-[0_0_8px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3.5px_rgba(255,255,255,0.09),inset_-3px_-3px_0.5px_-3.5px_rgba(255,255,255,0.85),inset_1px_1px_1px_-0.5px_rgba(255,255,255,0.6),inset_-1px_-1px_1px_-0.5px_rgba(255,255,255,0.6),inset_0_0_6px_6px_rgba(255,255,255,0.12),inset_0_0_2px_2px_rgba(255,255,255,0.06),0_0_12px_rgba(0,0,0,0.15)]",
+            "dark:shadow-[0_0_8px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3.5px_rgba(255,255,255,0.09),inset_-3px_-3px_0.5px_-3.5px_rgba(255,255,255,0.85),inset_1px_1px_1px_-0.5px_rgba(255,255,255,0.6),inset_-1px_-1px_1px_-0.5px_rgba(255,255,255,0.6),inset_0_0_6px_6px_rgba(255,255,255,0.12),inset_0_0_2px_2px_rgba(255,255,255,0.06),0_0_12px_rgba(0,0,0,0.15)]",
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
@@ -264,7 +264,7 @@ function ModeDock() {
                 "press relative z-10 flex items-center justify-center gap-1.5 rounded-xl px-3 text-[12px]",
                 "transition-colors duration-200 [transition-timing-function:var(--ease-natural)]",
                 active
-                  ? "text-[hsl(var(--accent-deep))] font-medium"
+                  ? "text-primary-foreground font-medium"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
