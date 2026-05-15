@@ -326,6 +326,7 @@ function AppTopBar() {
   const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
   const [treeOpen, setTreeOpen] = useAtom(projectTreeOpenAtom)
   const [assistantOpen, setAssistantOpen] = useAtom(assistantRailOpenAtom)
+  const project = useAtomValue(selectedProjectAtom)
 
   const isMac =
     typeof navigator !== "undefined" &&
@@ -368,14 +369,33 @@ function AppTopBar() {
         </div>
       </div>
 
-      {/* Right — assistant rail toggle. */}
+      {/* Centre — the project title, native-window-title style. */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="flex items-center gap-1.5 text-[12px]">
+          <span className="text-muted-foreground/70">Backlot</span>
+          {project?.name && (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="font-medium text-foreground/90">{project.name}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Right — assistant panel name + toggle. Mirrors the reference:
+          the panel's name sits on the macOS-controls line. */}
       <div
-        className="ml-auto flex items-center pr-2"
+        className="ml-auto flex items-center gap-2 pr-2"
         style={{
           // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >
+        {assistantOpen && (
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            Assistant
+          </span>
+        )}
         <TopBarToggle
           onClick={() => setAssistantOpen((v) => !v)}
           title={assistantOpen ? "Hide assistant" : "Show assistant"}
