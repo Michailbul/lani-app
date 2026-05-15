@@ -238,12 +238,14 @@ function ModeDock() {
           WebkitBackdropFilter: "url(#bl-glass-displace) blur(3px) saturate(150%)",
         }}
       >
-        {/* Sliding kiwi thumb — the active-stage marker. */}
+        {/* Sliding glass-button thumb — the raised liquid-glass switch
+            from the reference component. */}
         <span
           aria-hidden
           className={cn(
-            "absolute inset-y-1 left-1 rounded-xl bg-primary",
-            "shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(20,22,14,0.18),0_3px_10px_-2px_hsl(var(--primary)/0.55)]",
+            "absolute inset-y-1 left-1 rounded-xl bg-background/80",
+            "shadow-[0_0_6px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3px_rgba(0,0,0,0.9),inset_-3px_-3px_0.5px_-3px_rgba(0,0,0,0.85),inset_1px_1px_1px_-0.5px_rgba(0,0,0,0.6),inset_-1px_-1px_1px_-0.5px_rgba(0,0,0,0.6),inset_0_0_6px_6px_rgba(0,0,0,0.12),inset_0_0_2px_2px_rgba(0,0,0,0.06),0_0_12px_rgba(255,255,255,0.15)]",
+            "dark:bg-foreground/10 dark:shadow-[0_0_8px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3.5px_rgba(255,255,255,0.09),inset_-3px_-3px_0.5px_-3.5px_rgba(255,255,255,0.85),inset_1px_1px_1px_-0.5px_rgba(255,255,255,0.6),inset_-1px_-1px_1px_-0.5px_rgba(255,255,255,0.6),inset_0_0_6px_6px_rgba(255,255,255,0.12),inset_0_0_2px_2px_rgba(255,255,255,0.06),0_0_12px_rgba(0,0,0,0.15)]",
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
@@ -262,7 +264,7 @@ function ModeDock() {
                 "press relative z-10 flex items-center justify-center gap-1.5 rounded-xl px-3 text-[12px]",
                 "transition-colors duration-200 [transition-timing-function:var(--ease-natural)]",
                 active
-                  ? "text-primary-foreground font-medium"
+                  ? "text-[hsl(var(--accent-deep))] font-medium"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
