@@ -118,42 +118,28 @@ function sceneTemplate(label: string): string {
 const MIN_WIDTH = 200
 const MAX_WIDTH = 420
 
-// macOS draws the native traffic lights into the top-left corner
-// ({x:15, y:12} per the BrowserWindow config). Anything interactive
-// placed there is unclickable — the OS controls swallow the click.
-// The collapsed rail button must clear that zone.
-const IS_MAC =
-  typeof navigator !== "undefined" &&
-  navigator.platform.toUpperCase().includes("MAC")
-
 export function ProjectTreeRail() {
   const [open, setOpen] = useAtom(projectTreeOpenAtom)
   const [width, setWidth] = useAtom(projectTreeWidthAtom)
 
   if (!open) {
-    // Collapsed — a lime button pinned top-left. Lime (not a white
-    // island) so it's unmistakable against the canvas; a white-on-
-    // near-white square was too easy to lose. Mirrors the assistant
-    // rail's reopen pill. On macOS it sits below the traffic lights
-    // so the OS controls don't eat the click.
+    // Collapsed — a compact island button at the top-left. Same quiet
+    // treatment as the app-sidebar reopen control, so the two collapsed
+    // panels read as one consistent system.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "press group shrink-0 self-start flex items-center justify-center gap-2",
-          "h-10 rounded-xl px-3",
-          "bg-primary text-primary-foreground shadow-lg",
-          "transition-shadow duration-200 [transition-timing-function:var(--ease-out)] hover:shadow-xl",
-          IS_MAC && "mt-8",
+          "press shrink-0 self-start flex items-center justify-center",
+          "h-9 w-9 rounded-lg bl-island",
+          "text-muted-foreground hover:text-foreground hover:border-primary/40",
+          "transition-[color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Show project"
         aria-label="Show project"
       >
         <PanelLeftOpen className="h-[18px] w-[18px]" />
-        <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em]">
-          Project
-        </span>
       </button>
     )
   }

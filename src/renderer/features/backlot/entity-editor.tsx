@@ -589,9 +589,7 @@ function ActiveEntityFile({
               "w-full h-full pt-3",
               viewMode === "rendered" && [
                 "cursor-text",
-                "transition-[background-color] duration-150",
-                "hover:bg-foreground/[0.012] dark:hover:bg-foreground/[0.02]",
-                "focus:outline-none focus-visible:bg-foreground/[0.02]",
+                "focus:outline-none",
               ],
             )}
             aria-label="Edit markdown"
