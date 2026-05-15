@@ -47,6 +47,7 @@ import {
   FolderOpen,
   FolderPlus,
   Trash2,
+  Upload,
 } from "lucide-react"
 import {
   pendingMentionAtom,
@@ -62,7 +63,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../../components/ui/context-menu"
-import { activeEntityAtom } from "./atoms"
+import { activeEntityAtom, viewModeAtom } from "./atoms"
 import { activeEntityFromPath, labelFromFilename } from "./entity-kind"
 import { toast } from "sonner"
 
@@ -140,6 +141,22 @@ export function ProjectFileTree() {
     }
     return map
   }, [changedFilesQuery.data])
+  const [, setActive] = useAtom(activeEntityAtom)
+  const setViewMode = useSetAtom(viewModeAtom)
+  const importShotlist = trpc.shotlists.pickAndImportHtml.useMutation({
+    onSuccess: (result) => {
+      if (!result) return
+      setActive(activeEntityFromPath(result.relPath, "Shotlist"))
+      setViewMode("shotlist")
+      void tree.refetch()
+      toast.success("Imported shotlist HTML", {
+        description: result.relPath,
+      })
+    },
+    onError: (err) => {
+      toast.error(err.message || "Couldn't import shotlist")
+    },
+  })
 
   if (!entityRoot) {
     return (
@@ -186,6 +203,8 @@ export function ProjectFileTree() {
         tree={tree.data}
         entityRoot={entityRoot}
         onChanged={tree.refetch}
+        onImportShotlist={() => importShotlist.mutate(entityRoot)}
+        importingShotlist={importShotlist.isPending}
       />
       {isEmpty ? (
         <div className="px-3 py-4">
@@ -267,10 +286,14 @@ function RootRow({
   tree,
   entityRoot,
   onChanged,
+  onImportShotlist,
+  importingShotlist,
 }: {
   tree: TreeNode
   entityRoot: EntityRoot
   onChanged: () => void
+  onImportShotlist: () => void
+  importingShotlist: boolean
 }) {
   const [creating, setCreating] = useState<null | "file" | "folder">(null)
   void tree
@@ -287,6 +310,8 @@ function RootRow({
         <RootActions
           onNewFile={() => setCreating("file")}
           onNewFolder={() => setCreating("folder")}
+          onImportShotlist={onImportShotlist}
+          importingShotlist={importingShotlist}
         />
       </div>
       {creating && (
@@ -306,9 +331,13 @@ function RootRow({
 function RootActions({
   onNewFile,
   onNewFolder,
+  onImportShotlist,
+  importingShotlist,
 }: {
   onNewFile: () => void
   onNewFolder: () => void
+  onImportShotlist: () => void
+  importingShotlist: boolean
 }) {
   return (
     <div className="flex items-center gap-0.5 opacity-0 group-hover/root:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
@@ -321,6 +350,11 @@ function RootActions({
         onClick={onNewFolder}
         title="New folder at root"
         icon={<FolderPlus className="h-3 w-3" />}
+      />
+      <ActionIcon
+        onClick={onImportShotlist}
+        title={importingShotlist ? "Importing shotlist..." : "Import shotlist HTML"}
+        icon={<Upload className="h-3 w-3" />}
       />
     </div>
   )
@@ -488,11 +522,20 @@ function FileRow({
   onChanged: () => void
 }) {
   const [active, setActive] = useAtom(activeEntityAtom)
+  const setViewMode = useSetAtom(viewModeAtom)
   const isActive = active?.path === node.path
   const label = labelFromFilename(node.name)
   const Icon = iconForFile(node.name, node.path)
   const changedFiles = useContext(ChangedFilesContext)
   const fileStatus = changedFiles.get(node.path)
+
+  const handleOpen = () => {
+    const nextActive = activeEntityFromPath(node.path, label)
+    setActive(nextActive)
+    if (nextActive.kind === "shotlist") {
+      setViewMode("shotlist")
+    }
+  }
 
   // Selection visual: neutral grey fill on the row, slightly heavier
   // text. No left accent bar, no Coral tint — same restrained idiom
@@ -503,7 +546,7 @@ function FileRow({
     <RowContextMenu node={node} entityRoot={entityRoot} onChanged={onChanged}>
       <button
         type="button"
-        onClick={() => setActive(activeEntityFromPath(node.path, label))}
+        onClick={handleOpen}
         className={cn(
           "relative w-full flex items-center gap-1.5 pr-2 py-[3px] rounded-md",
           "transition-colors",
@@ -844,6 +887,9 @@ function iconForFile(name: string, path: string): typeof File {
     return Clapperboard
   }
   if (lower.endsWith(".fountain")) return Film
+  if (lower === "shotlist.backlot.json" || lower.endsWith(".shotlist.json")) {
+    return Clapperboard
+  }
   if (lower.endsWith(".md")) return FileText
   // Acts/scenes/shots/characters/locations all use .md, already handled above.
   return File

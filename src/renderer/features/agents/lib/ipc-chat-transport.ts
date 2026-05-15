@@ -331,6 +331,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 // readyToRetry=false prevents immediate retry - modal sets it to true on OAuth success
                 appStore.set(pendingAuthRetryMessageAtom, {
                   subChatId: this.config.subChatId,
+                  provider: "claude-code",
                   prompt,
                   ...(images.length > 0 && { images }),
                   readyToRetry: false,

@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { router, publicProcedure } from "../index"
-import { getDatabase, projects } from "../../db"
+import { chats, getDatabase, projects } from "../../db"
 import { eq, desc } from "drizzle-orm"
 import { dialog, BrowserWindow, app } from "electron"
 import { basename, join, dirname, relative } from "path"
@@ -17,7 +17,7 @@ import {
 import { extname } from "node:path"
 import { homedir } from "node:os"
 import simpleGit from "simple-git"
-import { getGitRemoteInfo } from "../../git"
+import { getGitRemoteInfo, isExactGitRepoRoot } from "../../git"
 import { trackProjectOpened } from "../../analytics"
 import { getLaunchDirectory } from "../../cli"
 
@@ -305,6 +305,38 @@ async function initGitBaseline(target: string): Promise<void> {
   }
 }
 
+function isInsideDir(child: string, parent: string): boolean {
+  const rel = relative(parent, child)
+  return rel === "" || (!!rel && !rel.startsWith("..") && !rel.startsWith("/"))
+}
+
+async function createBacklotProjectCopy(input: {
+  sourcePath: string
+  name?: string
+}): Promise<{
+  displayName: string
+  target: string
+  gitInfo: Awaited<ReturnType<typeof getGitRemoteInfo>>
+}> {
+  if (!existsSync(input.sourcePath)) {
+    throw new Error(`Source folder does not exist: ${input.sourcePath}`)
+  }
+
+  const realSource = await fsRealpath(input.sourcePath)
+  const displayName = input.name?.trim() || basename(realSource)
+  const target = await resolveImportTarget(slugify(displayName))
+
+  await copySourceTree(realSource, target)
+  await ensureProjectClaudeMd(target, displayName)
+  await initGitBaseline(target)
+
+  return {
+    displayName,
+    target,
+    gitInfo: await getGitRemoteInfo(target),
+  }
+}
+
 export const projectsRouter = router({
   /**
    * Get launch directory from CLI args (consumed once)
@@ -351,33 +383,11 @@ export const projectsRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      if (!existsSync(input.sourcePath)) {
-        throw new Error(`Source folder does not exist: ${input.sourcePath}`)
-      }
-      const realSource = await fsRealpath(input.sourcePath)
-      const displayName = input.name?.trim() || basename(realSource)
-      const slug = slugify(displayName)
-
       const db = getDatabase()
-
-      // Already imported? Match on the source path (we store it in name
-      // metadata via realpath comparison against the imported tree's
-      // origin). Cheap heuristic: same target path = same project.
-      const target = await resolveImportTarget(slug)
-
-      // Copy the tree.
-      await copySourceTree(realSource, target)
-
-      // Auto-create project CLAUDE.md (skipped if the source had one).
-      // Done BEFORE git baseline so the file is in the first commit and
-      // travels with every fork.
-      await ensureProjectClaudeMd(target, displayName)
-
-      // Init git + baseline commit.
-      await initGitBaseline(target)
-
-      // Insert the project pointing at the COPY.
-      const gitInfo = await getGitRemoteInfo(target)
+      const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+        sourcePath: input.sourcePath,
+        name: input.name,
+      })
       const newProject = db
         .insert(projects)
         .values({
@@ -423,20 +433,10 @@ export const projectsRouter = router({
       return null
     }
 
-    const sourcePath = result.filePaths[0]!
-    const realSource = await fsRealpath(sourcePath)
-    const displayName = basename(realSource)
-    const slug = slugify(displayName)
-    const target = await resolveImportTarget(slug)
-
-    await copySourceTree(realSource, target)
-    // Auto-create project CLAUDE.md (skipped if source already had one),
-    // BEFORE the baseline commit so it travels with forks.
-    await ensureProjectClaudeMd(target, displayName)
-    await initGitBaseline(target)
-
     const db = getDatabase()
-    const gitInfo = await getGitRemoteInfo(target)
+    const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+      sourcePath: result.filePaths[0]!,
+    })
     const newProject = db
       .insert(projects)
       .values({
@@ -539,51 +539,16 @@ export const projectsRouter = router({
       return null
     }
 
-    const folderPath = result.filePaths[0]!
-    const folderName = basename(folderPath)
-
-    // Get git remote info
-    const gitInfo = await getGitRemoteInfo(folderPath)
-
     const db = getDatabase()
+    const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+      sourcePath: result.filePaths[0]!,
+    })
 
-    // Check if project already exists
-    const existing = db
-      .select()
-      .from(projects)
-      .where(eq(projects.path, folderPath))
-      .get()
-
-    if (existing) {
-      // Update the updatedAt timestamp and git info (in case remote changed)
-      const updatedProject = db
-        .update(projects)
-        .set({
-          updatedAt: new Date(),
-          gitRemoteUrl: gitInfo.remoteUrl,
-          gitProvider: gitInfo.provider,
-          gitOwner: gitInfo.owner,
-          gitRepo: gitInfo.repo,
-        })
-        .where(eq(projects.id, existing.id))
-        .returning()
-        .get()
-
-      // Track project opened
-      trackProjectOpened({
-        id: updatedProject!.id,
-        hasGitRemote: !!gitInfo.remoteUrl,
-      })
-
-      return updatedProject
-    }
-
-    // Create new project with git info
     const newProject = db
       .insert(projects)
       .values({
-        name: folderName,
-        path: folderPath,
+        name: displayName,
+        path: target,
         gitRemoteUrl: gitInfo.remoteUrl,
         gitProvider: gitInfo.provider,
         gitOwner: gitInfo.owner,
@@ -608,27 +573,16 @@ export const projectsRouter = router({
     .input(z.object({ path: z.string(), name: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = getDatabase()
-      const name = input.name || basename(input.path)
-
-      // Check if project already exists
-      const existing = db
-        .select()
-        .from(projects)
-        .where(eq(projects.path, input.path))
-        .get()
-
-      if (existing) {
-        return existing
-      }
-
-      // Get git remote info
-      const gitInfo = await getGitRemoteInfo(input.path)
+      const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+        sourcePath: input.path,
+        name: input.name,
+      })
 
       return db
         .insert(projects)
         .values({
-          name,
-          path: input.path,
+          name: displayName,
+          path: target,
           gitRemoteUrl: gitInfo.remoteUrl,
           gitProvider: gitInfo.provider,
           gitOwner: gitInfo.owner,
@@ -636,6 +590,94 @@ export const projectsRouter = router({
         })
         .returning()
         .get()
+    }),
+
+  /**
+   * Repair an older project row whose path points at a source folder
+   * outside Backlot, or at a subfolder inside a parent git repo. The
+   * normalized project becomes a self-contained Backlot-owned repo under
+   * ~/.backlot/projects/<slug>/, which is the only safe base for future
+   * git worktrees.
+   */
+  normalizeForBacklot: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = getDatabase()
+      const project = db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, input.id))
+        .get()
+      if (!project) throw new Error("Project not found.")
+      if (!existsSync(project.path)) {
+        throw new Error(`Project folder does not exist: ${project.path}`)
+      }
+
+      await mkdir(BACKLOT_PROJECTS_DIR, { recursive: true })
+      const [realProjectPath, realBacklotProjects] = await Promise.all([
+        fsRealpath(project.path),
+        fsRealpath(BACKLOT_PROJECTS_DIR),
+      ])
+      const alreadyBacklotOwned = isInsideDir(realProjectPath, realBacklotProjects)
+      const exactRepoRoot = await isExactGitRepoRoot(realProjectPath)
+
+      if (alreadyBacklotOwned && exactRepoRoot) {
+        const gitInfo = await getGitRemoteInfo(realProjectPath)
+        return db
+          .update(projects)
+          .set({
+            path: realProjectPath,
+            updatedAt: new Date(),
+            gitRemoteUrl: gitInfo.remoteUrl,
+            gitProvider: gitInfo.provider,
+            gitOwner: gitInfo.owner,
+            gitRepo: gitInfo.repo,
+          })
+          .where(eq(projects.id, project.id))
+          .returning()
+          .get()
+      }
+
+      const oldPath = project.path
+      const { target, gitInfo } = await createBacklotProjectCopy({
+        sourcePath: realProjectPath,
+        name: project.name,
+      })
+
+      const updatedProject = db
+        .update(projects)
+        .set({
+          path: target,
+          updatedAt: new Date(),
+          gitRemoteUrl: gitInfo.remoteUrl,
+          gitProvider: gitInfo.provider,
+          gitOwner: gitInfo.owner,
+          gitRepo: gitInfo.repo,
+        })
+        .where(eq(projects.id, project.id))
+        .returning()
+        .get()
+
+      const projectChats = db
+        .select()
+        .from(chats)
+        .where(eq(chats.projectId, project.id))
+        .all()
+      for (const chat of projectChats) {
+        if (!chat.worktreePath || chat.worktreePath === oldPath) {
+          db.update(chats)
+            .set({
+              worktreePath: target,
+              branch: null,
+              baseBranch: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(chats.id, chat.id))
+            .run()
+        }
+      }
+
+      return updatedProject
     }),
 
   /**

@@ -73,6 +73,11 @@ export type ActiveEntity =
       path: string
     }
   | {
+      kind: "shotlist"
+      label: string
+      path: string
+    }
+  | {
       // Generic file — anything in the worktree that doesn't match the
       // canonical schema (brief / world / main-script / character /
       // location / act / scene / shot). The Cursor-style file tree
@@ -98,15 +103,16 @@ export const projectTreeOpenAtom = atomWithStorage<boolean>(
 )
 
 // ────────────────────────────────────────────────────────────────────────
-// View mode — the user's pipeline stage. Two distinct surfaces, NOT a
+// View mode — the user's pipeline stage. Distinct surfaces, NOT a
 // split. Screenwriting mode = the screenplay editor takes the whole
 // center; Prompts mode = a different surface (screenplay on the left
-// for reference, prompt text-blocks in the center, chat right). The
+// for reference, prompt text-blocks in the center, chat right);
+// Shotlist mode = the generation queue / prompt tracking surface. The
 // user toggles between them as a workflow shift, not as a layout
 // preference.
 // ────────────────────────────────────────────────────────────────────────
 
-export type ViewMode = "screenwriting" | "prompts"
+export type ViewMode = "screenwriting" | "prompts" | "shotlist" | "canvas"
 
 export const viewModeAtom = atomWithStorage<ViewMode>(
   "backlot:view-mode",

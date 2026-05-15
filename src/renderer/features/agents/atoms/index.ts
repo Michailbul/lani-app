@@ -35,9 +35,11 @@ export const selectedChatIsRemoteAtom = atomWithWindowStorage<boolean>(
 // Not persisted - only tracks within current session
 export const previousAgentChatIdAtom = atom<string | null>(null)
 
+export type ThreadProvider = "claude-code" | "codex"
+
 export type ThreadCreateOptions =
-  | { kind: "fresh" }
-  | { kind: "branch" }
+  | { kind: "fresh"; provider?: ThreadProvider }
+  | { kind: "branch"; provider?: ThreadProvider }
 
 export const threadCreateRequestAtom = atom<{
   id: number
@@ -693,7 +695,7 @@ export const pendingConflictResolutionMessageAtom = atom<string | null>(null)
 // After successful OAuth flow, this triggers automatic retry of the message
 export type PendingAuthRetryMessage = {
   subChatId: string  // Required: only retry in the correct chat
-  provider?: "claude-code" | "codex"
+  provider: "claude-code" | "codex"
   prompt: string
   images?: Array<{
     base64Data: string

@@ -12,7 +12,7 @@ let sqlite: Database.Database | null = null
 /**
  * Get the database path in the app's user data directory
  */
-function getDatabasePath(): string {
+export function getDatabasePath(): string {
   const userDataPath = app.getPath("userData")
   const dataDir = join(userDataPath, "data")
 

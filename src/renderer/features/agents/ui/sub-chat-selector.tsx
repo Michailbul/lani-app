@@ -7,6 +7,7 @@ import {
   agentsSubChatUnseenChangesAtom,
   agentsSubChatsSidebarModeAtom,
   pendingUserQuestionsAtom,
+  type ThreadCreateOptions,
 } from "../atoms"
 import {
   widgetVisibilityAtomFamily,
@@ -176,11 +177,7 @@ const SearchHistoryPopover = memo(forwardRef<SearchHistoryPopoverRef, SearchHist
 }))
 
 interface SubChatSelectorProps {
-  onCreateNew: (
-    options?:
-      | { kind: "fresh" }
-      | { kind: "branch" },
-  ) => void
+  onCreateNew: (options?: ThreadCreateOptions) => void
   isMobile?: boolean
   onBackToChats?: () => void
   onOpenPreview?: () => void
@@ -302,13 +299,6 @@ export function SubChatSelector({
     // Unpinned maintain their order from openSubChatIds (user's tab order)
     return [...pinnedChats, ...unpinnedChats]
   }, [openSubChatIds, allSubChats, pinnedSubChatIds])
-  const activeSubChat = useMemo(
-    () => allSubChats.find((subChat) => subChat.id === activeSubChatId) ?? null,
-    [activeSubChatId, allSubChats],
-  )
-  const activeProviderLabel =
-    activeSubChat?.provider === "codex" ? "Codex" : "Claude"
-
   const onSwitch = useCallback(
     (subChatId: string) => {
       const store = useAgentSubChatStore.getState()
@@ -911,22 +901,48 @@ export function SubChatSelector({
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuItem
                     disabled={!activeSubChatId}
-                    onClick={() => onCreateNew({ kind: "branch" })}
+                    onClick={() =>
+                      onCreateNew({ kind: "branch", provider: "claude-code" })
+                    }
                   >
                     <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
                     <div className="flex flex-col">
-                      <span>Branch from current</span>
+                      <span>Branch into Claude</span>
                       <span className="text-[11px] text-muted-foreground">
-                        Keep history, stay on {activeProviderLabel}
+                        Keep current thread history
+                      </span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!activeSubChatId}
+                    onClick={() =>
+                      onCreateNew({ kind: "branch", provider: "codex" })
+                    }
+                  >
+                    <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <div className="flex flex-col">
+                      <span>Branch into Codex</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Keep current thread history
                       </span>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => onCreateNew({ kind: "fresh" })}
+                    onClick={() =>
+                      onCreateNew({ kind: "fresh", provider: "claude-code" })
+                    }
                   >
                     <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
-                    Fresh {activeProviderLabel} thread
+                    Start new chat with Claude
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      onCreateNew({ kind: "fresh", provider: "codex" })
+                    }
+                  >
+                    <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
+                    Start new chat with Codex
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

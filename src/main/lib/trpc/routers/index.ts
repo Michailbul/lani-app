@@ -7,9 +7,11 @@ import { claudeSettingsRouter } from "./claude-settings"
 import { anthropicAccountsRouter } from "./anthropic-accounts"
 import { codexRouter } from "./codex"
 import { artifactsRouter } from "./artifacts"
+import { canvasRouter } from "./canvas"
 import { pathsRouter } from "./paths"
 import { harnessRouter } from "./harness"
 import { entitiesRouter } from "./entities"
+import { shotlistsRouter } from "./shotlists"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
 import { filesRouter } from "./files"
@@ -41,9 +43,11 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     anthropicAccounts: anthropicAccountsRouter,
     codex: codexRouter,
     artifacts: artifactsRouter,
+    canvas: canvasRouter,
     paths: pathsRouter,
     harness: harnessRouter,
     entities: entitiesRouter,
+    shotlists: shotlistsRouter,
     terminal: terminalRouter,
     external: externalRouter,
     files: filesRouter,

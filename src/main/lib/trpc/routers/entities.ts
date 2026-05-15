@@ -253,6 +253,34 @@ function resolveRoot(input: {
   return { root: null, kind: null }
 }
 
+async function settleUserEdit(root: string, relPath: string): Promise<void> {
+  try {
+    const git = simpleGit(root)
+    const isRepo = await git.checkIsRepo()
+    if (!isRepo) return
+
+    const porcelain = await git.raw(["status", "--porcelain", "--", relPath])
+    if (!porcelain.trim()) return
+
+    await git.add([relPath])
+    await git.commit(`Backlot: save user edit to ${relPath}`, [relPath])
+  } catch (err) {
+    console.warn("[entities.write] user edit settlement skipped:", err)
+  }
+}
+
+async function isPathClean(root: string, relPath: string): Promise<boolean> {
+  try {
+    const git = simpleGit(root)
+    const isRepo = await git.checkIsRepo()
+    if (!isRepo) return false
+    const porcelain = await git.raw(["status", "--porcelain", "--", relPath])
+    return !porcelain.trim()
+  } catch {
+    return false
+  }
+}
+
 /**
  * Convert a filesystem id (e.g. "lana-soto", "01-opening", "shot-03")
  * into a human-readable label.
@@ -725,7 +753,7 @@ export const entitiesRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const { root } = resolveRoot(input)
+      const { root, kind } = resolveRoot(input)
       if (!root) {
         throw new Error("No worktree or project root resolved.")
       }
@@ -733,8 +761,15 @@ export const entitiesRouter = router({
       if (!full.startsWith(root)) {
         throw new Error("Entity path escapes the root.")
       }
+      const shouldSettle =
+        kind === "worktree" &&
+        !!input.chatId &&
+        (await isPathClean(root, input.entityPath))
       await mkdir(dirname(full), { recursive: true })
       await writeFile(full, input.content, "utf-8")
+      if (shouldSettle) {
+        await settleUserEdit(root, input.entityPath)
+      }
       return { written: true, path: input.entityPath }
     }),
 

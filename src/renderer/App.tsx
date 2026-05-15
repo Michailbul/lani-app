@@ -5,19 +5,25 @@ import { Toaster } from "sonner"
 import { TooltipProvider } from "./components/ui/tooltip"
 import { TRPCProvider } from "./contexts/TRPCProvider"
 import { WindowProvider, getInitialWindowParams } from "./contexts/WindowContext"
-import { selectedProjectAtom, selectedAgentChatIdAtom } from "./features/agents/atoms"
+import {
+  selectedAgentChatIdAtom,
+  selectedProjectAtom,
+} from "./features/agents/atoms"
 import { useAgentSubChatStore } from "./features/agents/stores/sub-chat-store"
 import { AgentsLayout } from "./features/layout/agents-layout"
 import {
   AnthropicOnboardingPage,
   ApiKeyOnboardingPage,
   BillingMethodPage,
+  CodexOnboardingPage,
   SelectRepoPage,
 } from "./features/onboarding"
 import { identify, initAnalytics, shutdown } from "./lib/analytics"
 import {
-  anthropicOnboardingCompletedAtom, apiKeyOnboardingCompletedAtom,
-  billingMethodAtom
+  anthropicOnboardingCompletedAtom,
+  apiKeyOnboardingCompletedAtom,
+  billingMethodAtom,
+  codexOnboardingCompletedAtom,
 } from "./lib/atoms"
 import { appStore } from "./lib/jotai-store"
 import { VSCodeThemeProvider } from "./lib/themes/theme-provider"
@@ -67,6 +73,7 @@ function AppContent() {
   const setAnthropicOnboardingCompleted = useSetAtom(anthropicOnboardingCompletedAtom)
   const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom)
   const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom)
+  const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
   const { setActiveSubChat, addToOpenSubChats, setChatId } = useAgentSubChatStore()
@@ -127,8 +134,9 @@ function AppContent() {
   // 1. No billing method selected -> BillingMethodPage
   // 2. Claude subscription selected but not completed -> AnthropicOnboardingPage
   // 3. API key or custom model selected but not completed -> ApiKeyOnboardingPage
-  // 4. No valid project selected -> SelectRepoPage
-  // 5. Otherwise -> AgentsLayout
+  // 4. Codex selected but not completed -> CodexOnboardingPage
+  // 5. No valid project selected -> SelectRepoPage
+  // 6. Otherwise -> AgentsLayout
   if (!billingMethod) {
     return <BillingMethodPage />
   }
@@ -142,6 +150,14 @@ function AppContent() {
     !apiKeyOnboardingCompleted
   ) {
     return <ApiKeyOnboardingPage />
+  }
+
+  if (
+    (billingMethod === "codex-subscription" ||
+      billingMethod === "codex-api-key") &&
+    !codexOnboardingCompleted
+  ) {
+    return <CodexOnboardingPage />
   }
 
   if (!validatedProject && !isLoadingProjects) {

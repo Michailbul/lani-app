@@ -15,6 +15,7 @@ import {
   createWorktreeForChat,
   fetchGitHubPRStatus,
   getWorktreeDiff,
+  isExactGitRepoRoot,
   removeWorktree,
   sanitizeProjectName,
 } from "../../git"
@@ -53,7 +54,7 @@ function pickDirectionColor(
   return DIRECTION_PALETTE[count % DIRECTION_PALETTE.length]
 }
 
-// Cute auto-name when the user doesn't supply one — keeps the parent's
+// Auto-name when the user doesn't supply one — keeps the parent's
 // name and appends a "v2 / v3" style suffix so siblings are obviously
 // related in the sidetabs.
 function autoForkName(parentName: string): string {
@@ -62,11 +63,41 @@ function autoForkName(parentName: string): string {
   return `${base} v${suffix}`
 }
 
+function stripForkedSessionMetadata(messagesJson: string): string {
+  try {
+    const messages = JSON.parse(messagesJson) as any[]
+    if (!Array.isArray(messages)) return messagesJson
+
+    return JSON.stringify(
+      messages.map((message) => {
+        if (!message?.metadata || typeof message.metadata !== "object") {
+          return message
+        }
+        const {
+          sessionId: _sessionId,
+          sdkMessageUuid: _sdkMessageUuid,
+          shouldResume: _shouldResume,
+          ...metadata
+        } = message.metadata
+        return {
+          ...message,
+          metadata:
+            Object.keys(metadata).length > 0
+              ? metadata
+              : undefined,
+        }
+      }),
+    )
+  } catch {
+    return messagesJson
+  }
+}
+
 // Fallback to truncated user message if AI generation fails
 function getFallbackName(userMessage: string): string {
   const trimmed = userMessage.trim()
   if (trimmed.length <= 25) {
-    return trimmed || "New Chat"
+    return trimmed || "New Worktree"
   }
   return trimmed.substring(0, 25) + "..."
 }
@@ -145,7 +176,7 @@ export const chatsRouter = router({
       const chatSubChats = db
         .select()
         .from(subChats)
-        .where(eq(subChats.chatId, input.id))
+        .where(eq(subChats.worktreeId, input.id))
         .orderBy(subChats.createdAt)
         .all()
 
@@ -256,7 +287,7 @@ export const chatsRouter = router({
       const subChat = db
         .insert(subChats)
         .values({
-          chatId: chat.id,
+          worktreeId: chat.id,
           mode: input.mode,
           provider: initialProvider,
           messages: initialMessages,
@@ -408,6 +439,13 @@ export const chatsRouter = router({
         console.warn("[forkDirection] pre-fork ensurePrimaryArtifact failed:", err)
       }
 
+      const parentWorktreeIsRepoRoot = await isExactGitRepoRoot(parent.worktreePath)
+      if (!parentWorktreeIsRepoRoot) {
+        throw new Error(
+          "This Direction is backed by a nested folder inside a parent git repo, so Backlot cannot fork it safely. Normalize the project into Backlot, then create a fresh Direction.",
+        )
+      }
+
       const parentGit = simpleGit(parent.worktreePath)
 
       // 2. Resolve the fork commit. Friendly errors so the user doesn't
@@ -452,15 +490,16 @@ export const chatsRouter = router({
       const newFolder = generateWorktreeFolderName(projectWorktreeDir)
       const newWorktreePath = join(projectWorktreeDir, newFolder)
 
-      // The parent's repo is the source of truth for `git worktree add`.
-      // For Backlot's auto-init flow, the worktreePath ITSELF is the
-      // git root (we git-init the project dir, not a separate main
-      // repo). For 1code-style projects with a real main repo, the
-      // project.path is the source. Try project.path first, fall back
-      // to parent.worktreePath if it's not a repo.
-      const parentRepoPath = (await simpleGit(project.path).checkIsRepo())
+      const parentRepoPath = (await isExactGitRepoRoot(project.path))
         ? project.path
         : parent.worktreePath
+      try {
+        await simpleGit(parentRepoPath).revparse([`${forkCommit}^{commit}`])
+      } catch {
+        throw new Error(
+          "This Direction was created from a different git root than the normalized Backlot project. Create a fresh Direction from the project, then fork from that new Direction.",
+        )
+      }
       try {
         await createWorktree(parentRepoPath, newBranch, newWorktreePath, forkCommit)
       } catch (err) {
@@ -477,7 +516,7 @@ export const chatsRouter = router({
           const latest = db
             .select()
             .from(subChats)
-            .where(eq(subChats.chatId, parent.id))
+            .where(eq(subChats.worktreeId, parent.id))
             .orderBy(desc(subChats.updatedAt))
             .limit(1)
             .get()
@@ -500,7 +539,7 @@ export const chatsRouter = router({
       const parentSubChats = db
         .select()
         .from(subChats)
-        .where(eq(subChats.chatId, parent.id))
+        .where(eq(subChats.worktreeId, parent.id))
         .orderBy(desc(subChats.updatedAt))
         .all()
       const latestSubChatId = parentSubChats[0]?.id
@@ -522,7 +561,7 @@ export const chatsRouter = router({
               worktreePath: newWorktreePath,
               branch: newBranch,
               baseBranch: parent.branch ?? parent.baseBranch ?? null,
-              parentChatId: parent.id,
+              parentWorktreeId: parent.id,
               forkedAtCommit: forkCommit,
               forkedAtMessageIndex: inheritedMessageCount,
               directionColor,
@@ -533,13 +572,13 @@ export const chatsRouter = router({
             .get()
 
           for (const sc of parentSubChats) {
-            let inheritedMessages = sc.messages
+            let inheritedMessages = stripForkedSessionMetadata(sc.messages)
             if (sc.id === latestSubChatId) {
               try {
                 const arr = JSON.parse(sc.messages) as unknown[]
                 if (Array.isArray(arr)) {
-                  inheritedMessages = JSON.stringify(
-                    arr.slice(0, inheritedMessageCount),
+                  inheritedMessages = stripForkedSessionMetadata(
+                    JSON.stringify(arr.slice(0, inheritedMessageCount)),
                   )
                 }
               } catch (err) {
@@ -551,7 +590,7 @@ export const chatsRouter = router({
             }
             tx.insert(subChats)
               .values({
-                chatId: created.id,
+                worktreeId: created.id,
                 mode: sc.mode,
                 messages: inheritedMessages,
                 sessionId: null,
@@ -687,7 +726,7 @@ export const chatsRouter = router({
           .where(eq(projects.id, chat.projectId))
           .get()
 
-        if (project) {
+        if (project && await isExactGitRepoRoot(project.path)) {
           removeWorktree(project.path, chat.worktreePath).then((worktreeResult) => {
             if (worktreeResult.success) {
               console.log(
@@ -706,6 +745,10 @@ export const chatsRouter = router({
           }).catch((error) => {
             console.error(`[chats.archive] Error removing worktree:`, error)
           })
+        } else {
+          console.warn(
+            `[chats.archive] Skipping worktree removal because project path is not an exact git repo root: ${project?.path}`,
+          )
         }
       }
 
@@ -785,11 +828,15 @@ export const chatsRouter = router({
           .from(projects)
           .where(eq(projects.id, chat.projectId))
           .get()
-        if (project) {
+        if (project && await isExactGitRepoRoot(project.path)) {
           const result = await removeWorktree(project.path, chat.worktreePath)
           if (!result.success) {
             console.warn(`[Worktree] Cleanup failed: ${result.error}`)
           }
+        } else {
+          console.warn(
+            `[chats.delete] Skipping worktree removal because project path is not an exact git repo root: ${project?.path}`,
+          )
         }
       }
 
@@ -825,7 +872,7 @@ export const chatsRouter = router({
       const chat = db
         .select()
         .from(chats)
-        .where(eq(chats.id, subChat.chatId))
+        .where(eq(chats.id, subChat.worktreeId))
         .get()
 
       const project = chat
@@ -850,11 +897,13 @@ export const chatsRouter = router({
         mode: z.enum(["plan", "agent"]).default("agent"),
         sourceSubChatId: z.string().optional(),
         inheritMessages: z.boolean().default(false),
+        provider: z.enum(["claude-code", "codex"]).optional(),
       }),
     )
     .mutation(({ input }) => {
       const db = getDatabase()
       let messages = "[]"
+      let sourceSubChat: typeof subChats.$inferSelect | null = null
       const chat = db
         .select()
         .from(chats)
@@ -865,30 +914,39 @@ export const chatsRouter = router({
         throw new Error("Session not found")
       }
 
-      const provider: AgentProviderId =
-        chat.provider === "codex" ? "codex" : "claude-code"
-
-      if (input.inheritMessages && input.sourceSubChatId) {
-        const sourceSubChat = db
+      if (input.sourceSubChatId) {
+        sourceSubChat = db
           .select()
           .from(subChats)
           .where(eq(subChats.id, input.sourceSubChatId))
-          .get()
+          .get() ?? null
 
         if (!sourceSubChat) {
           throw new Error("Source thread not found")
         }
-        if (sourceSubChat.chatId !== input.chatId) {
-          throw new Error("Source thread belongs to a different chat")
+        if (sourceSubChat.worktreeId !== input.chatId) {
+          throw new Error("Source thread belongs to a different worktree")
         }
+      }
 
-        messages = sourceSubChat.messages || "[]"
+      const provider: AgentProviderId =
+        input.provider ??
+        (sourceSubChat
+          ? sourceSubChat.provider === "codex"
+            ? "codex"
+            : "claude-code"
+          : chat.provider === "codex"
+            ? "codex"
+            : "claude-code")
+
+      if (input.inheritMessages && sourceSubChat) {
+        messages = stripForkedSessionMetadata(sourceSubChat.messages || "[]")
       }
 
       return db
         .insert(subChats)
         .values({
-          chatId: input.chatId,
+          worktreeId: input.chatId,
           name: input.name,
           mode: input.mode,
           provider,
@@ -955,7 +1013,7 @@ export const chatsRouter = router({
       const chat = db
         .select()
         .from(chats)
-        .where(eq(chats.id, subChat.chatId))
+        .where(eq(chats.id, subChat.worktreeId))
         .get()
 
       // 4. Rollback git state first - if this fails, abort the whole operation
@@ -1636,18 +1694,18 @@ export const chatsRouter = router({
       // Archive mode: query all sub-chats for given chat IDs
       allChats = db
         .select({
-          chatId: subChats.chatId,
+          chatId: subChats.worktreeId,
           subChatId: subChats.id,
           messages: subChats.messages,
         })
         .from(subChats)
-        .where(inArray(subChats.chatId, input.chatIds))
+        .where(inArray(subChats.worktreeId, input.chatIds))
         .all()
     } else {
       // Main sidebar mode: query specific sub-chats
       allChats = db
         .select({
-          chatId: subChats.chatId,
+          chatId: subChats.worktreeId,
           subChatId: subChats.id,
           messages: subChats.messages,
         })
@@ -1781,7 +1839,7 @@ export const chatsRouter = router({
     // Query only the specified sub-chats, including mode for filtering
     const allSubChats = db
       .select({
-        chatId: subChats.chatId,
+        chatId: subChats.worktreeId,
         subChatId: subChats.id,
         mode: subChats.mode,
         messages: subChats.messages,
@@ -1920,7 +1978,7 @@ export const chatsRouter = router({
           .from(subChats)
           .where(and(
             eq(subChats.id, input.subChatId),
-            eq(subChats.chatId, input.chatId) // Ensure sub-chat belongs to this chat
+            eq(subChats.worktreeId, input.chatId) // Ensure sub-chat belongs to this worktree
           ))
           .get()
 
@@ -1933,7 +1991,7 @@ export const chatsRouter = router({
         chatSubChats = db
           .select()
           .from(subChats)
-          .where(eq(subChats.chatId, input.chatId))
+          .where(eq(subChats.worktreeId, input.chatId))
           .orderBy(subChats.createdAt)
           .all()
       }
@@ -2119,7 +2177,7 @@ export const chatsRouter = router({
           .from(subChats)
           .where(and(
             eq(subChats.id, input.subChatId),
-            eq(subChats.chatId, input.chatId)
+            eq(subChats.worktreeId, input.chatId)
           ))
           .get()
 
@@ -2129,7 +2187,7 @@ export const chatsRouter = router({
         chatSubChats = db
           .select()
           .from(subChats)
-          .where(eq(subChats.chatId, input.chatId))
+          .where(eq(subChats.worktreeId, input.chatId))
           .all()
       }
 

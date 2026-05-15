@@ -1,0 +1,11 @@
+{
+  "name": "@backlot/canvas-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "better-sqlite3": "^12.6.2"
+  }
+}

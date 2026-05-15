@@ -1,11 +1,16 @@
-import { useAtom, useSetAtom } from "jotai"
-import { MoreHorizontal, Plus } from "lucide-react"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
+import { MoreHorizontal, Plus, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   agentsSettingsDialogOpenAtom,
   anthropicOnboardingCompletedAtom,
+  codexApiKeyAtom,
+  codexLoginModalOpenAtom,
+  codexOnboardingAuthMethodAtom,
+  codexOnboardingCompletedAtom,
   customClaudeConfigAtom,
+  normalizeCodexApiKey,
   openaiApiKeyAtom,
   type CustomClaudeConfig,
 } from "../../../lib/atoms"
@@ -255,15 +260,24 @@ export function AgentsModelsTab() {
     anthropicOnboardingCompletedAtom,
   )
   const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom)
+  const setCodexLoginModalOpen = useSetAtom(codexLoginModalOpenAtom)
   const isNarrowScreen = useIsNarrowScreen()
   const { data: claudeCodeIntegration, isLoading: isClaudeCodeLoading } =
     trpc.claudeCode.getIntegration.useQuery()
   const isClaudeCodeConnected = claudeCodeIntegration?.isConnected
+  const { data: codexIntegration, isLoading: isCodexLoading } =
+    trpc.codex.getIntegration.useQuery()
 
-  // OpenAI API key state
+  // Codex and voice OpenAI API key state
+  const [storedCodexApiKey, setStoredCodexApiKey] = useAtom(codexApiKeyAtom)
+  const [codexApiKey, setCodexApiKey] = useState(storedCodexApiKey)
+  const [isSavingCodexApiKey, setIsSavingCodexApiKey] = useState(false)
+  const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom)
+  const codexOnboardingAuthMethod = useAtomValue(codexOnboardingAuthMethodAtom)
   const [storedOpenAIKey, setStoredOpenAIKey] = useAtom(openaiApiKeyAtom)
   const [openaiKey, setOpenaiKey] = useState(storedOpenAIKey)
   const setOpenAIKeyMutation = trpc.voice.setOpenAIKey.useMutation()
+  const codexLogoutMutation = trpc.codex.logout.useMutation()
   const trpcUtils = trpc.useUtils()
 
   useEffect(() => {
@@ -275,6 +289,10 @@ export function AgentsModelsTab() {
   useEffect(() => {
     setOpenaiKey(storedOpenAIKey)
   }, [storedOpenAIKey])
+
+  useEffect(() => {
+    setCodexApiKey(storedCodexApiKey)
+  }, [storedCodexApiKey])
 
   const savedConfigRef = useRef(storedConfig)
 
@@ -326,9 +344,93 @@ export function AgentsModelsTab() {
     setAnthropicOnboardingCompleted(false)
   }
 
+  const handleCodexSetup = () => {
+    setCodexLoginModalOpen(true)
+  }
+
+  const handleCodexLogout = async () => {
+    const confirmed = window.confirm("Log out from Codex on this device?")
+    if (!confirmed) return
+
+    try {
+      await codexLogoutMutation.mutateAsync()
+      await trpcUtils.codex.getIntegration.invalidate()
+      toast.success("Codex disconnected")
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to disconnect Codex"
+      toast.error(message)
+    }
+  }
+
+  const normalizedStoredCodexApiKey = normalizeCodexApiKey(storedCodexApiKey)
+  const hasAppCodexApiKey = Boolean(normalizedStoredCodexApiKey)
+  const hasLocalCodexSubscription =
+    codexOnboardingCompleted && codexOnboardingAuthMethod === "chatgpt"
+  const isCodexSubscriptionConnected =
+    codexIntegration?.state === "connected_chatgpt" ||
+    (!codexIntegration && hasLocalCodexSubscription)
+  const isCodexSubscriptionActive =
+    isCodexSubscriptionConnected && !hasAppCodexApiKey
+  const codexConnectionText = isCodexSubscriptionConnected
+    ? "Connected via ChatGPT"
+    : codexIntegration?.state === "connected_api_key"
+      ? "Not connected to subscription"
+      : codexIntegration?.state === "not_logged_in"
+        ? "Not connected"
+        : "Status unavailable"
+  const showCodexLoading =
+    isCodexLoading && !hasAppCodexApiKey && !hasLocalCodexSubscription
+
   // OpenAI key handlers
+  const handleCodexApiKeyBlur = async () => {
+    const trimmedKey = codexApiKey.trim()
+
+    if (trimmedKey === storedCodexApiKey) return
+    if (!trimmedKey) return
+
+    const normalized = normalizeCodexApiKey(trimmedKey)
+    if (!normalized) {
+      toast.error("Invalid Codex API key format. Key should start with 'sk-'")
+      setCodexApiKey(storedCodexApiKey)
+      return
+    }
+
+    setIsSavingCodexApiKey(true)
+    try {
+      setStoredCodexApiKey(normalized)
+      setCodexApiKey(normalized)
+      await trpcUtils.codex.getIntegration.invalidate()
+      toast.success("Codex API key saved")
+    } catch {
+      toast.error("Failed to save Codex API key")
+    } finally {
+      setIsSavingCodexApiKey(false)
+    }
+  }
+
+  const handleRemoveCodexApiKey = async () => {
+    setIsSavingCodexApiKey(true)
+    try {
+      setStoredCodexApiKey("")
+      setCodexApiKey("")
+
+      if (codexIntegration?.state === "connected_api_key") {
+        await codexLogoutMutation.mutateAsync().catch(() => {
+          toast.error("Codex API key removed, but failed to log out Codex CLI")
+        })
+      }
+
+      await trpcUtils.codex.getIntegration.invalidate()
+      toast.success("Codex API key removed")
+    } catch {
+      toast.error("Failed to remove Codex API key")
+    } finally {
+      setIsSavingCodexApiKey(false)
+    }
+  }
+
   const trimmedOpenAIKey = openaiKey.trim()
-  const canSaveOpenAI = trimmedOpenAIKey !== storedOpenAIKey
   const canResetOpenAI = !!trimmedOpenAIKey
 
   const handleSaveOpenAI = async () => {
@@ -465,6 +567,68 @@ export function AgentsModelsTab() {
             </div>
           </div>
 
+        </div>
+      </div>
+
+      {/* Codex Account Section */}
+      <div className="space-y-2">
+        <div className="pb-2 flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-medium text-foreground">
+              Codex Account
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Manage OpenAI Codex authentication
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-background rounded-lg border border-border overflow-hidden divide-y divide-border">
+          {showCodexLoading ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              Loading account...
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-6 p-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium">Codex API Key</Label>
+                    {hasAppCodexApiKey && (
+                      <Badge variant="secondary" className="text-xs">
+                        Active
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Stored locally and used for Codex chats
+                  </p>
+                </div>
+                <div className="flex-shrink-0 w-80 flex items-center gap-2">
+                  <Input
+                    type="password"
+                    value={codexApiKey}
+                    onChange={(e) => setCodexApiKey(e.target.value)}
+                    onBlur={handleCodexApiKeyBlur}
+                    className="w-full font-mono"
+                    placeholder="sk-..."
+                  />
+                  {hasAppCodexApiKey && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => void handleRemoveCodexApiKey()}
+                      disabled={isSavingCodexApiKey}
+                      aria-label="Remove Codex API key"
+                      className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

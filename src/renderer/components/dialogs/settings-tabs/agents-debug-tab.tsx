@@ -95,7 +95,7 @@ export function AgentsDebugTab() {
   // Mutations
   const clearChatsMutation = trpc.debug.clearChats.useMutation({
     onSuccess: () => {
-      toast.success("All chats cleared")
+      toast.success("All worktrees cleared")
       refetchDb()
     },
     onError: (error) => toast.error(error.message),
@@ -250,8 +250,8 @@ export function AgentsDebugTab() {
         </h4>
         <div className="rounded-lg border bg-muted/30 divide-y">
           <InfoRow label="Projects" value={dbStats?.projects?.toString()} isLoading={isLoading} />
-          <InfoRow label="Chats" value={dbStats?.chats?.toString()} isLoading={isLoading} />
-          <InfoRow label="Sub-chats" value={dbStats?.subChats?.toString()} isLoading={isLoading} />
+          <InfoRow label="Worktrees" value={dbStats?.worktrees?.toString()} isLoading={isLoading} />
+          <InfoRow label="Agent threads" value={dbStats?.agentThreads?.toString()} isLoading={isLoading} />
         </div>
       </div>
 
@@ -441,7 +441,7 @@ export function AgentsDebugTab() {
             }}
             disabled={clearChatsMutation.isPending}
           >
-            {clearChatsMutation.isPending ? "..." : "Clear Chats"}
+            {clearChatsMutation.isPending ? "..." : "Clear Worktrees"}
           </Button>
           <Button
             variant="outline"

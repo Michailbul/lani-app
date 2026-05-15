@@ -1,5 +1,5 @@
 import { router, publicProcedure } from "../index"
-import { getDatabase, projects, chats, subChats } from "../../db"
+import { getDatabase, projects, worktrees, agentThreads } from "../../db"
 import { app, shell } from "electron"
 import { getAuthManager } from "../../../index"
 import { z } from "zod"
@@ -58,36 +58,36 @@ export const debugRouter = router({
   getDbStats: publicProcedure.query(() => {
     const db = getDatabase()
     const projectCount = db.select().from(projects).all().length
-    const chatCount = db.select().from(chats).all().length
-    const subChatCount = db.select().from(subChats).all().length
+    const worktreeCount = db.select().from(worktrees).all().length
+    const agentThreadCount = db.select().from(agentThreads).all().length
 
     return {
       projects: projectCount,
-      chats: chatCount,
-      subChats: subChatCount,
+      worktrees: worktreeCount,
+      agentThreads: agentThreadCount,
     }
   }),
 
   /**
-   * Clear all chats and sub-chats (keeps projects)
+   * Clear all worktrees and agent threads (keeps projects)
    */
   clearChats: publicProcedure.mutation(() => {
     const db = getDatabase()
-    // Delete sub_chats first (foreign key constraint)
-    db.delete(subChats).run()
-    db.delete(chats).run()
-    console.log("[Debug] Cleared all chats and sub-chats")
+    // Delete agent threads first (foreign key constraint)
+    db.delete(agentThreads).run()
+    db.delete(worktrees).run()
+    console.log("[Debug] Cleared all worktrees and agent threads")
     return { success: true }
   }),
 
   /**
-   * Clear all data (projects, chats, sub-chats)
+   * Clear all data (projects, worktrees, agent threads)
    */
   clearAllData: publicProcedure.mutation(() => {
     const db = getDatabase()
     // Delete in order due to foreign key constraints
-    db.delete(subChats).run()
-    db.delete(chats).run()
+    db.delete(agentThreads).run()
+    db.delete(worktrees).run()
     db.delete(projects).run()
     console.log("[Debug] Cleared all database data")
     return { success: true }

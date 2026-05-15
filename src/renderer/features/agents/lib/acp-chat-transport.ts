@@ -2,11 +2,17 @@ import type { ChatTransport, UIMessage } from "ai"
 import { toast } from "sonner"
 import { normalizeCodexStreamChunk } from "../../../../shared/codex-tool-normalizer"
 import {
+  codexApiKeyAtom,
+  codexLoginModalOpenAtom,
+  codexOnboardingAuthMethodAtom,
+  codexOnboardingCompletedAtom,
+  normalizeCodexApiKey,
   sessionInfoAtom,
 } from "../../../lib/atoms"
 import { appStore } from "../../../lib/jotai-store"
 import { trpcClient } from "../../../lib/trpc"
 import {
+  pendingAuthRetryMessageAtom,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
 } from "../atoms"
@@ -35,15 +41,65 @@ type ImageAttachment = {
 const forceFreshSessionSubChats = new Set<string>()
 const DEFAULT_CODEX_MODEL = "gpt-5.5/high"
 
+function getStoredCodexCredentials(): {
+  hasApiKey: boolean
+  hasSubscription: boolean
+  hasAny: boolean
+} {
+  const hasApiKey = Boolean(normalizeCodexApiKey(appStore.get(codexApiKeyAtom)))
+  const hasSubscription =
+    appStore.get(codexOnboardingCompletedAtom) &&
+    appStore.get(codexOnboardingAuthMethodAtom) === "chatgpt"
+
+  return {
+    hasApiKey,
+    hasSubscription,
+    hasAny: hasApiKey || hasSubscription,
+  }
+}
+
+async function resolveCodexCredentialsForAuthError(): Promise<{
+  hasApiKey: boolean
+  hasSubscription: boolean
+  hasAny: boolean
+}> {
+  const snapshot = getStoredCodexCredentials()
+
+  let hasSubscription = false
+  try {
+    const integration = await trpcClient.codex.getIntegration.query()
+    hasSubscription = integration.state === "connected_chatgpt"
+  } catch {
+    hasSubscription = false
+  }
+
+  return {
+    hasApiKey: snapshot.hasApiKey,
+    hasSubscription,
+    hasAny: snapshot.hasApiKey || hasSubscription,
+  }
+}
+
+function enqueueSafely(
+  controller: ReadableStreamDefaultController<UIMessageChunk>,
+  chunk: UIMessageChunk,
+) {
+  try {
+    controller.enqueue(chunk)
+  } catch {
+    // Stream already closed.
+  }
+}
+
 function closeWithUiError(
   controller: ReadableStreamDefaultController<UIMessageChunk>,
   message: string,
 ) {
-  try {
-    controller.enqueue({ type: "error", errorText: message })
-  } catch {
-    // Stream already closed.
-  }
+  const textId = crypto.randomUUID()
+
+  enqueueSafely(controller, { type: "text-start", id: textId })
+  enqueueSafely(controller, { type: "text-delta", id: textId, delta: message })
+  enqueueSafely(controller, { type: "text-end", id: textId })
 
   try {
     controller.enqueue({ type: "finish", finishReason: "error" })
@@ -114,6 +170,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
     if (forceNewSession) {
       forceFreshSessionSubChats.delete(this.config.subChatId)
     }
+    const codexApiKey = normalizeCodexApiKey(appStore.get(codexApiKeyAtom))
     const selectedModel = getSelectedCodexModel(this.config.subChatId)
 
     return new ReadableStream({
@@ -136,97 +193,129 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
           sub?.unsubscribe()
         }
 
-        sub = trpcClient.codex.chat.subscribe(
-          {
-            subChatId: this.config.subChatId,
-            chatId: this.config.chatId,
-            runId,
-            prompt,
-            cwd: this.config.cwd,
-            ...(this.config.projectPath
-              ? { projectPath: this.config.projectPath }
-              : {}),
-            model: selectedModel,
-            mode: currentMode,
-            ...(sessionId ? { sessionId } : {}),
-            ...(forceNewSession ? { forceNewSession: true } : {}),
-            ...(images.length > 0 ? { images } : {}),
-          },
-          {
-            onData: (chunk: UIMessageChunk) => {
-              if (chunk.type === "session-init") {
-                appStore.set(sessionInfoAtom, {
-                  tools: chunk.tools || [],
-                  mcpServers: chunk.mcpServers || [],
-                  plugins: chunk.plugins || [],
-                  skills: chunk.skills || [],
-                })
-              }
-
-              if (chunk.type === "auth-error") {
-                forceFreshSessionSubChats.add(this.config.subChatId)
-                toast.error("Codex authentication required", {
-                  description:
-                    "Run Codex login from the CLI, then send the message again.",
-                  action: {
-                    label: "Copy command",
-                    onClick: () =>
-                      navigator.clipboard.writeText("codex login"),
-                  },
-                })
-
-                void trpcClient.codex.cleanup
-                  .mutate({ subChatId: this.config.subChatId })
-                  .catch(() => {
-                    // No-op
+        try {
+          sub = trpcClient.codex.chat.subscribe(
+            {
+              subChatId: this.config.subChatId,
+              chatId: this.config.chatId,
+              runId,
+              prompt,
+              cwd: this.config.cwd,
+              ...(this.config.projectPath
+                ? { projectPath: this.config.projectPath }
+                : {}),
+              model: selectedModel,
+              mode: currentMode,
+              ...(sessionId ? { sessionId } : {}),
+              ...(forceNewSession ? { forceNewSession: true } : {}),
+              ...(images.length > 0 ? { images } : {}),
+              ...(codexApiKey
+                ? {
+                    authConfig: {
+                      apiKey: codexApiKey,
+                    },
+                  }
+                : {}),
+            },
+            {
+              onData: (chunk: UIMessageChunk) => {
+                if (chunk.type === "session-init") {
+                  appStore.set(sessionInfoAtom, {
+                    tools: chunk.tools || [],
+                    mcpServers: chunk.mcpServers || [],
+                    plugins: chunk.plugins || [],
+                    skills: chunk.skills || [],
                   })
+                }
 
-                closeWithUiError(
-                  controller,
-                  chunk.errorText || "Codex authentication required",
-                )
-                safeUnsubscribe()
-                return
-              }
+                if (chunk.type === "auth-error") {
+                  forceFreshSessionSubChats.add(this.config.subChatId)
 
-              if (chunk.type === "error") {
-                toast.error("Codex error", {
-                  description: chunk.errorText || "An unexpected Codex error occurred.",
+                  void (async () => {
+                    const credentials = await resolveCodexCredentialsForAuthError()
+                    const shouldAutoRetryOnce = credentials.hasAny && !forceNewSession
+
+                    appStore.set(pendingAuthRetryMessageAtom, {
+                      subChatId: this.config.subChatId,
+                      provider: "codex",
+                      prompt,
+                      ...(images.length > 0 && { images }),
+                      readyToRetry: shouldAutoRetryOnce,
+                    })
+
+                    if (!credentials.hasAny) {
+                      appStore.set(codexLoginModalOpenAtom, true)
+                    } else if (!shouldAutoRetryOnce) {
+                      toast.error("Codex authentication failed", {
+                        description: credentials.hasApiKey
+                          ? "Saved Codex API key was rejected. Update it in Settings."
+                          : "Saved Codex subscription auth failed. Reconnect subscription in Settings.",
+                      })
+                    }
+                  })()
+
+                  void trpcClient.codex.cleanup
+                    .mutate({ subChatId: this.config.subChatId })
+                    .catch(() => {
+                      // No-op
+                    })
+
+                  closeWithUiError(
+                    controller,
+                    chunk.errorText || "Codex authentication required",
+                  )
+                  safeUnsubscribe()
+                  return
+                }
+
+                if (chunk.type === "error") {
+                  const message =
+                    chunk.errorText || "An unexpected Codex error occurred."
+                  toast.error("Codex error", { description: message })
+                  closeWithUiError(controller, message)
+                  safeUnsubscribe()
+                  return
+                }
+
+                try {
+                  const normalizedChunk = normalizeCodexStreamChunk(chunk) as UIMessageChunk
+                  controller.enqueue(normalizedChunk)
+                } catch {
+                  // Stream already closed
+                }
+
+                if (chunk.type === "finish") {
+                  try {
+                    controller.close()
+                  } catch {
+                    // Stream already closed
+                  }
+                }
+              },
+              onError: (error: Error) => {
+                toast.error("Codex request failed", {
+                  description: error.message,
                 })
-              }
-
-              try {
-                const normalizedChunk = normalizeCodexStreamChunk(chunk) as UIMessageChunk
-                controller.enqueue(normalizedChunk)
-              } catch {
-                // Stream already closed
-              }
-
-              if (chunk.type === "finish") {
+                closeWithUiError(controller, error.message || "Codex request failed")
+                safeUnsubscribe()
+              },
+              onComplete: () => {
                 try {
                   controller.close()
                 } catch {
                   // Stream already closed
                 }
-              }
+                safeUnsubscribe()
+              },
             },
-            onError: (error: Error) => {
-              toast.error("Codex request failed", {
-                description: error.message,
-              })
-              closeWithUiError(controller, error.message || "Codex request failed")
-              safeUnsubscribe()
-            },
-            onComplete: () => {
-              try {
-                controller.close()
-              } catch {
-                // Stream already closed
-              }
-              safeUnsubscribe()
-            },
-          },
-        )
+          )
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Codex request failed"
+          toast.error("Codex request failed", { description: message })
+          closeWithUiError(controller, message)
+          safeUnsubscribe()
+        }
 
         options.abortSignal?.addEventListener("abort", () => {
           // Start server-side cancellation first so the router still has

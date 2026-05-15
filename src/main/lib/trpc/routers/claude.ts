@@ -20,7 +20,7 @@ import { discoverPluginMcpServers } from "../../plugins"
 import { getEnabledPlugins, getApprovedPluginMcpServers } from "./claude-settings"
 import { getExistingClaudeCredentials, refreshClaudeToken, isTokenExpired } from "../../claude-token"
 import { buildBacklotHarnessBlock } from "../../claude/harness-prompt"
-import { chats, claudeCodeCredentials, getDatabase, subChats } from "../../db"
+import { chats, claudeCodeCredentials, getDatabase, getDatabasePath, subChats } from "../../db"
 // Note: `ensurePrimaryArtifact` and `PRIMARY_ARTIFACT_FILENAME` were
 // removed from this router when the inline screenplay-artifact note
 // was replaced by the Backlot harness block. Other routers
@@ -30,6 +30,62 @@ import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStat
 import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
 import { publicProcedure, router } from "../index"
 import { buildAgentsOption } from "./agent-utils"
+
+function getBuiltinCanvasMcpServer(input: {
+  worktreeId: string
+  cwd: string
+}): Record<string, McpServerConfig> {
+  const serverPath = app.isPackaged
+    ? path.join(process.resourcesPath, "mcp", "canvas", "index.mjs")
+    : path.join(__dirname, "../../mcp/canvas/index.mjs")
+
+  return {
+    "backlot-canvas": {
+      type: "stdio",
+      command: process.env.BACKLOT_NODE_PATH || process.execPath,
+      args: [serverPath],
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(app.isPackaged
+          ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
+          : {}),
+        BACKLOT_DB_PATH: getDatabasePath(),
+        BACKLOT_CANVAS_WORKTREE_ID: input.worktreeId,
+        BACKLOT_CANVAS_CHAT_ID: input.worktreeId,
+        BACKLOT_WORKTREE_PATH: input.cwd,
+        ...(process.env.OPENAI_API_KEY
+          ? { OPENAI_API_KEY: process.env.OPENAI_API_KEY }
+          : {}),
+        ...(process.env.BACKLOT_CANVAS_IMAGE_MODEL
+          ? { BACKLOT_CANVAS_IMAGE_MODEL: process.env.BACKLOT_CANVAS_IMAGE_MODEL }
+          : {}),
+      },
+    },
+  }
+}
+
+function getBuiltinShotlistMcpServer(input: {
+  cwd: string
+}): Record<string, McpServerConfig> {
+  const serverPath = app.isPackaged
+    ? path.join(process.resourcesPath, "mcp", "shotlist", "index.mjs")
+    : path.join(__dirname, "../../mcp/shotlist/index.mjs")
+
+  return {
+    "backlot-shotlist": {
+      type: "stdio",
+      command: process.env.BACKLOT_NODE_PATH || process.execPath,
+      args: [serverPath],
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(app.isPackaged
+          ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
+          : {}),
+        BACKLOT_WORKTREE_PATH: input.cwd,
+      },
+    },
+  }
+}
 
 /**
  * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
@@ -117,6 +173,66 @@ function parseMentions(prompt: string): {
   }
 
   return { cleanedPrompt, agentMentions, skillMentions, fileMentions, folderMentions, toolMentions }
+}
+
+function textFromMessage(message: any): string {
+  const parts = Array.isArray(message?.parts) ? message.parts : []
+  const textParts: string[] = []
+  const toolParts: string[] = []
+
+  for (const part of parts) {
+    if (part?.type === "text" && typeof part.text === "string") {
+      textParts.push(part.text)
+      continue
+    }
+    if (typeof part?.type === "string" && part.type.startsWith("tool-")) {
+      const toolName = part.toolName || part.type.replace(/^tool-/, "")
+      const filePath = part.input?.file_path || part.input?.path
+      toolParts.push(
+        filePath
+          ? `[Used ${toolName}: ${filePath}]`
+          : `[Used ${toolName}]`,
+      )
+    }
+  }
+
+  return [...textParts, ...toolParts].join("\n").trim()
+}
+
+function buildLocalHistoryContext(messages: any[], currentPrompt: string): string {
+  const withoutCurrent = [...messages]
+  const last = withoutCurrent[withoutCurrent.length - 1]
+  if (
+    last?.role === "user" &&
+    textFromMessage(last).trim() === currentPrompt.trim()
+  ) {
+    withoutCurrent.pop()
+  }
+
+  const rows = withoutCurrent
+    .slice(-16)
+    .map((message) => {
+      const text = textFromMessage(message)
+      if (!text) return null
+      const role = message.role === "assistant" ? "Assistant" : "User"
+      return `${role}: ${text}`
+    })
+    .filter((row): row is string => !!row)
+
+  if (rows.length === 0) return ""
+
+  let body = rows.join("\n\n")
+  if (body.length > 12000) {
+    body = `...(earlier inherited messages truncated)...\n\n${body.slice(-12000)}`
+  }
+
+  return `[INHERITED BACKLOT THREAD CONTEXT]
+This thread was forked or restored without a Claude session to resume. Use this local transcript as context, but treat the current request as authoritative.
+
+${body}
+[/INHERITED BACKLOT THREAD CONTEXT]
+
+`
 }
 
 /**
@@ -838,6 +954,18 @@ export const claudeRouter = router({
               finalPrompt = `${finalPrompt}\n\nUse the "${skillMentions.join('", "')}" skill(s) for this task.`
             }
 
+            const shouldEmbedLocalHistory =
+              !existingSessionId && existingMessages.length > 0
+            if (shouldEmbedLocalHistory) {
+              const localHistoryContext = buildLocalHistoryContext(
+                existingMessages,
+                input.prompt,
+              )
+              if (localHistoryContext) {
+                finalPrompt = `${localHistoryContext}${finalPrompt}`
+              }
+            }
+
             // Build prompt: if there are images, create an AsyncIterable<SDKUserMessage>
             // Otherwise use simple string prompt
             let prompt: string | AsyncIterable<any> = finalPrompt
@@ -994,8 +1122,15 @@ export const claudeRouter = router({
                     }
                   }
 
-                  // Priority: project > global > plugin
-                  const allServers = { ...pluginServers, ...globalServers, ...projectServers }
+                  const builtinServers = getBuiltinCanvasMcpServer({
+                    worktreeId: input.chatId,
+                    cwd: input.cwd,
+                  })
+
+                  // Priority: project > global > plugin > built-in. Built-ins
+                  // are last so a user can deliberately override them while
+                  // Backlot still ships the canvas tools by default.
+                  const allServers = { ...builtinServers, ...pluginServers, ...globalServers, ...projectServers }
 
                   // Filter to only working MCPs using scoped cache keys
                   if (workingMcpServers.size > 0) {
@@ -1026,6 +1161,23 @@ export const claudeRouter = router({
               }
             } catch (mkdirErr) {
               console.error(`[claude] Failed to setup isolated config dir:`, mkdirErr)
+            }
+
+            // Backlot ships one trusted built-in MCP server: the canvas
+            // controller. It is present even when the user has no
+            // ~/.claude.json, and user/project MCP config can still
+            // override the same server name intentionally.
+            const builtinCanvasServer = getBuiltinCanvasMcpServer({
+              worktreeId: input.chatId,
+              cwd: input.cwd,
+            })
+            const builtinShotlistServer = getBuiltinShotlistMcpServer({
+              cwd: input.cwd,
+            })
+            mcpServersForSdk = {
+              ...builtinCanvasServer,
+              ...builtinShotlistServer,
+              ...(mcpServersForSdk ?? {}),
             }
 
             // Check if user has a real custom API config in their shell — meaning:
@@ -1123,7 +1275,14 @@ export const claudeRouter = router({
               )
             }
 
-            const resumeSessionId = input.sessionId || existingSessionId || undefined
+            // The database is the only trusted source for resume state.
+            // Forked Directions intentionally clone message JSON but clear
+            // sub_chats.session_id so the new worktree starts a fresh Claude
+            // process. Older forked rows may still contain parent
+            // metadata.sessionId in copied assistant messages; the renderer
+            // can send that stale value, but resuming it under the fork cwd
+            // crashes Claude with code 1 and no stderr.
+            const resumeSessionId = existingSessionId || undefined
 
             // DEBUG: Session resume path tracing
             const expectedSanitizedCwd = input.cwd.replace(/[/.]/g, "-")

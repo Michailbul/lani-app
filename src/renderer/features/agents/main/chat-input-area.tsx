@@ -202,6 +202,7 @@ export interface ChatInputAreaProps {
   // Context
   subChatId: string
   parentChatId: string
+  activeProvider?: "claude-code" | "codex"
   teamId?: string
   repository?: string
   sandboxId?: string
@@ -344,6 +345,10 @@ function arePropsEqual(prevProps: ChatInputAreaProps, nextProps: ChatInputAreaPr
     return false
   }
 
+  if (prevProps.activeProvider !== nextProps.activeProvider) {
+    return false
+  }
+
   // Compare changedFiles - by length and filePaths
   if (!prevProps.changedFiles || !nextProps.changedFiles) {
     return prevProps.changedFiles === nextProps.changedFiles
@@ -401,6 +406,7 @@ export const ChatInputArea = memo(function ChatInputArea({
   messageTokenData,
   subChatId,
   parentChatId,
+  activeProvider: activeProviderProp,
   teamId,
   repository,
   sandboxId,
@@ -465,10 +471,11 @@ export const ChatInputArea = memo(function ChatInputArea({
   const availableModels = useAvailableModels()
   const autoOfflineMode = useAtomValue(autoOfflineModeAtom)
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const activeProvider = useAgentSubChatStore((state) => {
+  const storeActiveProvider = useAgentSubChatStore((state) => {
     const activeSubChat = state.allSubChats.find((chat) => chat.id === subChatId)
     return activeSubChat?.provider === "codex" ? "codex" : "claude-code"
   })
+  const activeProvider = activeProviderProp ?? storeActiveProvider
   const isCodexThread = activeProvider === "codex"
   const [selectedModel, setSelectedModel] = useState(
     () => availableModels.models.find((m) => m.id === lastSelectedModelId) || availableModels.models[0],

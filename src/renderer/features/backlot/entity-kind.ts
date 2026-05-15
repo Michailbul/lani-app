@@ -29,6 +29,18 @@ export function activeEntityFromPath(
     return { kind: "main-script", path }
   }
 
+  if (
+    path.endsWith("/shotlist/shotlist.backlot.json") ||
+    path === "shotlist.backlot.json" ||
+    path.endsWith(".shotlist.json")
+  ) {
+    return {
+      kind: "shotlist",
+      label,
+      path,
+    }
+  }
+
   // Characters: characters/<id>.md (no nested folders, no README).
   const characterMatch = /^characters\/([^/]+)\.md$/.exec(path)
   if (characterMatch && characterMatch[1] !== "README") {

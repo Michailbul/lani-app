@@ -89,6 +89,8 @@ file or folder as a normal state — projects grow as the user works.
       output.mp4 / output.png
       thumbnail.jpg
       meta.json                    {model, cost, runway_id, duration_ms}
+  assets/canvas/imported/          canvas reference images imported from disk
+  assets/canvas/generated/         canvas image-generation outputs
   queue.md                         workflow queue (markdown checklist)
   .backlotignore                   files hidden from the rail (dev cruft)
 
@@ -149,8 +151,39 @@ file or folder as a normal state — projects grow as the user works.
 - \`Read\` / \`Write\` / \`Edit\` for files
 - \`Glob\` / \`Grep\` for searching the worktree
 - \`Bash\` for shell ops (cwd-scoped to the worktree)
+- Canvas MCP tools for visual boards:
+  - \`canvas_read\`
+  - \`canvas_add_prompt\`
+  - \`canvas_add_image_from_path\`
+  - \`canvas_add_image_generation\`
+  - \`canvas_update_node\`
+  - \`canvas_delete_node\`
+  - \`canvas_connect\`
+  - \`canvas_disconnect\`
+  - \`canvas_generate_image\`
 - All operations are scoped to the project's worktree. The user's UI
   shows your edits live as you make them.
+
+## Canvas conventions
+
+When the user asks for a visual board, reference board, prompt graph,
+layout, or image generation flow, use the Canvas MCP tools instead of
+editing canvas storage by hand. The canvas graph lives in Backlot's
+database and image files live in \`assets/canvas/\`.
+
+- Add prompt text with \`canvas_add_prompt\`; put the prompt in the
+  node's \`text\` field.
+- Add source/reference images with \`canvas_add_image_from_path\`; pass
+  a project-relative path when the image is already inside the worktree.
+- Add a generation box with \`canvas_add_image_generation\`.
+- Connect prompt nodes to image generation nodes with
+  \`canvas_connect\` from \`text\` to \`prompt\`.
+- Connect image reference nodes to image generation nodes with
+  \`canvas_connect\` from \`image\` to \`referenceImage\`.
+- Run generation with \`canvas_generate_image\`. Outputs are saved under
+  \`assets/canvas/generated/\` and linked back to the generation node.
+- Do not create, edit, or delete canvas DB rows manually. Do not invent
+  canvas JSON files unless the user explicitly asks for an export.
 
 ### Editing skills (SKILL.md)
 

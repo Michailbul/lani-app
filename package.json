@@ -21,14 +21,12 @@
     "dist:manifest": "node scripts/generate-update-manifest.mjs",
     "claude:download": "node scripts/download-claude-binary.mjs --version=2.1.25",
     "claude:download:all": "node scripts/download-claude-binary.mjs --version=2.1.25 --all",
-    "codex:download": "node scripts/download-codex-binary.mjs --version=0.98.0",
-    "codex:download:all": "node scripts/download-codex-binary.mjs --version=0.98.0 --all",
     "icon:generate": "node scripts/generate-icon.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "ts:check": "tsgo --noEmit",
-    "postinstall": "node -e \"if(!process.env.VERCEL){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\""
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.14",
@@ -93,6 +91,7 @@
     "motion": "^11.15.0",
     "next-themes": "^0.4.4",
     "node-pty": "^1.1.0",
+    "parse5": "^7.3.0",
     "pidtree": "^0.6.0",
     "posthog-js": "^1.239.1",
     "posthog-node": "^5.20.0",
@@ -172,6 +171,10 @@
       {
         "from": "resources/bin/VERSION",
         "to": "bin/VERSION"
+      },
+      {
+        "from": "mcp",
+        "to": "mcp"
       }
     ],
     "asar": true,

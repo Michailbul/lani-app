@@ -12,14 +12,16 @@
  * persisted in `projectTreeWidthAtom`).
  */
 
-import { useAtom, useSetAtom } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
   BookOpen,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Clapperboard,
+  GitBranch,
   Globe2,
   Layers,
   MapPin,
@@ -29,6 +31,10 @@ import {
 } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
+import {
+  selectedAgentChatIdAtom,
+  selectedProjectAtom,
+} from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import {
@@ -186,6 +192,13 @@ export function ProjectTreeRail() {
 // ────────────────────────────────────────────────────────────────────────
 
 function ProjectTreeContent() {
+  const [activeChatId, setActiveChatId] = useAtom(selectedAgentChatIdAtom)
+  const selectedProject = useAtomValue(selectedProjectAtom)
+  const directions = trpc.chats.directionsForProject.useQuery(
+    { projectId: selectedProject?.id ?? "" },
+    { enabled: !!selectedProject?.id, refetchInterval: 5000 },
+  )
+
   // ProjectFileTree handles its own root resolution: it reads the
   // selected chat's worktree when a chat is active, otherwise it falls
   // back to the canonical project root from `selectedProjectAtom`. The
@@ -194,6 +207,13 @@ function ProjectTreeContent() {
   // its own "No project" empty state.
   return (
     <div className="py-2">
+      <DirectionsSection
+        directions={directions.data ?? []}
+        activeChatId={activeChatId}
+        onSelect={setActiveChatId}
+        isLoading={directions.isLoading}
+      />
+      <div className="mx-3 mt-2 mb-3 h-px bg-border/70" />
       <ProjectFileTree />
       <div className="mx-3 mt-3 mb-1 h-px bg-border/70" />
       <DemoTrigger />
@@ -201,8 +221,148 @@ function ProjectTreeContent() {
   )
 }
 
-function Divider() {
-  return <div className="my-3 mx-3 h-px bg-border/70" />
+type DirectionRow = {
+  id: string
+  name: string | null
+  parentWorktreeId?: string | null
+  forkedAtCommit?: string | null
+  forkedAtMessageIndex?: number | null
+  directionColor?: string | null
+}
+
+function DirectionDot({
+  color,
+  active,
+}: {
+  color?: string | null
+  active: boolean
+}) {
+  return (
+    <span
+      className={cn(
+        "h-2 w-2 rounded-full border shrink-0",
+        active ? "border-primary" : "border-border",
+      )}
+      style={{ backgroundColor: color || "hsl(var(--muted-foreground))" }}
+    />
+  )
+}
+
+function buildDirectionRows(directions: DirectionRow[]): Array<{
+  direction: DirectionRow
+  depth: number
+}> {
+  const byParent = new Map<string | null, DirectionRow[]>()
+  for (const direction of directions) {
+    const parentId = direction.parentWorktreeId ?? null
+    byParent.set(parentId, [...(byParent.get(parentId) ?? []), direction])
+  }
+  for (const siblings of byParent.values()) {
+    siblings.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
+  }
+
+  const rows: Array<{ direction: DirectionRow; depth: number }> = []
+  const visit = (parentId: string | null, depth: number) => {
+    for (const direction of byParent.get(parentId) ?? []) {
+      rows.push({ direction, depth })
+      visit(direction.id, depth + 1)
+    }
+  }
+  visit(null, 0)
+
+  const renderedIds = new Set(rows.map((row) => row.direction.id))
+  for (const direction of directions) {
+    if (!renderedIds.has(direction.id)) {
+      rows.push({ direction, depth: 0 })
+    }
+  }
+  return rows
+}
+
+function DirectionsSection({
+  directions,
+  activeChatId,
+  onSelect,
+  isLoading,
+}: {
+  directions: DirectionRow[]
+  activeChatId: string | null
+  onSelect: (chatId: string | null) => void
+  isLoading: boolean
+}) {
+  const rows = buildDirectionRows(directions)
+
+  return (
+    <section className="px-1.5">
+      <div className="flex items-center justify-between gap-2 px-2 py-1">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
+          Directions
+        </span>
+        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+          {isLoading ? "..." : directions.length}
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="px-2 pb-1 text-[11.5px] text-muted-foreground/60 italic">
+          No directions yet. Start a session, then fork when you want another take.
+        </div>
+      ) : (
+        <ul className="space-y-px">
+          {rows.map(({ direction, depth }) => {
+            const active = direction.id === activeChatId
+            const label = direction.name?.trim() || "Untitled direction"
+            return (
+              <li key={direction.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(direction.id)}
+                  className={cn(
+                    "press group relative w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left",
+                    "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                    active
+                      ? "bg-primary/12 text-foreground font-medium"
+                      : "text-foreground/85 hover:bg-secondary/60",
+                  )}
+                  style={{ paddingLeft: 12 + depth * 14 }}
+                  title={
+                    direction.forkedAtCommit
+                      ? `${label} - forked at ${direction.forkedAtCommit.slice(0, 7)}`
+                      : label
+                  }
+                >
+                  <span
+                    className={cn(
+                      "absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary origin-top",
+                      "transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-out)]",
+                      active ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
+                    )}
+                    aria-hidden
+                  />
+                  {active ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : depth > 0 ? (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                  )}
+                  <DirectionDot color={direction.directionColor} active={active} />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                    {label}
+                  </span>
+                  {direction.forkedAtCommit && (
+                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/45">
+                      fork
+                    </span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────

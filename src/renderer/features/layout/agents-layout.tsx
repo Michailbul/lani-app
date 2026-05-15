@@ -18,6 +18,7 @@ import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
 import { ClaudeLoginModal } from "../../components/dialogs/claude-login-modal"
+import { CodexLoginModal } from "../../components/dialogs/codex-login-modal"
 import { SkillProposalsHost } from "../skills/skill-proposals-host"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
@@ -236,12 +237,20 @@ export function AgentsLayout() {
   }, [setSidebarOpen])
 
   const isSettingsView = desktopView === "settings"
+  const sidebarDesktopUser = desktopUser
+    ? {
+        id: desktopUser.id,
+        email: desktopUser.email,
+        name: desktopUser.name ?? undefined,
+      }
+    : null
 
   return (
     <TooltipProvider delayDuration={300}>
       {/* Global queue processor - handles message queues for all sub-chats */}
       <QueueProcessor />
       <ClaudeLoginModal />
+      <CodexLoginModal />
       {/* Renders the SkillDiffModal whenever the in-process MCP tool
           `propose_skill_change` fires. One host for the whole app. */}
       <SkillProposalsHost />
@@ -269,7 +278,7 @@ export function AgentsLayout() {
             <SettingsSidebar />
           ) : (
             <AgentsSidebar
-              desktopUser={desktopUser}
+              desktopUser={sidebarDesktopUser}
               onSignOut={handleSignOut}
               onToggleSidebar={handleCloseSidebar}
             />

@@ -26,6 +26,36 @@ Six commits in:
 
 Shipped: tightened Backlot markdown frontmatter rendering in the main editor preview so YAML `---` wrappers no longer draw duplicate horizontal rules, and removed the extra metadata-strip divider under the entity header.
 
+Shipped: hardened Codex chat error handling in the renderer transport. Codex auth/request failures now render as assistant text and finish the UI stream instead of sending AI SDK `error` chunks that throw through React concurrent rendering during send.
+
+Shipped: fixed forked Claude Directions resuming the parent session ID. Fork creation now strips parent Claude resume metadata from copied messages, and the Claude router only resumes from the database `sub_chats.session_id`, preventing stale renderer metadata from crashing Claude in the new worktree. Added inherited local transcript context for fresh fork sessions and a visible Directions section in the project rail for switching original/fork/current branches.
+
+Shipped: added the project skill `.claude/skills/runway-shotlist-submission/SKILL.md` for submitting Backlot shotlist prompts to Runway. It covers precise ZH-to-EN prompt translation, project-specific generation overrides, reuse-settings browser flow, and submission attempt logging.
+
+Shipped: added the first Backlot-native shotlist slice. HTML shotlists can be imported through the project file tree into `shotlist.backlot.json` plus archived `source.html`; the parser preserves shot rows, beat ids, prompt grouping, Chinese prompts, imported English translations, and translation status. Added a shotlist editor surface for searchable rows, ZH/EN/Runway prompt editing, copy actions, and Runway submission attempt marking.
+
+Shipped: added Shotlist as a separate Backlot workdesk mode next to Screenwriting and Prompts. Clicking the masthead mode opens the shotlist surface, and importing or selecting a shotlist file switches the workdesk into that mode automatically.
+
+Shipped: made Shotlist mode auto-load the first project shotlist instead of asking the user to pick a file. Added the Daddy Issues Scene 1 shotlist JSON/source HTML into the Daddy Issues project and active Backlot worktrees from the existing skill-generated HTML export.
+
+Fixed: mode navigation now treats Screenwriting, Prompts, and Shotlist as authoritative top-level workdesk modes. Auto-loading a shotlist no longer pins `activeEntityAtom` to a shotlist and traps the center pane in the Shotlist surface after switching modes.
+
+Fixed: direct Backlot editor saves no longer leave clean files as pending changes in chat worktrees. Entity and shotlist writes now auto-settle Backlot-owned user edits into focused git commits when the file was clean before the save, while preserving pre-existing agent pending changes for review.
+
+Fixed: project forking now refuses parent-repo git roots and requires an exact Backlot project repo root before creating worktrees. Folder open/create paths normalize projects into `~/.backlot/projects/<slug>/`, and an explicit project normalizer repairs older rows. Repaired the active Daddy Issues app DB row and chats to point at `/Users/michael/.backlot/projects/daddy-issues` instead of the nested `laniameda-hq/AI Creatorship/daddy-issues` source.
+
+Fixed: removed the local OpenAI Codex CLI downloader/execution path after macOS Gatekeeper blocked the downloaded `codex` binary. The checked local 1code app has Codex disabled and does not bundle or execute that CLI; Backlot now refuses CLI-backed Codex login/MCP management and keeps Codex chat on the app-managed API-key ACP path.
+
+Fixed: Backlot thread creation now supports explicit provider selection. The workdesk thread menu and standard thread selector expose Branch into Claude, Branch into Codex, Start new chat with Claude, and Start new chat with Codex; the create-sub-chat mutation persists that provider and strips stale resume metadata when branching from an existing thread.
+
+Fixed: the assistant input model picker now receives the active thread provider explicitly, so freshly-created Codex threads immediately show Codex models and reasoning controls instead of the Claude model list.
+
+Fixed: freshly-created Codex threads no longer flip back to Claude after the chat query refetches. The sub-chat initializer now preserves existing local placeholder provider metadata, and transport creation falls back to store metadata when the refetched sub-chat row is not available yet.
+
+Shipped: added Canvas v1 as a DB-backed workdesk mode. Canvas state lives in SQLite with prompt, image, image-generation, edge, asset, and run records; image binaries are stored under `assets/canvas/imported/` and `assets/canvas/generated/` in the active worktree. The built-in `backlot-canvas` MCP server is wired into both Claude and Codex sessions so agents can read and mutate the canvas through tools instead of editing storage directly.
+
+Fixed: renamed the persistent conversation model from `chats`/`sub_chats` to `worktrees`/`agent_threads`, including `worktree_id` canvas ownership columns and worktree-scoped canvas MCP/tRPC calls. Compatibility aliases remain in TypeScript while the broader renderer naming is migrated.
+
 Next: run a visual pass in the app once the local browser/debug tooling is available; the repo-wide type check is still blocked by existing baseline TypeScript errors and the missing `tsgo` binary.
 
 ## Week 1 — v1 backbone (UI + auth + chat)

@@ -4,19 +4,16 @@
  * NoChatAssistantPanel — what fills the right-rail "assistant" slot of
  * the ScreenplayWorkspace when a project is open but no chat is active.
  *
- * The user can already browse + edit files in project mode. The panel's
- * only job is to be the obvious door to "now put an agent on it" - a
- * single primary CTA, plus a short list of resumable recent chats so
- * picking up where you left off is one click.
+ * Visual contract: matches the settings-tab card idiom. White-on-grey
+ * cards with `border-t` separators, `text-sm font-medium` labels,
+ * `text-xs text-muted-foreground` descriptions, ChevronRight on right.
+ * Same components as agents-plugins-tab and agents-skills-tab so the
+ * whole app reads as one product, not a salad of micro-systems.
  */
 
 import { useMemo } from "react"
 import { useSetAtom, useAtomValue } from "jotai"
-import {
-  ChevronRight,
-  GitBranch,
-  Sparkles,
-} from "lucide-react"
+import { ChevronRight, GitBranch, Loader2 } from "lucide-react"
 import { trpc } from "../../../lib/trpc"
 import { Skeleton } from "../../../components/ui/skeleton"
 import { ClaudeCodeIcon, CodexIcon } from "../../../components/ui/icons"
@@ -47,6 +44,60 @@ function formatRelative(input: string | Date | null | undefined): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
+type ProviderRowProps = {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  description: string
+  pending: boolean
+  disabled: boolean
+  onClick: () => void
+  borderTop?: boolean
+}
+
+function ProviderRow({
+  icon: Icon,
+  label,
+  description,
+  pending,
+  disabled,
+  onClick,
+  borderTop,
+}: ProviderRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "group w-full flex items-center justify-between p-4 text-left",
+        "transition-colors duration-150 hover:bg-foreground/[0.03]",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 focus-visible:-outline-offset-2",
+        "disabled:opacity-60 disabled:pointer-events-none",
+        borderTop && "border-t border-border",
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-muted/70 border border-border/60 flex items-center justify-center flex-shrink-0">
+          <Icon className="h-3.5 w-3.5 text-foreground" />
+        </div>
+        <div className="flex flex-col space-y-0.5 min-w-0">
+          <span className="text-sm font-medium text-foreground truncate">
+            {label}
+          </span>
+          <span className="text-xs text-muted-foreground truncate">
+            {description}
+          </span>
+        </div>
+      </div>
+      {pending ? (
+        <Loader2 className="h-4 w-4 text-muted-foreground/60 shrink-0 animate-spin" />
+      ) : (
+        <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform duration-150 group-hover:translate-x-0.5" />
+      )}
+    </button>
+  )
+}
+
 export function NoChatAssistantPanel() {
   const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
@@ -75,6 +126,15 @@ export function NoChatAssistantPanel() {
     return chats.slice(0, 6)
   }, [chats])
 
+  // Track which provider is currently spinning so we can show a row-level
+  // loader and disable both rows during a create. Avoids the user firing
+  // two creates in a race.
+  const pendingProvider: SessionProvider | null =
+    createSession.isPending && createSession.variables
+      ? ((createSession.variables as { provider?: SessionProvider })
+          .provider ?? "claude-code")
+      : null
+
   const handleStart = (provider: SessionProvider) => {
     if (!selectedProject || createSession.isPending) return
     setLastSelectedAgentId(provider)
@@ -89,178 +149,129 @@ export function NoChatAssistantPanel() {
   const handleResume = (chatId: string) => setSelectedChatId(chatId)
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden bg-background/40">
-      {/* ── Editorial preamble ── */}
-      <div className="px-4 pt-5 pb-4 border-b border-border/60">
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className="inline-block w-[14px] h-[1px] bg-primary"
-            aria-hidden
-          />
-          <span
-            className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/75"
-            style={{ fontFamily: "var(--font-mono)" }}
-          >
-            Assistant
-          </span>
-        </div>
-        <p className="text-[12.5px] text-muted-foreground/85 leading-snug">
+    <div className="h-full w-full flex flex-col overflow-hidden bg-background">
+      {/* ── Header ── */}
+      <div className="flex flex-col space-y-1.5 px-4 pt-5 pb-4 shrink-0">
+        <h3 className="text-sm font-semibold text-foreground">Assistant</h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Browsing{" "}
-          <span className="text-foreground/90 font-medium">
+          <span className="text-foreground font-medium">
             {selectedProject?.name ?? "this project"}
           </span>
-          . Start a chat when you want an agent on the page.
+          . Start a session when you want an agent on the page.
         </p>
       </div>
 
-      {/* ── Primary CTA ── */}
-      <div className="px-4 pt-4 space-y-2">
-        <button
-          onClick={() => handleStart("claude-code")}
-          disabled={createSession.isPending}
-          className={cn(
-            "group w-full text-left rounded-lg p-3.5 overflow-hidden",
-            "bg-primary/[0.07] border border-primary/30",
-            "hover:bg-primary/[0.12] hover:border-primary/50",
-            "dark:bg-primary/[0.09] dark:border-primary/35 dark:hover:bg-primary/[0.16]",
-            "transition-[background-color,border-color,transform] duration-150 ease-out",
-            "active:scale-[0.99] disabled:opacity-60 disabled:pointer-events-none",
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-md bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
-              <ClaudeCodeIcon className="h-4 w-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-display text-[13.5px] font-semibold tracking-tight leading-tight">
-                Start Claude session
-              </div>
-              <div className="text-[11px] text-muted-foreground/85 leading-snug mt-0.5">
-                Use Claude Code for this project session
-              </div>
-            </div>
-            <ChevronRight className="h-3.5 w-3.5 text-primary/60 -translate-x-1 group-hover:translate-x-0 transition-transform flex-shrink-0" />
+      {/* ── Scroll body ── */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 space-y-5">
+        {/* Start a session — single card, two rows */}
+        <div className="space-y-2">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">
+            Start a session
+          </p>
+          <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <ProviderRow
+              icon={ClaudeCodeIcon}
+              label="Claude Code"
+              description="Anthropic Claude — recommended"
+              pending={pendingProvider === "claude-code"}
+              disabled={createSession.isPending}
+              onClick={() => handleStart("claude-code")}
+            />
+            <ProviderRow
+              icon={CodexIcon}
+              label="Codex"
+              description="OpenAI Codex CLI"
+              pending={pendingProvider === "codex"}
+              disabled={createSession.isPending}
+              onClick={() => handleStart("codex")}
+              borderTop
+            />
           </div>
-        </button>
-        <button
-          onClick={() => handleStart("codex")}
-          disabled={createSession.isPending}
-          className={cn(
-            "group w-full text-left rounded-lg p-3.5 overflow-hidden",
-            "bg-muted/35 border border-border/70",
-            "hover:bg-muted/55 hover:border-border",
-            "transition-[background-color,border-color,transform] duration-150 ease-out",
-            "active:scale-[0.99] disabled:opacity-60 disabled:pointer-events-none",
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-md bg-background/70 text-foreground flex items-center justify-center flex-shrink-0 border border-border/60">
-              <CodexIcon className="h-4 w-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-display text-[13.5px] font-semibold tracking-tight leading-tight">
-                Start Codex session
-              </div>
-              <div className="text-[11px] text-muted-foreground/85 leading-snug mt-0.5">
-                Use OpenAI Codex for this project session
-              </div>
-            </div>
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 -translate-x-1 group-hover:translate-x-0 transition-transform flex-shrink-0" />
-          </div>
-        </button>
-      </div>
-
-      {/* ── Recent chats ── */}
-      <div className="flex-1 min-h-0 overflow-y-auto pt-5 pb-4 px-2">
-        <div className="px-2 mb-2 flex items-baseline gap-2.5">
-          <span
-            className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65"
-            style={{ fontFamily: "var(--font-mono)" }}
-          >
-            Recent sessions
-          </span>
-          <span className="h-px flex-1 bg-border/55 self-center" />
-          {!isLoading && recentChats.length > 0 && (
-            <span
-              className="text-[10px] tabular-nums text-muted-foreground/45"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              {recentChats.length.toString().padStart(2, "0")}
-            </span>
-          )}
         </div>
 
-        {isLoading ? (
-          <div className="space-y-1">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-2.5 px-2 py-1.5">
-                <Skeleton className="h-5 w-5 rounded" />
-                <div className="flex-1 space-y-1">
-                  <Skeleton className="h-2.5 w-32" />
-                  <Skeleton className="h-2 w-20" />
-                </div>
-              </div>
-            ))}
+        {/* Recent sessions */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              Recent sessions
+            </span>
+            {!isLoading && recentChats.length > 0 && (
+              <span className="text-xs tabular-nums text-muted-foreground/55">
+                {recentChats.length}
+              </span>
+            )}
           </div>
-        ) : recentChats.length === 0 ? (
-          <div className="px-3 py-4 flex items-center gap-2 text-[11px] text-muted-foreground/70 leading-snug">
-            <Sparkles className="h-3 w-3 flex-shrink-0" />
-            <span>No sessions yet — start one above.</span>
-          </div>
-        ) : (
-          <ul className="space-y-0.5">
-            {recentChats.map((chat) => (
-              <li key={chat.id}>
-                <button
-                  onClick={() => handleResume(chat.id)}
+
+          {isLoading ? (
+            <div className="bg-background rounded-lg border border-border overflow-hidden">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
                   className={cn(
-                    "group w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left",
-                    "transition-colors duration-100",
-                    "hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                    "flex items-center gap-2.5 px-3 py-2.5",
+                    i > 0 && "border-t border-border",
                   )}
                 >
-                  <div className="w-5 h-5 rounded bg-muted/70 border border-border/50 flex items-center justify-center flex-shrink-0">
-                    {(chat as any).provider === "codex" ? (
-                      <CodexIcon className="h-2.5 w-2.5 text-muted-foreground/65" />
-                    ) : (
-                      <ClaudeCodeIcon className="h-2.5 w-2.5 text-muted-foreground/65" />
-                    )}
+                  <Skeleton className="h-5 w-5 rounded" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-2 w-20" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span
-                        className="truncate text-[12.5px] text-foreground/90"
-                        style={{
-                          fontFamily: "var(--font-body)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {chat.name?.trim() || "Untitled chat"}
-                      </span>
-                      <span
-                        className="text-[10px] tabular-nums text-muted-foreground/45 flex-shrink-0"
-                        style={{ fontFamily: "var(--font-mono)" }}
-                      >
-                        {formatRelative(chat.updatedAt)}
-                      </span>
-                    </div>
-                    {chat.branch && (
-                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground/55 truncate mt-0.5">
-                        <GitBranch className="h-2.5 w-2.5 flex-shrink-0" />
-                        <span
-                          className="truncate"
-                          style={{ fontFamily: "var(--font-mono)" }}
-                        >
-                          {chat.branch}
-                        </span>
+                  <Skeleton className="h-2.5 w-8" />
+                </div>
+              ))}
+            </div>
+          ) : recentChats.length === 0 ? (
+            <div className="bg-background rounded-lg border border-border p-4">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                No sessions yet — start one above.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-background rounded-lg border border-border overflow-hidden">
+              {recentChats.map((chat, i) => {
+                const isCodex = (chat as { provider?: string }).provider === "codex"
+                const ChatIcon = isCodex ? CodexIcon : ClaudeCodeIcon
+                return (
+                  <button
+                    type="button"
+                    key={chat.id}
+                    onClick={() => handleResume(chat.id)}
+                    className={cn(
+                      "group w-full flex items-center justify-between p-3 text-left",
+                      "transition-colors duration-150 hover:bg-foreground/[0.03]",
+                      "focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 focus-visible:-outline-offset-2",
+                      i > 0 && "border-t border-border",
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-5 h-5 rounded bg-muted/70 border border-border/50 flex items-center justify-center flex-shrink-0">
+                        <ChatIcon className="h-2.5 w-2.5 text-muted-foreground" />
                       </div>
-                    )}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {chat.name?.trim() || "Untitled chat"}
+                        </span>
+                        {chat.branch && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+                            <GitBranch className="h-2.5 w-2.5 flex-shrink-0" />
+                            <span className="truncate font-mono text-[11px]">
+                              {chat.branch}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs tabular-nums text-muted-foreground/55 shrink-0 ml-2">
+                      {formatRelative(chat.updatedAt)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
