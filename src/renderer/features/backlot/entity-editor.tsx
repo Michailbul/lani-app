@@ -48,8 +48,9 @@ import { Button } from "../../components/ui/button"
 // from markdown-preview.tsx for any other callers that need it
 // (markdown rendering outside the entity-editor flow).
 import { RichMarkdownEditor } from "./rich-markdown-editor"
-import { FountainEditor } from "./fountain-editor"
-import { DiffSurface, type DiffHunk } from "./diff-surface"
+import { FountainSourceEditor } from "./fountain-source-editor"
+import { FountainPreview } from "./fountain-preview"
+import { DiffSurface, type DiffHunk, type DiffLine } from "./diff-surface"
 import { selectedAgentChatIdAtom, selectedProjectAtom } from "../agents/atoms"
 import { activeEntityAtom, type ActiveEntity } from "./atoms"
 import { trpc } from "../../lib/trpc"
@@ -124,13 +125,13 @@ function ActiveEntityFile({
     "idle",
   )
 
-  // View mode: rendered preview, rich (TipTap) editor, or source (raw
-  // textarea). Markdown files default to "rendered". Fountain files
-  // ALSO default to "rendered" — the FountainEditor renders a typeset
-  // screenplay page (Courier, scene caps, character indents) instead
-  // of the raw markup, which is what a working filmmaker expects. Raw
-  // .fountain markup is reachable via the Code toggle in the header.
-  // Per-file (resets on entity change).
+  // View mode: rendered preview, rich (TipTap) editor, or source.
+  // Markdown files default to "rendered" (typeset, click to edit).
+  // Fountain files default to "source" — the styled-source
+  // FountainSourceEditor, an always-editable screenplay surface
+  // (Courier page, scene caps, dialogue indents). It is the writer's
+  // home for a .fountain file; the Code toggle flips to the read-only
+  // typeset preview. Per-file (resets on entity change).
   const isFountain =
     active.kind === "scene" ||
     active.kind === "main-script" ||
@@ -146,12 +147,14 @@ function ActiveEntityFile({
   const previewable = isMarkdown || isFountain
   type ViewMode = "rendered" | "rich" | "source"
   const [viewMode, setViewMode] = useState<ViewMode>(
-    previewable ? "rendered" : "source",
+    isMarkdown ? "rendered" : "source",
   )
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   // When the active entity changes, reset to the appropriate default.
+  // Markdown lands on the typeset preview; fountain and plain files
+  // land directly in their editor.
   useEffect(() => {
-    setViewMode(previewable ? "rendered" : "source")
+    setViewMode(isMarkdown ? "rendered" : "source")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
@@ -230,6 +233,53 @@ function ActiveEntityFile({
     rejectHunk.mutate({ chatId, relPath: path, hunkIndex })
   }
 
+  // Inline edit-in-diff — click a + or context line in the unified
+  // diff, type a replacement, and the whole file is rewritten with
+  // that one line swapped. The diff refetch reflects the result.
+  // Removed (−) lines can't be edited; the diff offers no per-line
+  // restore here, so the user reverts at hunk granularity instead.
+  const commitLineEdit = useCallback(
+    async (line: DiffLine, newValue: string): Promise<void> => {
+      if (newValue === line.text) return
+      if (line.newNo == null) {
+        toast.error("Can't edit a removed line — approve or dismiss the hunk.")
+        return
+      }
+      const current = read.data?.content ?? buffer
+      const lines = current.split("\n")
+      const idx = line.newNo - 1
+      let targetIdx = -1
+      if (idx >= 0 && idx < lines.length && lines[idx] === line.text) {
+        targetIdx = idx
+      } else {
+        targetIdx = lines.findIndex((l) => l === line.text)
+      }
+      if (targetIdx < 0) {
+        toast.error(
+          "Couldn't locate that line — it may have shifted. Refresh and retry.",
+        )
+        return
+      }
+      lines[targetIdx] = newValue
+      const next = lines.join("\n")
+      try {
+        await write.mutateAsync({
+          ...entityRoot,
+          entityPath: path,
+          content: next,
+        })
+        setBuffer(next)
+        refreshDiff()
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Couldn't save the edit",
+        )
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [read.data?.content, buffer, path, refreshDiff],
+  )
+
   // Pull server content into the buffer when the user is idle. Same idiom
   // as the screenplay editor — don't blow away mid-typing edits.
   useEffect(() => {
@@ -286,9 +336,9 @@ function ActiveEntityFile({
   // Cleared when the user blurs back to preview so the next entry
   // starts fresh.
   //
-  // Fountain entities go through the same flow but their "edit" view
-  // is a Courier-styled raw textarea inside FountainEditor — there's
-  // no rich/source distinction since fountain markup IS the source.
+  // Fountain entities default straight into their styled-source
+  // editor, so this click-to-edit path only fires for them when the
+  // user has toggled to the typeset preview and clicks back in.
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(
     null,
   )
@@ -313,12 +363,16 @@ function ActiveEntityFile({
       saveTimerRef.current = null
       flush(buffer)
     }
-    if (previewable) setViewMode("rendered")
+    // Markdown follows the Notion pattern — blur returns to the typeset
+    // preview. Fountain does NOT: its styled-source editor IS the home
+    // surface, so blurring just flushes the save and stays put. The
+    // typeset preview is reached only via the explicit Code toggle.
+    if (isMarkdown) setViewMode("rendered")
     // Reset the click anchor so the next click-to-edit is what
     // determines cursor placement (not a stale coordinate).
     setFocusPoint(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewable, buffer])
+  }, [isMarkdown, buffer])
 
   // Toggle between "rendered/rich" and "source". For markdown files
   // we cycle: rendered → source (raw) → rendered. Rich edit is reached
@@ -391,7 +445,7 @@ function ActiveEntityFile({
                             ? "Preview screenplay"
                             : "Preview markdown"
                           : isFountain
-                            ? "Edit raw fountain"
+                            ? "Edit screenplay"
                             : "Edit raw markdown"
                       }
                     >
@@ -421,7 +475,7 @@ function ActiveEntityFile({
                         ? "Preview screenplay"
                         : "Preview markdown"
                       : isFountain
-                        ? "Edit raw fountain"
+                        ? "Edit screenplay"
                         : "Edit raw markdown"}
                   </TooltipContent>
                 </Tooltip>
@@ -521,6 +575,8 @@ function ActiveEntityFile({
             onAcceptHunk={onAcceptHunk}
             onRejectHunk={onRejectHunk}
             busyHunkIndex={busyHunkIndex}
+            perLineEnabled={diffStatus === "modified"}
+            onCommitLineEdit={commitLineEdit}
           />
         ) : read.isPending ? (
           <div className="px-10 py-12">
@@ -539,31 +595,45 @@ function ActiveEntityFile({
             onCreate={() => flush(buildTemplate(active))}
           />
         ) : isFountain ? (
-          // Screenplay surface — typeset Courier page in preview mode,
-          // raw fountain textarea in edit/source mode. Same FountainEditor
-          // component handles both via its internal `mode` prop.
-          <FountainEditor
-            value={buffer}
-            mode={viewMode === "rendered" ? "preview" : "edit"}
-            onModeChange={(next, coords) => {
-              if (next === "edit") {
-                // Click on the typeset page → swap to raw fountain.
-                // Capture the click coords if we got them so the
-                // textarea can drop the cursor near that line.
-                if (coords) {
-                  setFocusPoint({ x: coords.clientX, y: coords.clientY })
-                } else {
-                  setFocusPoint(null)
-                }
-                setViewMode("source")
-              } else {
-                handleEditorBlur()
+          // Screenplay surface. "source" → the always-editable
+          // styled-source FountainSourceEditor (Courier page, scene
+          // caps, dialogue indents) — the writer's home for a
+          // .fountain file. Typing into it never changes how the page
+          // looks. "rendered" → the read-only typeset preview, reached
+          // via the Code toggle; clicking it drops back into the
+          // editor near the click point.
+          viewMode === "rendered" ? (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={(e) =>
+                handleEnterEdit({ clientX: e.clientX, clientY: e.clientY })
               }
-            }}
-            onChange={handleBufferChange}
-            onBlur={handleEditorBlur}
-            focusPoint={focusPoint}
-          />
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  handleEnterEdit()
+                }
+              }}
+              className={cn(
+                "w-full h-full pt-3 cursor-text",
+                "transition-[background-color] duration-150",
+                "hover:bg-foreground/[0.012] dark:hover:bg-foreground/[0.02]",
+                "focus:outline-none focus-visible:bg-foreground/[0.02]",
+              )}
+              aria-label="Edit screenplay"
+            >
+              <FountainPreview source={buffer} />
+            </div>
+          ) : (
+            <FountainSourceEditor
+              value={buffer}
+              onChange={handleBufferChange}
+              onBlur={handleEditorBlur}
+              autoFocus={!!focusPoint}
+              focusPoint={focusPoint}
+            />
+          )
         ) : isMarkdown && viewMode !== "source" ? (
           // Markdown rendered + rich edit — handled by a SINGLE
           // always-mounted RichMarkdownEditor. We toggle the editor's
@@ -619,9 +689,10 @@ function ActiveEntityFile({
             />
           </div>
         ) : (
-          // Source mode (raw textarea). Always used for fountain;
-          // reachable for markdown via the Code/MD toggle for
-          // editing frontmatter or hand-tuning markup.
+          // Raw textarea — plain non-previewable files, plus markdown
+          // in source mode (reached via the Code/MD toggle for editing
+          // frontmatter or hand-tuning markup). Fountain never lands
+          // here; it has its own styled-source editor above.
           <div className="w-full h-full pb-24">
             <textarea
               ref={editorTextareaRef}
@@ -634,9 +705,7 @@ function ActiveEntityFile({
                 "px-10 pt-3 bg-transparent",
                 "border-0 outline-none resize-none",
                 "text-foreground/90 selection:bg-primary/25 caret-primary",
-                isFountain
-                  ? "text-[13px] leading-[1.85]"
-                  : "text-[13px] leading-[1.7]",
+                "text-[13px] leading-[1.7]",
               )}
               style={{
                 fontFamily: "var(--font-mono)",

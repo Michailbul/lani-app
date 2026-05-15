@@ -33,6 +33,9 @@
   "dependencies": {
     "@ai-sdk/react": "^3.0.14",
     "@anthropic-ai/claude-agent-sdk": "0.2.25",
+    "@codemirror/commands": "^6",
+    "@codemirror/state": "^6",
+    "@codemirror/view": "^6",
     "@git-diff-view/react": "^0.0.35",
     "@git-diff-view/shiki": "^0.0.36",
     "@mcpc-tech/acp-ai-provider": "^0.2.4",

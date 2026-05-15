@@ -730,3 +730,93 @@
 
 /* Hide ProseMirror's default outline; we own focus via the parent */
 .rich-prose:focus { outline: none; }
+
+/* ────────────────────────────────────────────────────────────────────
+ * Backlot Fountain styled-source editor (CodeMirror 6).
+ *
+ * The buffer is raw Fountain; these rules decorate each `.cm-line` so
+ * it reads like a typeset screenplay leaf. Indents are in `em` so they
+ * track the 13px Courier line. Vertical rhythm is the writer's own
+ * blank lines — no block margins here, or the page would double-space.
+ *
+ * Class is applied by fountain-decorations.ts via classifyFountainLines.
+ * ──────────────────────────────────────────────────────────────────── */
+
+.cm-fountain-host .cm-content {
+  box-shadow:
+    0 1px 0 0 rgba(0, 0, 0, 0.02),
+    0 8px 24px -18px rgba(0, 0, 0, 0.12);
+}
+.dark .cm-fountain-host .cm-content {
+  box-shadow: none;
+}
+
+/* Scene heading — INT./EXT. line, bold caps. */
+.cm-fountain-scene {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Action — default paragraph; no override needed beyond the page. */
+
+/* Character cue — indented ~3.7" from page-left, bold. */
+.cm-fountain-character {
+  padding-left: 17em;
+  font-weight: 600;
+}
+
+/* Parenthetical — under the cue, italic, inset. */
+.cm-fountain-paren {
+  padding-left: 13em;
+  padding-right: 8em;
+  font-style: italic;
+  color: hsl(var(--foreground) / 0.85);
+}
+
+/* Dialogue — inset block beneath the cue. */
+.cm-fountain-dialogue {
+  padding-left: 10em;
+  padding-right: 6em;
+}
+
+/* Transition — right-aligned caps. */
+.cm-fountain-transition {
+  text-align: right;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+/* Centered text. */
+.cm-fountain-centered {
+  text-align: center;
+}
+
+/* Section — above-the-line outline scaffolding, muted. */
+.cm-fountain-section {
+  color: hsl(var(--primary) / 0.9);
+  font-weight: 700;
+}
+
+/* Synopsis — `= beat summary`, outline note. */
+.cm-fountain-synopsis {
+  color: hsl(var(--muted-foreground) / 0.8);
+  font-style: italic;
+}
+
+/* Boneyard / writer's notes — commented-out, dimmed. */
+.cm-fountain-note {
+  color: hsl(var(--muted-foreground) / 0.6);
+  font-style: italic;
+}
+
+/* Page break — `===`, faint and tracked. */
+.cm-fountain-pagebreak {
+  color: hsl(var(--muted-foreground) / 0.55);
+  text-align: center;
+  letter-spacing: 0.3em;
+}
+
+/* Title-page key/value lines. */
+.cm-fountain-title {
+  color: hsl(var(--foreground) / 0.9);
+}

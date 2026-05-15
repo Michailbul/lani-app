@@ -1,23 +1,24 @@
 "use client"
 
 /**
- * DiffSurface — Cursor-style green/red hunk renderer with per-hunk and
- * per-line review controls.
+ * DiffSurface — unified, continuous review diff.
  *
- * Lifted from screenplay-pane.tsx so the entity-editor and the
- * screenplay pane can share one component. Both surfaces render the
- * same shape (DiffHunk[]) — the only difference is which router (the
- * legacy `artifacts.*` or the generalised `paths.*`) feeds the hunks
- * and which mutations the per-hunk buttons fire. We pass those in via
- * callbacks so the component itself is router-agnostic.
+ * One scrolling stream of lines, not a stack of per-hunk cards. Hunks
+ * are joined into a single table; a thin location rail separates them
+ * and carries that hunk's Approve / Dismiss controls. Content lines
+ * are editable in place — click a line, type, and the edit is written
+ * straight to the file.
  *
- * Per-line dismiss + line edit are intentionally OPTIONAL — the
- * screenplay surface uses them, but for arbitrary files in the
- * generalised path flow we keep v1 surface area smaller (per-hunk
- * is enough; per-line can come later).
+ * Blank-line additions and removals render as a slim, faint row rather
+ * than a tall solid green/red bar — they are real changes, but a
+ * whitespace tweak shouldn't shout as loud as a rewritten sentence.
+ *
+ * Router-agnostic: the entity editor (paths.*) and the screenplay
+ * surface (artifacts.*) feed the same DiffHunk[] shape and pass their
+ * own mutation callbacks.
  */
 
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { Check, X } from "lucide-react"
 import { cn } from "../../lib/utils"
 
@@ -39,13 +40,13 @@ export type DiffHunk = {
 
 export interface DiffSurfaceProps {
   hunks: DiffHunk[]
-  /** Show the per-hunk Approve / Dismiss buttons. False for untracked
+  /** Show the per-hunk Approve / Dismiss controls. False for untracked
    *  files (they have no per-hunk granularity — the global Accept /
    *  Revert covers them). */
   perHunkEnabled: boolean
   onAcceptHunk: (index: number) => void
   onRejectHunk: (index: number) => void
-  /** Index of the hunk currently being mutated, so its buttons stay
+  /** Index of the hunk currently being mutated, so its controls stay
    *  disabled and don't reflow under the user. */
   busyHunkIndex: number | null
   /** Per-line dismiss — optional. */
@@ -58,6 +59,9 @@ export interface DiffSurfaceProps {
   /** Hidden when the parent renders its own empty state. */
   emptyMessage?: string
 }
+
+/** Fixed column count — kept stable so the hunk rail can colSpan it. */
+const COLS = 5
 
 export function DiffSurface({
   hunks,
@@ -79,57 +83,27 @@ export function DiffSurface({
   }
   return (
     <div className="h-full">
-      <div className="w-full max-w-[920px] mx-auto px-6 py-8 space-y-6">
-        {hunks.map((hunk, hi) => {
-          const busy = busyHunkIndex === hi
-          return (
-            <div
-              key={hi}
-              className="rounded-lg border border-border overflow-hidden bg-card/40"
-            >
-              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-secondary/40 border-b border-border">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  {hunk.header.replace(/^@@\s*|\s*@@$/g, "")}
-                </span>
-                {perHunkEnabled && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onRejectHunk(hi)}
-                      disabled={busy || busyHunkIndex !== null}
-                      title="Dismiss this hunk (revert to HEAD just here)"
-                      className={cn(
-                        "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
-                        "border border-border bg-background hover:bg-rose-500/10",
-                        "text-foreground/70 hover:text-rose-700 dark:hover:text-rose-300",
-                        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-                        "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
-                      )}
-                    >
-                      <X className="h-3 w-3" />
-                      Dismiss
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onAcceptHunk(hi)}
-                      disabled={busy || busyHunkIndex !== null}
-                      title="Approve this hunk (commit just this change)"
-                      className={cn(
-                        "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
-                        "border border-border bg-background hover:bg-emerald-500/10",
-                        "text-foreground/70 hover:text-emerald-700 dark:hover:text-emerald-300",
-                        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-                        "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
-                      )}
-                    >
-                      <Check className="h-3 w-3" />
-                      Approve
-                    </button>
-                  </div>
-                )}
-              </div>
-              <table className="w-full font-mono text-[13px] leading-6">
-                <tbody>
+      <div className="w-full max-w-[920px] mx-auto px-6 py-8">
+        {/* One continuous diff. A single hairline frames the whole
+            thing — no per-hunk cards. */}
+        <div className="rounded-lg border border-border/60 overflow-hidden bg-card/20">
+          <table className="w-full font-mono text-[13px] leading-6">
+            {hunks.map((hunk, hi) => {
+              const busy = busyHunkIndex === hi
+              return (
+                // One tbody per hunk so a hover anywhere in the hunk
+                // can surface its controls, while the table stays a
+                // single unified stream.
+                <tbody key={hi} className="group/hunk">
+                  <HunkRail
+                    header={hunk.header}
+                    first={hi === 0}
+                    perHunkEnabled={perHunkEnabled}
+                    busy={busy}
+                    anyBusy={busyHunkIndex !== null}
+                    onAccept={() => onAcceptHunk(hi)}
+                    onReject={() => onRejectHunk(hi)}
+                  />
                   {hunk.lines.map((line, li) => (
                     <DiffLineRow
                       key={`${hi}-${li}`}
@@ -149,12 +123,84 @@ export function DiffSurface({
                     />
                   ))}
                 </tbody>
-              </table>
-            </div>
-          )
-        })}
+              )
+            })}
+          </table>
+        </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Hunk rail — a thin full-width row marking where a hunk sits in the
+ * file. Carries that hunk's Approve / Dismiss. Sits inline in the
+ * stream so the diff reads as one continuous thing.
+ */
+function HunkRail({
+  header,
+  first,
+  perHunkEnabled,
+  busy,
+  anyBusy,
+  onAccept,
+  onReject,
+}: {
+  header: string
+  first: boolean
+  perHunkEnabled: boolean
+  busy: boolean
+  anyBusy: boolean
+  onAccept: () => void
+  onReject: () => void
+}) {
+  const location = header.replace(/^@@\s*|\s*@@$/g, "").trim()
+  return (
+    <tr>
+      <td colSpan={COLS} className={cn(!first && "border-t border-border/60")}>
+        <div className="flex items-center justify-between gap-2 px-3 py-1 bg-secondary/30">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/65">
+            {location}
+          </span>
+          {perHunkEnabled && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onReject}
+                disabled={busy || anyBusy}
+                title="Dismiss this hunk (revert to HEAD just here)"
+                className={cn(
+                  "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                  "text-muted-foreground/70 hover:text-rose-700 dark:hover:text-rose-300",
+                  "hover:bg-rose-500/10",
+                  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                  "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
+                )}
+              >
+                <X className="h-3 w-3" />
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={onAccept}
+                disabled={busy || anyBusy}
+                title="Approve this hunk (commit just this change)"
+                className={cn(
+                  "press flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                  "text-muted-foreground/70 hover:text-emerald-700 dark:hover:text-emerald-300",
+                  "hover:bg-emerald-500/10",
+                  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+                  "disabled:opacity-50 disabled:cursor-progress disabled:active:scale-100",
+                )}
+              >
+                <Check className="h-3 w-3" />
+                Approve
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
@@ -170,6 +216,10 @@ function DiffLineRow({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(line.text)
   const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // A blank-line change is a real change, but whitespace shouldn't
+  // shout — render it as a slim faint row instead of a tall colour bar.
+  const isBlank = line.text === ""
 
   useEffect(() => {
     if (!editing) setDraft(line.text)
@@ -205,19 +255,28 @@ function DiffLineRow({
     }
   }
 
+  // Blank rows get the faintest possible tint; content rows keep the
+  // readable green/red wash.
   const bg =
     line.kind === "add"
-      ? "bg-emerald-500/15 dark:bg-emerald-500/15"
+      ? isBlank
+        ? "bg-emerald-500/[0.06]"
+        : "bg-emerald-500/[0.13]"
       : line.kind === "del"
-        ? "bg-rose-500/15 dark:bg-rose-500/15"
+        ? isBlank
+          ? "bg-rose-500/[0.06]"
+          : "bg-rose-500/[0.13]"
         : ""
-  const sigil =
-    line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "
+  const sigil = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "
   const sigilColor =
     line.kind === "add"
-      ? "text-emerald-700 dark:text-emerald-300"
+      ? isBlank
+        ? "text-emerald-600/40 dark:text-emerald-400/35"
+        : "text-emerald-700 dark:text-emerald-300"
       : line.kind === "del"
-        ? "text-rose-700 dark:text-rose-300"
+        ? isBlank
+          ? "text-rose-600/40 dark:text-rose-400/35"
+          : "text-rose-700 dark:text-rose-300"
         : "text-muted-foreground/40"
   const textColor =
     line.kind === "add"
@@ -226,18 +285,24 @@ function DiffLineRow({
         ? "text-rose-900 dark:text-rose-100 line-through decoration-rose-500/50"
         : "text-foreground/80"
 
+  // Slim metrics for blank rows — roughly a third of a content line.
+  const numCell = cn(
+    "select-none w-10 text-right pr-2 align-top font-mono tabular-nums",
+    "text-[10px] text-muted-foreground/55",
+    isBlank ? "leading-[8px] py-0" : "pt-0.5",
+  )
+
+  const editable = !!onCommitEdit && !isBlank
+
   return (
     <tr className={cn(bg, "group hover:bg-foreground/[0.04]")}>
-      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/60 font-mono tabular-nums pt-0.5">
-        {line.oldNo ?? ""}
-      </td>
-      <td className="select-none w-10 text-right pr-2 align-top text-[10px] text-muted-foreground/60 font-mono tabular-nums pt-0.5">
-        {line.newNo ?? ""}
-      </td>
+      <td className={numCell}>{line.oldNo ?? ""}</td>
+      <td className={numCell}>{line.newNo ?? ""}</td>
       <td
         className={cn(
           "select-none w-5 text-center align-top font-semibold",
           sigilColor,
+          isBlank && "leading-[8px]",
         )}
       >
         {sigil}
@@ -246,16 +311,15 @@ function DiffLineRow({
         className={cn(
           "pr-4 align-top whitespace-pre-wrap break-words",
           textColor,
-          onCommitEdit &&
+          isBlank && "leading-[8px] py-0",
+          editable &&
             !editing &&
             "cursor-text hover:outline hover:outline-1 hover:outline-primary/30",
         )}
         onClick={() => {
-          if (onCommitEdit && !editing) setEditing(true)
+          if (editable && !editing) setEditing(true)
         }}
-        title={
-          onCommitEdit && !editing ? "Click to edit this line" : undefined
-        }
+        title={editable && !editing ? "Click to edit this line" : undefined}
       >
         {editing ? (
           <input
@@ -271,12 +335,19 @@ function DiffLineRow({
               textColor,
             )}
           />
+        ) : isBlank ? (
+          ""
         ) : (
-          line.text || " "
+          line.text || " "
         )}
       </td>
-      <td className="select-none w-7 align-top pt-0.5 pr-1">
-        {onDismiss && (
+      <td
+        className={cn(
+          "select-none w-7 align-top pr-1",
+          isBlank ? "py-0" : "pt-0.5",
+        )}
+      >
+        {onDismiss && !isBlank && (
           <button
             type="button"
             onClick={onDismiss}
