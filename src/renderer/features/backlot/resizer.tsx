@@ -23,9 +23,12 @@ export interface ResizerProps {
   /** Optional callback fired once on mouseup. */
   onResizeEnd?: () => void
   className?: string
+  /** Floating-island layout: drop the painted hairline, keep only the
+   *  invisible hover hit-area so the handle sits cleanly in a gutter. */
+  bare?: boolean
 }
 
-export function Resizer({ axis, onResize, onResizeEnd, className }: ResizerProps) {
+export function Resizer({ axis, onResize, onResizeEnd, className, bare }: ResizerProps) {
   const [active, setActive] = useState(false)
   const lastRef = useRef<number | null>(null)
 
@@ -80,17 +83,20 @@ export function Resizer({ axis, onResize, onResizeEnd, className }: ResizerProps
         className,
       )}
     >
-      {/* Painted hairline */}
-      <div
-        className={cn(
-          "absolute bg-border group-hover:bg-primary/60",
-          "transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)]",
-          axis === "x"
-            ? "inset-y-0 left-1/2 -translate-x-1/2 w-px"
-            : "inset-x-0 top-1/2 -translate-y-1/2 h-px",
-          active && "bg-primary",
-        )}
-      />
+      {/* Painted hairline — skipped in `bare` mode (islands float in a
+          gutter, a divider line would fight the floating look). */}
+      {!bare && (
+        <div
+          className={cn(
+            "absolute bg-border group-hover:bg-primary/60",
+            "transition-[background-color] duration-200 [transition-timing-function:var(--ease-natural)]",
+            axis === "x"
+              ? "inset-y-0 left-1/2 -translate-x-1/2 w-px"
+              : "inset-x-0 top-1/2 -translate-y-1/2 h-px",
+            active && "bg-primary",
+          )}
+        />
+      )}
     </div>
   )
 }

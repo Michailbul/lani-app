@@ -35,7 +35,7 @@
      modern. The accent is bright, so it carries dark "accent ink"
      for text/icons that sit on top of it. */
   :root {
-    --background: 75 20% 98%;           /* Canvas — clean near-white */
+    --background: 74 16% 96%;           /* Master canvas — warm paper; islands float on it */
     --foreground: 72 25% 8%;            /* Ink — near-black, green undertone */
     --card: 0 0% 100%;                  /* Surface — pure white panels */
     --card-foreground: 72 25% 8%;
@@ -234,6 +234,29 @@
    in existing markup is harmless. */
 .bl-glass-sheen::before {
   content: none;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Floating islands — the redesigned shell.
+
+   Every chrome panel (project rail, mode strip, assistant
+   rail) is a white card lifted off the master canvas with a
+   soft two-layer shadow: a tight contact shadow plus a wide
+   ambient one. The canvas — the editor's own paper tone —
+   shows through the gutters between islands, so the shell
+   reads as panels resting on one continuous surface.
+   ═══════════════════════════════════════════════════════ */
+.bl-island {
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow:
+    0 1px 2px rgba(20, 22, 14, 0.05),
+    0 10px 28px -14px rgba(20, 22, 14, 0.18);
+}
+.dark .bl-island {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 12px 30px -14px rgba(0, 0, 0, 0.65);
 }
 
 /* ═══════════════════════════════════════════════════════

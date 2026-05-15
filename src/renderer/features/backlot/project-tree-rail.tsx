@@ -21,7 +21,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clapperboard,
-  GitBranch,
   Globe2,
   Layers,
   MapPin,
@@ -130,8 +129,8 @@ export function ProjectTreeRail() {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "press relative z-10 shrink-0 flex flex-col items-center justify-start py-3 gap-2",
-          "w-8 border-r border-border/60 bl-glass",
+          "press relative shrink-0 flex flex-col items-center justify-start py-3 gap-2",
+          "w-10 bl-island rounded-2xl",
           "text-muted-foreground hover:text-foreground",
           "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
@@ -151,13 +150,13 @@ export function ProjectTreeRail() {
   }
 
   return (
-    <div className="relative z-10 flex shrink-0 h-full">
+    <div className="relative flex shrink-0 h-full">
       <aside
-        className="relative flex flex-col border-r border-border/60 bl-glass"
+        className="relative flex flex-col bl-island rounded-2xl overflow-hidden"
         style={{ width }}
       >
         {/* Header */}
-        <div className="bl-glass-sheen relative flex items-center justify-between h-10 px-3 border-b border-border/60 bl-glass-strong select-none shrink-0">
+        <div className="relative flex items-center justify-between h-10 px-3 border-b border-border select-none shrink-0">
           <div className="flex items-center gap-2">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-mono">
@@ -181,6 +180,7 @@ export function ProjectTreeRail() {
 
       <Resizer
         axis="x"
+        bare
         onResize={(d) => setWidth((w) => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w + d)))}
       />
     </div>
@@ -318,43 +318,27 @@ function DirectionsSection({
                   type="button"
                   onClick={() => onSelect(direction.id)}
                   className={cn(
-                    "press group relative w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left",
+                    "press group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left",
                     "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
                     active
-                      ? "bg-primary/12 text-foreground font-medium"
-                      : "text-foreground/85 hover:bg-secondary/60",
+                      ? "bg-primary/15 text-foreground font-medium"
+                      : "text-foreground/80 hover:bg-secondary/70",
                   )}
-                  style={{ paddingLeft: 12 + depth * 14 }}
+                  style={{ paddingLeft: 10 + depth * 16 }}
                   title={
                     direction.forkedAtCommit
                       ? `${label} - forked at ${direction.forkedAtCommit.slice(0, 7)}`
                       : label
                   }
                 >
-                  <span
-                    className={cn(
-                      "absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-primary origin-top",
-                      "transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-out)]",
-                      active ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
-                    )}
-                    aria-hidden
-                  />
                   {active ? (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  ) : depth > 0 ? (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                    <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--accent-deep))]" />
                   ) : (
-                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                    <DirectionDot color={direction.directionColor} active={false} />
                   )}
-                  <DirectionDot color={direction.directionColor} active={active} />
                   <span className="min-w-0 flex-1 truncate text-[12.5px]">
                     {label}
                   </span>
-                  {direction.forkedAtCommit && (
-                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/45">
-                      fork
-                    </span>
-                  )}
                 </button>
               </li>
             )

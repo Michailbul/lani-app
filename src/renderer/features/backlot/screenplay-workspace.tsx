@@ -103,28 +103,31 @@ export function ScreenplayWorkspace({
 
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-background">
-      {/* Ambient canvas — soft lime halo, a faint grid-dot field and
-          paper grain. Sits behind every panel at z-0; the glass rails
-          let it bleed through so the whole shell reads as one surface. */}
+      {/* Master canvas — the editor's own paper tone fills the window.
+          A faint lime halo keeps it from reading dead-flat. Every chrome
+          panel is a floating island layered on top of it. */}
       <AmbientCanvas />
 
-      {/* Left rail — project tree navigator. Collapsible. */}
-      <ProjectTreeRail />
+      {/* Floating-island shell. The rail, the mode strip and the
+          assistant are white cards lifted off the canvas; the canvas
+          shows through the 10px gutters so the whole thing reads as
+          panels resting on one surface. */}
+      <div className="relative z-10 flex h-full w-full gap-2.5 p-2.5">
+        {/* Left rail — project tree navigator. Collapsible island. */}
+        <ProjectTreeRail />
 
-      {/* Center — mode toggle + content. Distinct workflow surfaces:
-            · Screenwriting → ScreenplayPane (existing editor flow)
-            · Prompts       → PromptsModeView (screenplay ref left,
-                              free-text prompt blocks center, chat right)
-            · Shotlist      → ShotlistSurface (Runway prompt queue)
-          Toggling is a workflow shift, NOT a layout split — only one
-          surface is visible at a time so the user is never confused
-          about which mode they're in. */}
-      <div className="relative z-10 flex-1 min-w-0 flex flex-col">
-        <ModeToggleStrip />
-        <LineageBreadcrumb />
-        <div className="flex-1 min-h-0">
-          <ModeAwareCenter chatId={chatId} directionName={directionName} />
-        </div>
+        {/* Center column — mode-strip island above; the editor sits
+            directly on the bare canvas below (no card — the editor IS
+            the canvas). Switching modes is a workflow shift, not a
+            layout split: only one surface shows at a time. */}
+        <div className="relative flex-1 min-w-0 flex flex-col gap-2.5">
+          <ModeToggleStrip />
+          <div className="relative flex-1 min-h-0 flex flex-col">
+            <LineageBreadcrumb />
+            <div className="flex-1 min-h-0">
+              <ModeAwareCenter chatId={chatId} directionName={directionName} />
+            </div>
+          </div>
 
         {/* Show-assistant pill — vertical label on the right edge. Big enough
             to find without hunting; clickable across the whole pill. */}
@@ -139,7 +142,7 @@ export function ScreenplayWorkspace({
               className={cn(
                 "press group",
                 "flex flex-col items-center justify-center gap-2",
-                "w-9 py-4 rounded-l-lg border border-r-0 border-border",
+                "w-9 py-4 rounded-xl",
                 "bg-primary text-primary-foreground",
                 "shadow-lg",
                 "transition-shadow duration-200 [transition-timing-function:var(--ease-out)]",
@@ -167,6 +170,7 @@ export function ScreenplayWorkspace({
       {railOpen && (
         <Resizer
           axis="x"
+          bare
           className="z-10"
           onResize={(d) =>
             setRailUserWidth((w) =>
@@ -181,11 +185,11 @@ export function ScreenplayWorkspace({
           opens so it doesn't overflow off the right edge of the window. */}
       {railOpen && (
         <aside
-          className="relative z-10 shrink-0 flex flex-col border-l border-border/60 bl-glass"
+          className="relative shrink-0 flex flex-col bl-island rounded-2xl overflow-hidden"
           style={{ width: railUserWidth }}
         >
           {/* Rail header */}
-          <div className="bl-glass-sheen relative flex items-center justify-between gap-2 h-10 px-3 border-b border-border/60 bl-glass-strong select-none shrink-0">
+          <div className="relative flex items-center justify-between gap-2 h-10 px-3 border-b border-border select-none shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
               <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-mono">
@@ -216,6 +220,7 @@ export function ScreenplayWorkspace({
           <div className="flex-1 min-h-0 overflow-hidden">{assistant}</div>
         </aside>
       )}
+      </div>
     </div>
   )
 }
@@ -263,7 +268,7 @@ function AmbientCanvas() {
 function ModeToggleStrip() {
   const [mode, setMode] = useAtom(viewModeAtom)
   return (
-    <div className="bl-glass-sheen relative z-10 flex items-stretch h-11 border-b border-border/60 bl-glass select-none shrink-0">
+    <div className="relative flex items-stretch h-12 bl-island rounded-2xl select-none shrink-0 overflow-hidden">
       {/* Leading mark — a steady lime dot, the shell's signature accent. */}
       <div className="flex items-center pl-5 pr-4">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
@@ -298,7 +303,7 @@ function ModeToggleStrip() {
           className="rounded-full bg-primary/20 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--accent-deep))]"
           title="Backlot UI build marker"
         >
-          design v4 · lime
+          design v5 · islands
         </span>
         <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground/55">
           {mode === "screenwriting"
@@ -829,7 +834,7 @@ function LineageBreadcrumb() {
   if (chain.length <= 1) return null
 
   return (
-    <div className="flex items-center gap-1.5 h-7 px-3 border-b border-border/60 bl-glass select-none shrink-0 overflow-hidden">
+    <div className="flex items-center gap-1.5 h-8 px-1 pb-1.5 select-none shrink-0 overflow-hidden">
       <GitBranch className="h-3 w-3 text-muted-foreground/60 shrink-0" />
       <div className="flex items-center gap-1 text-[11px] font-mono tabular-nums truncate">
         {chain.map((d, idx) => {

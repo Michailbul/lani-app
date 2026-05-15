@@ -345,35 +345,34 @@ function ActiveEntityFile({
   }, [previewable, buffer])
 
   const label = "label" in active ? active.label : "Untitled"
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header — editorial masthead. Kicker (mono caps) + display
-          headline. Right side: save state + path in mono. The hairline
-          rule is left-anchored Lime, like an editor's margin mark. */}
-      <header className="relative shrink-0 px-10 pt-8 pb-6">
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0 flex-1">
-            {/* Kind chip — a small lime pill, the header's one accent. */}
-            <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-[10px] font-mono font-medium uppercase tracking-[0.16em] text-[hsl(var(--accent-deep))]">
-              {kindLabel(active.kind)}
-            </span>
-            <h1
-              className="mt-3.5 text-[30px] leading-[1.08] tracking-[-0.02em] text-foreground truncate"
-              style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
-              title={label}
-            >
-              {label}
-            </h1>
-            <div
-              className="mt-2 text-[11px] tracking-tight text-muted-foreground/55 truncate"
+      {/* Header — compact file bar. One row: kind icon, filename, dimmed
+          parent path; save state + raw/preview toggle on the right.
+          Replaces the old full-height editorial masthead. */}
+      <header className="relative shrink-0 flex items-center gap-2.5 px-10 py-3 border-b border-border">
+        <KindIcon kind={active.kind} />
+        <div className="flex items-baseline gap-2 min-w-0">
+          <h1
+            className="shrink-0 text-[15px] font-semibold leading-none text-foreground"
+            style={{ fontFamily: "var(--font-body)" }}
+            title={label}
+          >
+            {label}
+          </h1>
+          {dir && (
+            <span
+              className="truncate text-[11px] text-muted-foreground/50"
               style={{ fontFamily: "var(--font-mono)" }}
               title={path}
             >
-              {path}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+              {dir}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
             <SaveIndicator state={saveState} />
               {previewable && (
                 <Tooltip>
@@ -425,8 +424,6 @@ function ActiveEntityFile({
                 </Tooltip>
               )}
           </div>
-        </div>
-        <div className="mt-6 h-px bg-border" />
       </header>
 
       {/* Pending-changes banner — when the active file differs from
@@ -750,33 +747,6 @@ function KindIcon({ kind }: { kind: NonNullable<ActiveEntity>["kind"] }) {
   if (kind === "shot") return <Camera className={cls} />
   if (kind === "file") return <FileText className={cls} />
   return <FileText className={cls} />
-}
-
-function kindLabel(kind: NonNullable<ActiveEntity>["kind"]) {
-  switch (kind) {
-    case "brief":
-      return "Project brief"
-    case "world":
-      return "World bible"
-    case "main-script":
-      return "Main script"
-    case "character":
-      return "Character"
-    case "location":
-      return "Location"
-    case "act":
-      return "Act"
-    case "scene":
-      return "Scene"
-    case "shot":
-      return "Shot"
-    case "master-script":
-      return "Master script"
-    case "file":
-      return "File"
-    default:
-      return "File"
-  }
 }
 
 function SaveIndicator({ state }: { state: "idle" | "saving" | "saved" | "error" }) {
