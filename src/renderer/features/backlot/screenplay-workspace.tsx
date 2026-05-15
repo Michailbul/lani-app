@@ -121,9 +121,8 @@ export function ScreenplayWorkspace({
           A faint lime halo keeps it from reading dead-flat. */}
       <AmbientCanvas />
 
-      {/* Top navbar — a full-width liquid-glass bar, flush to the window
-          edges. Not an island: it's the app's chrome spine, and the
-          canvas + lime halo glow through its frosted pane. */}
+      {/* Top navbar — a floating liquid-glass island spanning the top.
+          The canvas + lime halo glow through its frosted pane. */}
       <ModeToggleStrip />
 
       {/* Floating-island shell — the working area below the navbar. The
@@ -282,7 +281,7 @@ function AmbientCanvas() {
 function ModeToggleStrip() {
   const [mode, setMode] = useAtom(viewModeAtom)
   return (
-    <div className="relative z-20 flex items-stretch h-12 bl-liquid-glass select-none shrink-0">
+    <div className="relative z-20 mx-2.5 mt-2.5 flex items-stretch h-12 bl-liquid-glass rounded-2xl select-none shrink-0 overflow-hidden">
       <div className="flex items-stretch gap-7 pl-6">
         <ModeMastheadItem
           label="Screenwriting"

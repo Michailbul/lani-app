@@ -260,11 +260,11 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   Liquid glass — the top navbar surface. A translucent,
-   backdrop-blurred pane: the warm canvas and the lime
+   Liquid glass — a translucent, backdrop-blurred island
+   surface (the top navbar). The warm canvas and the lime
    ambient halo glow through it, a 1px top sheen catches
-   the light, a hairline + soft shadow seat it over the
-   content. Frosted, not opaque. Per ui-ux-pro-max: light
+   the light, a hairline + island shadow lift it off the
+   canvas. Frosted, not opaque. Per ui-ux-pro-max: light
    mode keeps the fill opaque enough (~70%+) for legible
    text — a near-transparent glass fails contrast.
    ═══════════════════════════════════════════════════════ */
@@ -272,14 +272,15 @@
   background: linear-gradient(
     180deg,
     hsl(0 0% 100% / 0.82) 0%,
-    hsl(0 0% 100% / 0.64) 100%
+    hsl(0 0% 100% / 0.62) 100%
   );
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid hsl(var(--border) / 0.7);
+  border: 1px solid hsl(var(--border) / 0.8);
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.7),
-    0 2px 14px -8px rgba(20, 22, 14, 0.14);
+    0 1px 2px rgba(20, 22, 14, 0.05),
+    0 10px 28px -14px rgba(20, 22, 14, 0.16);
 }
 .dark .bl-liquid-glass {
   background: linear-gradient(
@@ -287,10 +288,11 @@
     hsl(0 0% 13% / 0.80) 0%,
     hsl(0 0% 9% / 0.6) 100%
   );
-  border-bottom-color: hsl(0 0% 100% / 0.08);
+  border-color: hsl(0 0% 100% / 0.1);
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.06),
-    0 2px 14px -8px rgba(0, 0, 0, 0.55);
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 12px 30px -14px rgba(0, 0, 0, 0.6);
 }
 
 /* ═══════════════════════════════════════════════════════
