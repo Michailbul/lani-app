@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
+import { PanelLeftOpen } from "lucide-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
@@ -284,6 +285,25 @@ export function AgentsLayout() {
             />
           )}
         </ResizableSidebar>
+
+          {/* Reopen rail — the app sidebar collapses to width 0, and its
+              only built-in toggle lives in ChatView's header, which is
+              hidden inside Backlot's assistant rail. Without this strip
+              there is no way to bring the Projects + Settings sidebar
+              back. A slim always-present activity strip fixes that. */}
+          {!isMobile && !sidebarOpen && (
+            <div className="shrink-0 w-12 flex flex-col items-center pt-2.5 bg-background">
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                title="Show sidebar"
+                aria-label="Show projects and settings sidebar"
+                className="press flex items-center justify-center h-9 w-9 rounded-lg bl-island text-muted-foreground hover:text-foreground hover:border-primary/40 transition-[color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]"
+              >
+                <PanelLeftOpen className="h-[18px] w-[18px]" />
+              </button>
+            </div>
+          )}
 
           {/* Main Content */}
           <div className="flex-1 overflow-hidden flex flex-col min-w-0">

@@ -131,25 +131,29 @@ export function ProjectTreeRail() {
   const [width, setWidth] = useAtom(projectTreeWidthAtom)
 
   if (!open) {
-    // Collapsed — a small square island button pinned to the top-left,
-    // not a full-height empty strip. Click expands the rail. On macOS
-    // it sits below the traffic lights so the OS controls don't eat
-    // the click.
+    // Collapsed — a lime button pinned top-left. Lime (not a white
+    // island) so it's unmistakable against the canvas; a white-on-
+    // near-white square was too easy to lose. Mirrors the assistant
+    // rail's reopen pill. On macOS it sits below the traffic lights
+    // so the OS controls don't eat the click.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "press group shrink-0 self-start flex items-center justify-center",
-          "h-10 w-10 bl-island rounded-xl",
+          "press group shrink-0 self-start flex items-center justify-center gap-2",
+          "h-10 rounded-xl px-3",
+          "bg-primary text-primary-foreground shadow-lg",
+          "transition-shadow duration-200 [transition-timing-function:var(--ease-out)] hover:shadow-xl",
           IS_MAC && "mt-8",
-          "text-muted-foreground hover:text-foreground hover:border-primary/40",
-          "transition-[color,background-color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Show project"
         aria-label="Show project"
       >
         <PanelLeftOpen className="h-[18px] w-[18px]" />
+        <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em]">
+          Project
+        </span>
       </button>
     )
   }
