@@ -10,7 +10,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { FolderTree, PanelLeft } from "lucide-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { cn } from "../../lib/utils"
-import { projectTreeOpenAtom } from "../backlot/atoms"
+import { projectTreeOpenAtom, viewModeAtom } from "../backlot/atoms"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
 import {
@@ -325,6 +325,8 @@ function AppTopBar() {
   const isFullscreen = useAtomValue(isFullscreenAtom)
   const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
   const [treeOpen, setTreeOpen] = useAtom(projectTreeOpenAtom)
+  const [viewMode, setViewMode] = useAtom(viewModeAtom)
+  const desktopView = useAtomValue(desktopViewAtom)
 
   const isMac =
     typeof navigator !== "undefined" &&
@@ -333,46 +335,80 @@ function AppTopBar() {
   // Windows has its own WindowsTitleBar; the web build has no chrome.
   if (!isDesktop || !isMac) return null
 
+  // The workflow tabs belong to the screenwriting workspace only —
+  // not settings / automations / inbox.
+  const showModes = ![
+    "settings",
+    "automations",
+    "automations-detail",
+    "inbox",
+  ].includes(desktopView)
+
   return (
     <div
-      className="relative z-30 shrink-0 flex items-center gap-1 h-9 bg-background border-b border-border/70"
+      className="relative z-30 shrink-0 flex items-stretch h-10 bg-background border-b border-border/70"
       style={{
         // @ts-expect-error - WebKit-specific property
         WebkitAppRegion: "drag",
       }}
     >
-      {/* Reserve + un-drag the native traffic-light cluster so the OS
-          buttons stay clickable. */}
-      {!isFullscreen && (
-        <div
-          aria-hidden
-          className="w-[72px] shrink-0 self-stretch"
-          style={{
-            // @ts-expect-error - WebKit-specific property
-            WebkitAppRegion: "no-drag",
-          }}
-        />
-      )}
+      {/* Left — native traffic lights (reserved, un-dragged so the OS
+          buttons stay clickable) + the panel collapse toggles. */}
       <div
-        className="flex items-center gap-0.5"
+        className="flex items-center"
         style={{
           // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >
-        <TopBarToggle
-          onClick={() => setSidebarOpen((v) => !v)}
-          title={sidebarOpen ? "Hide projects sidebar" : "Show projects sidebar"}
-        >
-          <PanelLeft className="h-4 w-4" />
-        </TopBarToggle>
-        <TopBarToggle
-          onClick={() => setTreeOpen((v) => !v)}
-          title={treeOpen ? "Hide file explorer" : "Show file explorer"}
-        >
-          <FolderTree className="h-4 w-4" />
-        </TopBarToggle>
+        {!isFullscreen && <div aria-hidden className="w-[72px] shrink-0" />}
+        <div className="flex items-center gap-0.5">
+          <TopBarToggle
+            onClick={() => setSidebarOpen((v) => !v)}
+            title={sidebarOpen ? "Hide projects sidebar" : "Show projects sidebar"}
+          >
+            <PanelLeft className="h-4 w-4" />
+          </TopBarToggle>
+          <TopBarToggle
+            onClick={() => setTreeOpen((v) => !v)}
+            title={treeOpen ? "Hide file explorer" : "Show file explorer"}
+          >
+            <FolderTree className="h-4 w-4" />
+          </TopBarToggle>
+        </div>
       </div>
+
+      {/* Center — workflow mode tabs, centered in the bar. */}
+      {showModes && (
+        <div
+          className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 flex items-stretch"
+          style={{
+            // @ts-expect-error - WebKit-specific property
+            WebkitAppRegion: "no-drag",
+          }}
+        >
+          <ModeTab
+            label="Screenwriting"
+            active={viewMode === "screenwriting"}
+            onClick={() => setViewMode("screenwriting")}
+          />
+          <ModeTab
+            label="Prompts"
+            active={viewMode === "prompts"}
+            onClick={() => setViewMode("prompts")}
+          />
+          <ModeTab
+            label="Shotlist"
+            active={viewMode === "shotlist"}
+            onClick={() => setViewMode("shotlist")}
+          />
+          <ModeTab
+            label="Canvas"
+            active={viewMode === "canvas"}
+            onClick={() => setViewMode("canvas")}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -399,6 +435,36 @@ function TopBarToggle({
       )}
     >
       {children}
+    </button>
+  )
+}
+
+// Workflow mode tab — a text tab with a lime underline when active.
+function ModeTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "press relative flex items-center px-3.5 text-[12.5px]",
+        active
+          ? "text-foreground font-medium"
+          : "text-muted-foreground/65 hover:text-foreground/85",
+      )}
+      style={{ fontFamily: "var(--font-body)" }}
+    >
+      {label}
+      {active && (
+        <span className="absolute inset-x-2.5 bottom-0 h-[2px] rounded-full bg-primary" />
+      )}
     </button>
   )
 }

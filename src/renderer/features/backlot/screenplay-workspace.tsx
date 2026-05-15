@@ -34,7 +34,6 @@ import {
   Plus,
   Trash2,
 } from "lucide-react"
-import { motion } from "motion/react"
 import { toast } from "sonner"
 import { ProjectTreeRail } from "./project-tree-rail"
 import { ScreenplayPane } from "./screenplay-pane"
@@ -128,10 +127,9 @@ export function ScreenplayWorkspace({
         {/* Left rail — project tree navigator. */}
         <ProjectTreeRail />
 
-        {/* Center column — floating liquid-glass navbar above, the editor
-            on the bare canvas below. */}
-        <div className="relative flex-1 min-w-0 flex flex-col gap-2.5">
-          <ModeToggleStrip />
+        {/* Center column — the editor on the bare canvas. The workflow
+            mode tabs live in the global AppTopBar. */}
+        <div className="relative flex-1 min-w-0 flex flex-col">
           <div className="relative flex-1 min-h-0 flex flex-col">
             <LineageBreadcrumb />
             <div className="flex-1 min-h-0">
@@ -249,90 +247,6 @@ function AmbientCanvas() {
         }}
       />
     </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// ModeToggleStrip — top-of-pane tabs for the workflow stages.
-//
-//   [ ✎ Screenwriting ]  [ ✦ Prompts ]  [ Shotlist ]
-//
-// Distinct surfaces, NOT a layout split. The user shifts pipeline stages
-// here; the chosen mode persists in viewModeAtom across reloads.
-// ────────────────────────────────────────────────────────────────────────
-
-/**
- * The masthead — a few words, a moving Coral nib. Reads more like a magazine
- * masthead than an OS tab strip. Active item: foreground tone + a thin
- * Coral underline that slides between the items using framer-motion's
- * shared-layoutId trick. Inactive item: muted, no underline. The point
- * is to feel like an editor turning a manuscript page, not toggling a
- * setting.
- */
-function ModeToggleStrip() {
-  const [mode, setMode] = useAtom(viewModeAtom)
-  return (
-    <div className="relative z-20 flex items-stretch h-12 bl-liquid-glass rounded-2xl select-none shrink-0 overflow-hidden">
-      <div className="flex items-stretch gap-7 pl-6">
-        <ModeMastheadItem
-          label="Screenwriting"
-          active={mode === "screenwriting"}
-          onClick={() => setMode("screenwriting")}
-        />
-        <ModeMastheadItem
-          label="Prompts"
-          active={mode === "prompts"}
-          onClick={() => setMode("prompts")}
-        />
-        <ModeMastheadItem
-          label="Shotlist"
-          active={mode === "shotlist"}
-          onClick={() => setMode("shotlist")}
-        />
-        <ModeMastheadItem
-          label="Canvas"
-          active={mode === "canvas"}
-          onClick={() => setMode("canvas")}
-        />
-      </div>
-    </div>
-  )
-}
-
-function ModeMastheadItem({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        // Editorial masthead item — text-only, the active marker is the
-        // sliding Coral nib (motion.span layoutId="mode-nib" below), not
-        // a button background. `.press` from the animation pass gives it
-        // the standard interactive feedback shared by every button.
-        "press relative flex items-center px-1 text-[12px] tracking-[0.04em]",
-        active
-          ? "text-foreground"
-          : "text-muted-foreground/65 hover:text-foreground/85",
-      )}
-      style={{ fontFamily: "var(--font-body)", fontWeight: 500 }}
-    >
-      <span>{label}</span>
-      {active && (
-        <motion.span
-          layoutId="mode-nib"
-          className="absolute left-0 right-0 -bottom-px h-[2px] bg-primary"
-          transition={{ type: "spring", stiffness: 480, damping: 38 }}
-        />
-      )}
-    </button>
   )
 }
 
