@@ -1,36 +1,54 @@
 /**
  * Backlot harness — the universal system-prompt block.
  *
- * One file. Versioned. The single editable surface for "how the agent
- * thinks about Backlot." Every Claude/Ollama session ships these
- * conventions automatically.
+ * One file. Versioned. The base text for "how the agent thinks about
+ * Backlot." Every Claude/Ollama session ships these conventions
+ * automatically.
  *
  * Two layers compose the final system prompt:
  *
- *   1. Backlot harness (this file)         universal, ships in code
+ *   1. Backlot harness (this file)         universal base, ships in code
  *   2. Active-entity context (TODO)        derived per-turn from the
  *                                          active entity in the renderer
+ *
+ * User override: the built-in text below is the DEFAULT. If the user
+ * edits the prompt in Settings → System Prompt, their version is
+ * written to `~/.backlot/harness-prompt.md` and takes over. Delete
+ * that file (or hit "Reset to default" in Settings) to fall back to
+ * the shipped text. `buildBacklotHarnessBlock()` resolves this at
+ * call time so an edit takes effect on the next agent turn — no app
+ * restart.
  *
  * Deliberately NOT a per-project CLAUDE.md — Backlot's conventions are
  * the same across every project. Project-specific creative direction
  * lives inside the project's own files (brief.md, world.md, character
  * locks) which the agent reads on demand.
  *
- * When conventions evolve (new entity kind, new folder convention,
- * new file layout), edit this file and bump BACKLOT_HARNESS_VERSION.
- * That's the entire update mechanism.
+ * When the SHIPPED conventions evolve (new entity kind, new folder
+ * convention, new file layout), edit the default below and bump
+ * BACKLOT_HARNESS_VERSION.
  */
+
+import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
 export const BACKLOT_HARNESS_VERSION = "1.1"
 
+/** Where a user-edited override of the harness prompt is persisted.
+ *  Absent file → the shipped default is used. */
+export const HARNESS_OVERRIDE_PATH = join(
+  homedir(),
+  ".backlot",
+  "harness-prompt.md",
+)
+
 /**
- * The universal Backlot harness block. Returned as a markdown string
- * and appended to the SDK's `claude_code` preset via the
- * `systemPrompt: { append: ... }` option.
- *
- * Pure function — no I/O, no state. Easy to test, cheap to call.
+ * The shipped default Backlot harness block. This is the text that
+ * ships in code; the user can override it via Settings → System
+ * Prompt, but this is always the fallback and the "Reset" target.
  */
-export function buildBacklotHarnessBlock(): string {
+export function getDefaultHarnessBlock(): string {
   return `
 # Backlot — the harness you are operating in (v${BACKLOT_HARNESS_VERSION})
 
@@ -191,4 +209,29 @@ Examples of good additions:
 
 This is how the project's wisdom accumulates across sessions.
 `.trim()
+}
+
+/**
+ * The effective Backlot harness block — the user's override if one
+ * exists, otherwise the shipped default. Appended to the SDK's
+ * `claude_code` preset via the `systemPrompt: { append: ... }` option.
+ *
+ * Synchronous on purpose: claude.ts composes the prompt synchronously
+ * when building query options. The override file is tiny, so a sync
+ * read costs nothing. A read failure (permissions, bad encoding)
+ * falls back to the default rather than crashing the turn.
+ */
+export function buildBacklotHarnessBlock(): string {
+  try {
+    if (existsSync(HARNESS_OVERRIDE_PATH)) {
+      const custom = readFileSync(HARNESS_OVERRIDE_PATH, "utf-8")
+      if (custom.trim()) return custom.trim()
+    }
+  } catch (err) {
+    console.warn(
+      "[harness-prompt] Failed to read override, using default:",
+      err,
+    )
+  }
+  return getDefaultHarnessBlock()
 }

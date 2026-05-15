@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, ScrollText } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import {
   EyeOpenFilledIcon,
@@ -72,6 +72,11 @@ const ADVANCED_TABS_BASE = [
     id: "models" as SettingsTab,
     label: "Models",
     icon: BrainFilledIcon,
+  },
+  {
+    id: "system-prompt" as SettingsTab,
+    label: "System Prompt",
+    icon: ScrollText,
   },
   {
     id: "skills" as SettingsTab,

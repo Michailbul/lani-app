@@ -14,6 +14,7 @@ import { AgentsMcpTab } from "../../components/dialogs/settings-tabs/agents-mcp-
 import { AgentsModelsTab } from "../../components/dialogs/settings-tabs/agents-models-tab"
 import { AgentsPreferencesTab } from "../../components/dialogs/settings-tabs/agents-preferences-tab"
 import { AgentsProfileTab } from "../../components/dialogs/settings-tabs/agents-profile-tab"
+import { AgentsSystemPromptTab } from "../../components/dialogs/settings-tabs/agents-system-prompt-tab"
 import { AgentsProjectsTab } from "../../components/dialogs/settings-tabs/agents-project-worktree-tab"
 import { AgentsSkillsTab } from "../../components/dialogs/settings-tabs/agents-skills-tab"
 import { AgentsPluginsTab } from "../../components/dialogs/settings-tabs/agents-plugins-tab"
@@ -49,6 +50,8 @@ export function SettingsContent() {
         return <AgentsKeyboardTab />
       case "preferences":
         return <AgentsPreferencesTab />
+      case "system-prompt":
+        return <AgentsSystemPromptTab />
       case "models":
         return <AgentsModelsTab />
       case "skills":

@@ -8,6 +8,7 @@ import { anthropicAccountsRouter } from "./anthropic-accounts"
 import { codexRouter } from "./codex"
 import { artifactsRouter } from "./artifacts"
 import { pathsRouter } from "./paths"
+import { harnessRouter } from "./harness"
 import { entitiesRouter } from "./entities"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
@@ -41,6 +42,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     codex: codexRouter,
     artifacts: artifactsRouter,
     paths: pathsRouter,
+    harness: harnessRouter,
     entities: entitiesRouter,
     terminal: terminalRouter,
     external: externalRouter,
