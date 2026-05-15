@@ -19,11 +19,10 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight,
-  Clapperboard,
   Globe2,
   Layers,
   MapPin,
+  PanelLeftOpen,
   Plus,
   Sparkles,
   User,
@@ -124,27 +123,22 @@ export function ProjectTreeRail() {
   const [width, setWidth] = useAtom(projectTreeWidthAtom)
 
   if (!open) {
+    // Collapsed — a small square island button pinned to the top-left,
+    // not a full-height empty strip. Click expands the rail.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "press relative shrink-0 flex flex-col items-center justify-start py-3 gap-2",
-          "w-10 bl-island rounded-2xl",
-          "text-muted-foreground hover:text-foreground",
-          "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
+          "press group shrink-0 self-start flex items-center justify-center",
+          "h-10 w-10 bl-island rounded-xl",
+          "text-muted-foreground hover:text-foreground hover:border-primary/40",
+          "transition-[color,background-color,border-color] duration-150 [transition-timing-function:var(--ease-natural)]",
         )}
         title="Show project"
         aria-label="Show project"
       >
-        <Clapperboard className="h-4 w-4" />
-        <span
-          className="text-[10px] uppercase tracking-[0.18em] font-mono"
-          style={{ writingMode: "vertical-rl" }}
-        >
-          Project
-        </span>
-        <ChevronsRight className="h-3 w-3" />
+        <PanelLeftOpen className="h-[18px] w-[18px]" />
       </button>
     )
   }
