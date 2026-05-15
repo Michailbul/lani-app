@@ -351,32 +351,30 @@ function ActiveEntityFile({
       {/* Header — editorial masthead. Kicker (mono caps) + display
           headline. Right side: save state + path in mono. The hairline
           rule is left-anchored Lime, like an editor's margin mark. */}
-      <header className="relative shrink-0 px-10 pt-7 pb-5">
-        <div className="flex items-end justify-between gap-6">
+      <header className="relative shrink-0 px-10 pt-8 pb-6">
+        <div className="flex items-start justify-between gap-6">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span
-                className="inline-block w-[14px] h-[1px] bg-primary"
-                aria-hidden
-              />
-              <span
-                className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/75"
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                {kindLabel(active.kind)}
-              </span>
-            </div>
+            {/* Kind chip — a small lime pill, the header's one accent. */}
+            <span className="inline-flex items-center rounded-full bg-primary/15 px-2.5 py-1 text-[10px] font-mono font-medium uppercase tracking-[0.16em] text-[hsl(var(--accent-deep))]">
+              {kindLabel(active.kind)}
+            </span>
             <h1
-              className="mt-2 text-[34px] leading-[1.05] tracking-[-0.012em] text-foreground truncate"
+              className="mt-3.5 text-[30px] leading-[1.08] tracking-[-0.02em] text-foreground truncate"
               style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
               title={label}
             >
               {label}
             </h1>
+            <div
+              className="mt-2 text-[11px] tracking-tight text-muted-foreground/55 truncate"
+              style={{ fontFamily: "var(--font-mono)" }}
+              title={path}
+            >
+              {path}
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5 shrink-0 pb-1">
-            <div className="flex items-center gap-2">
-              <SaveIndicator state={saveState} />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <SaveIndicator state={saveState} />
               {previewable && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -426,17 +424,9 @@ function ActiveEntityFile({
                   </TooltipContent>
                 </Tooltip>
               )}
-            </div>
-            <span
-              className="text-[10px] tracking-tight text-muted-foreground/55 truncate max-w-[320px]"
-              style={{ fontFamily: "var(--font-mono)" }}
-              title={path}
-            >
-              {path}
-            </span>
           </div>
         </div>
-        <div className="mt-5 h-px bg-border/70" />
+        <div className="mt-6 h-px bg-border" />
       </header>
 
       {/* Pending-changes banner — when the active file differs from
