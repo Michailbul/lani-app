@@ -35,7 +35,7 @@
      modern. The accent is bright, so it carries dark "accent ink"
      for text/icons that sit on top of it. */
   :root {
-    --background: 70 43% 97%;           /* Canvas — paper white, faint lime */
+    --background: 75 20% 98%;           /* Canvas — clean near-white */
     --foreground: 72 25% 8%;            /* Ink — near-black, green undertone */
     --card: 0 0% 100%;                  /* Surface — pure white panels */
     --card-foreground: 72 25% 8%;
@@ -214,53 +214,26 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   Liquid-glass surfaces. Backlot's redesigned shell floats
-   translucent panels over a paper canvas. `.bl-glass` is the
-   panel fill — pair it with a `border` utility (the edge
-   token is wired through `--glass-edge`). Components add
-   their own border-side + radius.
-   ─────────────────────────────────────────────────────────
-   `saturate(180%)` lets the lime accent and any imagery
-   behind the panel bleed through with life instead of going
-   flat-grey under the blur.
+   Panel surfaces — clean / minimal.
+
+   Backlot's shell is flat and crisp: solid panels, hairline
+   edges, no blur, no texture. The `.bl-glass*` class names
+   are kept so existing markup stays valid, but the treatment
+   is now a plain card surface — the Linear / Cal.com register
+   the redesign targets. `.bl-glass` defines border-color, so
+   panels just add a `border` side + radius.
    ═══════════════════════════════════════════════════════ */
-.bl-glass {
-  background-color: hsl(var(--glass));
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-color: hsl(var(--glass-edge));
-}
-
+.bl-glass,
 .bl-glass-strong {
-  background-color: hsl(var(--glass-strong));
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  border-color: hsl(var(--glass-edge));
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
 }
 
-/* Top highlight — a 1px inner light line along a glass panel's
-   upper edge, the way real glass catches a sheen. Apply to a
-   panel that already has `position: relative`. */
+/* Glass sheen retired in the clean/minimal pass — flat panels
+   don't catch a highlight. Kept as a no-op so `.bl-glass-sheen`
+   in existing markup is harmless. */
 .bl-glass-sheen::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    hsl(0 0% 100% / 0.55) 30%,
-    hsl(0 0% 100% / 0.55) 70%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .bl-glass,
-  .bl-glass-strong {
-    transition: background-color 200ms var(--ease-natural);
-  }
+  content: none;
 }
 
 /* ═══════════════════════════════════════════════════════

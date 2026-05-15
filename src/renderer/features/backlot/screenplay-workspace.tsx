@@ -217,17 +217,10 @@ export function ScreenplayWorkspace({
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// AmbientCanvas — the shell's background texture. Three stacked layers,
-// all pointer-events-none, all behind the panels at z-0:
-//   1. a soft lime halo bleeding down from the top edge
-//   2. a faint grid-dot field, masked to fade out toward the bottom
-//   3. fine paper grain
-// The glass rails are translucent, so this texture reads through them
-// and ties every panel into one continuous surface.
+// AmbientCanvas — the shell's only ambient touch. Clean/minimal: no grain,
+// no grid, just one whisper-faint lime wash from the top edge so the
+// canvas isn't dead-flat. Sits behind every panel at z-0.
 // ────────────────────────────────────────────────────────────────────────
-
-const GRAIN_SVG =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")"
 
 function AmbientCanvas() {
   return (
@@ -235,29 +228,12 @@ function AmbientCanvas() {
       aria-hidden
       className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
     >
-      {/* Lime halo — soft glow bleeding down from the top edge */}
       <div
-        className="absolute inset-x-0 top-0 h-[44vh]"
+        className="absolute inset-x-0 top-0 h-[34vh]"
         style={{
           background:
-            "radial-gradient(ellipse 68% 100% at 50% 0%, hsl(var(--primary) / 0.16) 0%, transparent 72%)",
+            "radial-gradient(ellipse 58% 100% at 50% 0%, hsl(var(--primary) / 0.06) 0%, transparent 72%)",
         }}
-      />
-      {/* Grid-dot field — faint, fades out toward the bottom */}
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(hsl(var(--foreground) / 0.07) 1px, transparent 1.4px)",
-          backgroundSize: "24px 24px",
-          maskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
-          WebkitMaskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
-        }}
-      />
-      {/* Paper grain */}
-      <div
-        className="absolute inset-0 opacity-[0.038]"
-        style={{ backgroundImage: GRAIN_SVG }}
       />
     </div>
   )
