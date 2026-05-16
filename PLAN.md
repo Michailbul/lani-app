@@ -66,6 +66,14 @@ Researched: T3 Code supports this class of feature with git checkpoint capture/r
 
 Verified: `bun run build` passes. `bun run ts:check` is still blocked because the repo script calls a missing `tsgo` binary; fallback `tsc --noEmit` continues to show the existing baseline TypeScript errors noted above.
 
+Shipped: replaced the `.fountain` click-to-edit flow with a CodeMirror 6 styled-source editor. Editing a screenplay no longer swaps the typeset page for a raw textarea — the buffer stays raw Fountain but is decorated to read like a screenplay leaf (centred Courier page, bold scene headings, indented dialogue/character cues, right-aligned transitions). New: `fountain-classify.ts` (per-line classifier), `fountain-decorations.ts` (CodeMirror line decorations), `fountain-source-editor.tsx`. `FountainEditor`/`fountain-editor.tsx` deleted; `FountainPreview` kept as the read-only typeset view behind the Code toggle. `.fountain` files now default into the editable editor.
+
+Also redesigned `DiffSurface` (the pending-changes review view): one continuous unified diff instead of a stack of per-hunk cards — hunks joined into a single table with a thin location rail carrying Approve/Dismiss. Blank-line add/remove rows render slim and faint instead of as tall solid colour bars. Diff lines are now editable in place in the entity editor — click a `+`/context line, type, and the file is rewritten with that line swapped (`commitLineEdit`, wired via `paths`/`entities.write`).
+
+Note: `screenplay-pane.tsx` still carries its own duplicate `DiffSurface` (pre-existing) — not touched this session; consolidating onto the shared component is open debt.
+
+Next: visual pass in-app (build is green; UI not yet click-tested). Possible follow-ups — inline emphasis decorations (`*italic*` markers), screenwriter Tab/Enter block flow, scene navigator, dedupe the screenplay-pane DiffSurface.
+
 ## Week 1 — v1 backbone (UI + auth + chat)
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING
