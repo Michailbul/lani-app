@@ -9,7 +9,7 @@ const APPLY_RETRY_DELAY_MS = 200
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type CheckpointPayload = {
-  sdkMessageUuid: string
+  checkpointId: string
   indexTree: string
   worktreeTree: string
 }
@@ -21,7 +21,7 @@ type CheckpointPayload = {
  */
 export async function createRollbackStash(
   cwd: string,
-  sdkMessageUuid: string,
+  checkpointId: string,
 ): Promise<void> {
   try {
     const git = simpleGit(cwd)
@@ -53,7 +53,7 @@ export async function createRollbackStash(
     }
 
     const checkpointPayload: CheckpointPayload = {
-      sdkMessageUuid,
+      checkpointId,
       indexTree,
       worktreeTree,
     }
@@ -74,11 +74,11 @@ export async function createRollbackStash(
 
     await git.raw([
       "update-ref",
-      `refs/checkpoints/${sdkMessageUuid}`,
+      `refs/checkpoints/${checkpointId}`,
       commitHash,
     ])
   } catch (e) {
-    console.error("[claude] Failed to create rollback checkpoint:", e)
+    console.error("[rollback] Failed to create checkpoint:", e)
   }
 }
 
@@ -112,18 +112,18 @@ export type RollbackResult =
 
 export async function applyRollbackStash(
   worktreePath: string,
-  sdkMessageUuid: string,
+  checkpointId: string,
 ): Promise<RollbackResult> {
   try {
     const git = simpleGit(worktreePath)
 
-    const ref = `refs/checkpoints/${sdkMessageUuid}`
+    const ref = `refs/checkpoints/${checkpointId}`
     let commitHash = ""
     try {
       commitHash = (await git.raw(["rev-parse", ref])).trim()
     } catch (error) {
       console.warn(
-        `[claude] Rollback checkpoint not found for sdkMessageUuid=${sdkMessageUuid}`,
+        `[rollback] Checkpoint not found for checkpointId=${checkpointId}`,
       )
       // Checkpoint not found - return success but indicate no checkpoint was applied
       // The caller can decide whether to proceed with message truncation
@@ -139,7 +139,7 @@ export async function applyRollbackStash(
     const { indexTree, worktreeTree } = parseCheckpointTrees(commitMessage)
     if (!indexTree || !worktreeTree) {
       console.error(
-        `[claude] Rollback checkpoint missing tree metadata for sdkMessageUuid=${sdkMessageUuid}`,
+        `[rollback] Checkpoint missing tree metadata for checkpointId=${checkpointId}`,
       )
       return { success: false, error: "Checkpoint missing tree metadata" }
     }
@@ -161,7 +161,7 @@ export async function applyRollbackStash(
     }
     throw lastError
   } catch (e) {
-    console.error("[claude] Failed to apply rollback checkpoint:", e)
+    console.error("[rollback] Failed to apply checkpoint:", e)
     const errorMessage = e instanceof Error ? e.message : "Unknown error"
     return { success: false, error: errorMessage }
   }

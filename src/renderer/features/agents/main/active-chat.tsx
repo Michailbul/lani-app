@@ -3099,8 +3099,8 @@ const ChatViewInner = memo(function ChatViewInner({
     parentChatId,
   )
 
-  // Rollback handler - truncates messages to the clicked assistant message and restores git state
-  // The SDK UUID from the last assistant message will be used for resumeSessionAt on next send
+  // Rollback handler - truncates messages to the clicked assistant message and restores git state.
+  // Claude resumes at the SDK message UUID; Codex starts a fresh session with local transcript context.
   const handleRollback = useCallback(
     async (assistantMsg: (typeof messages)[0]) => {
       if (isRollingBack) {
@@ -3112,9 +3112,10 @@ const ChatViewInner = memo(function ChatViewInner({
         return
       }
 
-      const sdkUuid = (assistantMsg.metadata as any)?.sdkMessageUuid
-      if (!sdkUuid) {
-        toast.error("Cannot rollback: message has no SDK UUID")
+      const metadata = assistantMsg.metadata as any
+      const checkpointId = metadata?.sdkMessageUuid || metadata?.rollbackCheckpointId
+      if (!checkpointId) {
+        toast.error("Cannot rollback: message has no checkpoint")
         return
       }
 
@@ -3124,7 +3125,7 @@ const ChatViewInner = memo(function ChatViewInner({
         // Single call handles both message truncation and git rollback
         const result = await trpcClient.chats.rollbackToMessage.mutate({
           subChatId,
-          sdkMessageUuid: sdkUuid,
+          checkpointId,
         })
 
         if (!result.success) {

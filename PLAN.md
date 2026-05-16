@@ -58,6 +58,14 @@ Fixed: renamed the persistent conversation model from `chats`/`sub_chats` to `wo
 
 Next: run a visual pass in the app once the local browser/debug tooling is available; the repo-wide type check is still blocked by existing baseline TypeScript errors and the missing `tsgo` binary.
 
+## Session note — 2026-05-15
+
+Shipped: added Codex rollover support behind the existing Rollback beta switch. Codex assistant responses now capture Backlot git checkpoints, rollback restores the worktree to the selected response, truncates the local transcript to that point, clears stale Codex session ids, and starts the next Codex turn from a fresh ACP session with local transcript context.
+
+Researched: T3 Code supports this class of feature with git checkpoint capture/restore plus native Codex `thread/rollback` in its app-server runtime. Backlot's current ACP provider wrapper does not expose that native rollback request, so the implementation uses Backlot-level checkpoint restore and transcript state rewind instead.
+
+Verified: `bun run build` passes. `bun run ts:check` is still blocked because the repo script calls a missing `tsgo` binary; fallback `tsc --noEmit` continues to show the existing baseline TypeScript errors noted above.
+
 ## Week 1 — v1 backbone (UI + auth + chat)
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING

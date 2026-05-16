@@ -24,6 +24,7 @@ import {
 } from "../../codex/credentials"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, getDatabasePath, projects as projectsTable, subChats } from "../../db"
+import { createRollbackStash } from "../../git/stash"
 import {
   fetchMcpTools,
   fetchMcpToolsStdio,
@@ -1154,6 +1155,68 @@ function extractPromptFromStoredMessage(message: any): string {
   return textParts.join("\n") + fileContents.join("")
 }
 
+function textFromStoredMessage(message: any): string {
+  if (!message || !Array.isArray(message.parts)) return ""
+  if (message.role === "user") return extractPromptFromStoredMessage(message)
+
+  const textParts: string[] = []
+  const toolParts: string[] = []
+
+  for (const part of message.parts) {
+    if (part?.type === "text" && typeof part.text === "string") {
+      textParts.push(part.text)
+      continue
+    }
+    if (typeof part?.type === "string" && part.type.startsWith("tool-")) {
+      const toolName = part.toolName || part.type.replace(/^tool-/, "")
+      const detail =
+        part.input?.file_path ||
+        part.input?.path ||
+        part.input?.command ||
+        part.input?.cmd
+      toolParts.push(detail ? `[Used ${toolName}: ${detail}]` : `[Used ${toolName}]`)
+    }
+  }
+
+  return [...textParts, ...toolParts].join("\n").trim()
+}
+
+function buildLocalHistoryContext(messages: any[], currentPrompt: string): string {
+  const withoutCurrent = [...messages]
+  const last = withoutCurrent[withoutCurrent.length - 1]
+  if (
+    last?.role === "user" &&
+    textFromStoredMessage(last).trim() === currentPrompt.trim()
+  ) {
+    withoutCurrent.pop()
+  }
+
+  const rows = withoutCurrent
+    .slice(-16)
+    .map((message) => {
+      const text = textFromStoredMessage(message)
+      if (!text) return null
+      const role = message.role === "assistant" ? "Assistant" : "User"
+      return `${role}: ${text}`
+    })
+    .filter((row): row is string => !!row)
+
+  if (rows.length === 0) return ""
+
+  let body = rows.join("\n\n")
+  if (body.length > 12000) {
+    body = `...(earlier inherited messages truncated)...\n\n${body.slice(-12000)}`
+  }
+
+  return `[INHERITED BACKLOT CODEX THREAD CONTEXT]
+This thread was restored without a Codex session to resume. Use this local transcript as context, but treat the current request as authoritative.
+
+${body}
+[/INHERITED BACKLOT CODEX THREAD CONTEXT]
+
+`
+}
+
 function getLastSessionId(messages: any[]): string | undefined {
   const lastAssistant = [...messages].reverse().find((message) => message?.role === "assistant")
   const sessionId = lastAssistant?.metadata?.sessionId
@@ -1354,12 +1417,16 @@ function getOrCreateProvider(params: {
   return provider
 }
 
-function cleanupProvider(subChatId: string): void {
+export function cleanupCodexProviderSession(subChatId: string): void {
   const existing = providerSessions.get(subChatId)
   if (!existing) return
 
   existing.provider.cleanup()
   providerSessions.delete(subChatId)
+}
+
+function cleanupProvider(subChatId: string): void {
+  cleanupCodexProviderSession(subChatId)
 }
 
 export const codexRouter = router({
@@ -1682,6 +1749,7 @@ export const codexRouter = router({
         mode: z.enum(["plan", "agent"]).default("agent"),
         sessionId: z.string().optional(),
         forceNewSession: z.boolean().optional(),
+        historyEnabled: z.boolean().optional(),
         images: z.array(imageAttachmentSchema).optional(),
         authConfig: z
           .object({
@@ -1753,6 +1821,8 @@ export const codexRouter = router({
               authConfig: effectiveAuthConfig,
             })
             const metadataModel = selectedModelId
+            const historyEnabled = input.historyEnabled === true
+            const rollbackCheckpointId = historyEnabled ? randomUUID() : undefined
 
             const lastMessage = existingMessages[existingMessages.length - 1]
             const isDuplicatePrompt =
@@ -1866,25 +1936,35 @@ export const codexRouter = router({
               ...builtinCodexServers,
               ...mcpSnapshot.mcpServersForSession,
             ]
+            const existingSessionIdForStream = input.forceNewSession
+              ? undefined
+              : input.sessionId ?? getLastSessionId(existingMessages)
 
             const provider = getOrCreateProvider({
               subChatId: input.subChatId,
               cwd: input.cwd,
               mcpServers: sessionMcpServers,
               mcpFingerprint: getCodexMcpFingerprint(sessionMcpServers),
-              existingSessionId:
-                input.forceNewSession
-                  ? undefined
-                  : input.sessionId ?? getLastSessionId(existingMessages),
+              existingSessionId: existingSessionIdForStream,
               authConfig: effectiveAuthConfig,
             })
 
             const startedAt = Date.now()
             let latestSessionId =
               provider.getSessionId() ||
-              input.sessionId ||
-              getLastSessionId(existingMessages)
+              existingSessionIdForStream
             let usagePromise: Promise<CodexUsageMetadata | null> | null = null
+
+            let promptForModel = input.prompt
+            if (!latestSessionId && existingMessages.length > 0) {
+              const localHistoryContext = buildLocalHistoryContext(
+                existingMessages,
+                input.prompt,
+              )
+              if (localHistoryContext) {
+                promptForModel = `${localHistoryContext}${promptForModel}`
+              }
+            }
 
             const resolveUsageOnce = (): Promise<CodexUsageMetadata | null> => {
               if (usagePromise) return usagePromise
@@ -1905,7 +1985,7 @@ export const codexRouter = router({
               messages: [
                 {
                   role: "user",
-                  content: buildModelMessageContent(input.prompt, input.images),
+                  content: buildModelMessageContent(promptForModel, input.images),
                 },
               ],
               tools: provider.tools,
@@ -1927,6 +2007,7 @@ export const codexRouter = router({
                     sessionId,
                     durationMs: Date.now() - startedAt,
                     resultSubtype: part.finishReason === "error" ? "error" : "success",
+                    ...(rollbackCheckpointId ? { rollbackCheckpointId } : {}),
                   }
                 }
 
@@ -1942,15 +2023,15 @@ export const codexRouter = router({
               onFinish: async ({ responseMessage, isContinuation }) => {
                 try {
                   const usageMetadata = await resolveUsageOnce()
-                  const responseWithUsage = usageMetadata
-                    ? {
-                        ...responseMessage,
-                        metadata: {
-                          ...((responseMessage as any)?.metadata || {}),
-                          ...usageMetadata,
-                        },
-                      }
-                    : responseMessage
+                  const responseMetadata = {
+                    ...((responseMessage as any)?.metadata || {}),
+                    ...(usageMetadata || {}),
+                    ...(rollbackCheckpointId ? { rollbackCheckpointId } : {}),
+                  }
+                  const responseWithUsage = {
+                    ...responseMessage,
+                    metadata: responseMetadata,
+                  }
                   const cleanedResponseMessage =
                     cleanAssistantMessageForPersistence(responseWithUsage)
 
@@ -1966,7 +2047,10 @@ export const codexRouter = router({
                     cleanedResponseMessage,
                   ]
 
-                  persistSubChatMessages(messagesToPersist)
+                  const didPersist = persistSubChatMessages(messagesToPersist)
+                  if (didPersist && rollbackCheckpointId && input.cwd) {
+                    await createRollbackStash(input.cwd, rollbackCheckpointId)
+                  }
                 } catch (error) {
                   console.error("[codex] Failed to persist messages:", error)
                 }

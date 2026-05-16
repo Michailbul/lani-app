@@ -6,6 +6,7 @@ import {
   codexLoginModalOpenAtom,
   codexOnboardingAuthMethodAtom,
   codexOnboardingCompletedAtom,
+  historyEnabledAtom,
   normalizeCodexApiKey,
   sessionInfoAtom,
 } from "../../../lib/atoms"
@@ -215,6 +216,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
     }
     const codexApiKey = await resolveCodexApiKeyForRequest()
     const selectedModel = getSelectedCodexModel(this.config.subChatId)
+    const historyEnabled = appStore.get(historyEnabledAtom)
 
     return new ReadableStream({
       start: (controller) => {
@@ -251,6 +253,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
               mode: currentMode,
               ...(sessionId ? { sessionId } : {}),
               ...(forceNewSession ? { forceNewSession: true } : {}),
+              historyEnabled,
               ...(images.length > 0 ? { images } : {}),
               ...(codexApiKey
                 ? {

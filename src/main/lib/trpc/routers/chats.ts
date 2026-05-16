@@ -25,6 +25,7 @@ import { execWithShellEnv } from "../../git/shell-env"
 import { applyRollbackStash } from "../../git/stash"
 import { terminalManager } from "../../terminal/manager"
 import { publicProcedure, router } from "../index"
+import { cleanupCodexProviderSession } from "./codex"
 
 // ────────────────────────────────────────────────────────────────────────
 // Direction palette — siblings need to stay distinguishable in the tree
@@ -91,6 +92,21 @@ function stripForkedSessionMetadata(messagesJson: string): string {
   } catch {
     return messagesJson
   }
+}
+
+function getRollbackCheckpointId(message: any): string | undefined {
+  const metadata = message?.metadata
+  if (metadata && typeof metadata === "object") {
+    if (typeof metadata.sdkMessageUuid === "string") {
+      return metadata.sdkMessageUuid
+    }
+    if (typeof metadata.rollbackCheckpointId === "string") {
+      return metadata.rollbackCheckpointId
+    }
+  }
+  return typeof message?.id === "string" && message?.role === "assistant"
+    ? message.id
+    : undefined
 }
 
 // Fallback to truncated user message if AI generation fails
@@ -972,22 +988,31 @@ export const chatsRouter = router({
     }),
 
   /**
-   * Rollback to a specific message by sdkMessageUuid
+   * Rollback to a specific assistant message checkpoint.
    * Handles both git state rollback and message truncation
    * Git rollback is done first - if it fails, the whole operation aborts
    */
   rollbackToMessage: publicProcedure
     .input(
-      z.object({
-        subChatId: z.string(),
-        sdkMessageUuid: z.string(),
-      }),
+      z
+        .object({
+          subChatId: z.string(),
+          sdkMessageUuid: z.string().optional(),
+          checkpointId: z.string().optional(),
+        })
+        .refine((value) => Boolean(value.sdkMessageUuid || value.checkpointId), {
+          message: "checkpointId is required",
+        }),
     )
     .mutation(async ({ input }): Promise<
       | { success: false; error: string }
       | { success: true; messages: any[] }
     > => {
       const db = getDatabase()
+      const checkpointId = input.checkpointId ?? input.sdkMessageUuid
+      if (!checkpointId) {
+        return { success: false, error: "Checkpoint ID is required" }
+      }
 
       // 1. Get the sub-chat and its messages
       const subChat = db
@@ -999,15 +1024,22 @@ export const chatsRouter = router({
         return { success: false, error: "Sub-chat not found" }
       }
 
-      // 2. Parse messages and find the target message by sdkMessageUuid
-      const messages = JSON.parse(subChat.messages || "[]")
+      // 2. Parse messages and find the target message by checkpoint ID
+      let messages: any[]
+      try {
+        const parsed = JSON.parse(subChat.messages || "[]")
+        messages = Array.isArray(parsed) ? parsed : []
+      } catch {
+        return { success: false, error: "Stored messages are invalid" }
+      }
       const targetIndex = messages.findIndex(
-        (m: any) => m.metadata?.sdkMessageUuid === input.sdkMessageUuid,
+        (m: any) => getRollbackCheckpointId(m) === checkpointId,
       )
 
       if (targetIndex === -1) {
         return { success: false, error: "Message not found" }
       }
+      const isCodexThread = subChat.provider === "codex"
 
       // 3. Get the parent chat for worktreePath
       const chat = db
@@ -1018,7 +1050,7 @@ export const chatsRouter = router({
 
       // 4. Rollback git state first - if this fails, abort the whole operation
       if (chat?.worktreePath) {
-        const res = await applyRollbackStash(chat.worktreePath, input.sdkMessageUuid)
+        const res = await applyRollbackStash(chat.worktreePath, checkpointId)
         if (!res.success) {
           return { success: false, error: `Git rollback failed: ${res.error}` }
         }
@@ -1032,15 +1064,20 @@ export const chatsRouter = router({
       // 5. Truncate messages to include up to and including the target message
       let truncatedMessages = messages.slice(0, targetIndex + 1)
 
-      // 5.5. Clear any old shouldResume flags, then set on the target message
+      // 5.5. Clear old resume flags. Claude can resume at a message UUID;
+      // Codex is forced into a fresh session and receives the truncated local
+      // transcript as context on the next send.
       truncatedMessages = truncatedMessages.map((m: any, i: number) => {
-        const { shouldResume, ...restMeta } = m.metadata || {}
+        const metadata = { ...(m.metadata || {}) }
+        delete metadata.shouldResume
+        if (isCodexThread) {
+          delete metadata.sessionId
+        } else if (i === truncatedMessages.length - 1) {
+          metadata.shouldResume = true
+        }
         return {
           ...m,
-          metadata: {
-            ...restMeta,
-            ...(i === truncatedMessages.length - 1 && { shouldResume: true }),
-          },
+          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         }
       })
 
@@ -1048,11 +1085,17 @@ export const chatsRouter = router({
       db.update(subChats)
         .set({
           messages: JSON.stringify(truncatedMessages),
+          sessionId: isCodexThread ? null : subChat.sessionId,
+          streamId: null,
           updatedAt: new Date(),
         })
         .where(eq(subChats.id, input.subChatId))
         .returning()
         .get()
+
+      if (isCodexThread) {
+        cleanupCodexProviderSession(input.subChatId)
+      }
 
       return {
         success: true,

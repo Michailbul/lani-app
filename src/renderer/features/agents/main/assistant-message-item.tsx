@@ -722,7 +722,9 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
               text={getMessageTextContent(message)}
               isMobile={isMobile}
             />
-            {onRollback && (message.metadata as any)?.sdkMessageUuid && (
+            {onRollback &&
+              ((message.metadata as any)?.sdkMessageUuid ||
+                (message.metadata as any)?.rollbackCheckpointId) && (
               <button
                 onClick={() => onRollback(message)}
                 disabled={isStreaming || isRollingBack}

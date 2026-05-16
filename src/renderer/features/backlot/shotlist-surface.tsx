@@ -1,154 +1,320 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAtomValue } from "jotai"
 import {
   Check,
-  Clapperboard,
-  Clipboard,
-  Clock3,
-  FileUp,
-  Languages,
+  ChevronDown,
+  ChevronUp,
   Loader2,
+  MessageSquarePlus,
+  Plus,
   Search,
-  Send,
+  Trash2,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
-import type {
-  ShotlistDocument,
-  ShotlistPrompt,
-  ShotlistRow,
-  ShotlistScene,
-  ShotlistSubmission,
-} from "../../../shared/shotlist-types"
-import {
-  selectedAgentChatIdAtom,
-  selectedProjectAtom,
-} from "../agents/atoms"
+import type { SceneShotlist, ShotPrompt, ShotStatus } from "../../../shared/shotlist-types"
+import { selectedAgentChatIdAtom } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "../../components/ui/dialog"
+import { Table, TableBody, TableHeader } from "../../components/ui/table"
 import { activeEntityAtom } from "./atoms"
 
-const AUTOSAVE_MS = 700
+const AUTOSAVE_MS = 600
 const LIVE_POLL_MS = 1500
-const RUNWAY_URL =
-  "https://app.runwayml.com/video-tools/teams/mbuloichykai4/ai-tools/generate?tool=video&mode=tools&sessionId=b9d082ef-225c-49f7-bd63-0c715a54dd9a"
 
-type EntityRoot =
-  | { chatId: string; projectId?: undefined }
-  | { chatId?: undefined; projectId: string }
+const STATUS_OPTIONS: ShotStatus[] = [
+  "draft",
+  "ready",
+  "submitted",
+  "generated",
+  "approved",
+]
+
+const STATUS_DOT: Record<ShotStatus, string> = {
+  draft: "bg-muted-foreground/40",
+  ready: "bg-primary",
+  submitted: "bg-amber-500",
+  generated: "bg-emerald-500",
+  approved: "bg-emerald-400",
+}
+
+// ── Long-prompt handling — three switchable variants ──────────────────────
+
+type PromptMode = "1" | "2" | "3"
+
+const PROMPT_MODES: {
+  id: PromptMode
+  label: string
+  hint: string
+}[] = [
+  {
+    id: "1",
+    label: "Side panel",
+    hint: "Open the full prompt in a panel pinned beside the table.",
+  },
+  {
+    id: "2",
+    label: "Expand inline",
+    hint: "Expand the prompt cell to full height, in place.",
+  },
+  {
+    id: "3",
+    label: "Dialog",
+    hint: "Open the full prompt in a centered dialog.",
+  },
+]
+
+const PROMPT_MODE_STORAGE_KEY = "backlot:shotlist:promptmode:v1"
+
+function usePromptMode() {
+  const [mode, setModeState] = useState<PromptMode>(() => {
+    try {
+      const raw = localStorage.getItem(PROMPT_MODE_STORAGE_KEY)
+      if (raw === "1" || raw === "2" || raw === "3") return raw
+    } catch {
+      /* fall through */
+    }
+    return "1"
+  })
+  const setMode = (next: PromptMode) => {
+    setModeState(next)
+    try {
+      localStorage.setItem(PROMPT_MODE_STORAGE_KEY, next)
+    } catch {
+      /* ignore */
+    }
+  }
+  return [mode, setMode] as const
+}
+
+// ── Resizable columns ─────────────────────────────────────────────────────
+
+type ColKey =
+  | "num"
+  | "plan"
+  | "camera"
+  | "action"
+  | "script"
+  | "prompt"
+  | "tag"
+  | "status"
+
+const COLUMNS: { key: ColKey; label: string; min: number; initial: number }[] = [
+  { key: "num", label: "#", min: 44, initial: 54 },
+  { key: "plan", label: "Plan", min: 56, initial: 80 },
+  { key: "camera", label: "Camera", min: 96, initial: 158 },
+  { key: "action", label: "Action", min: 120, initial: 214 },
+  { key: "script", label: "Script", min: 110, initial: 188 },
+  { key: "prompt", label: "Prompt", min: 200, initial: 380 },
+  { key: "tag", label: "Tag", min: 64, initial: 106 },
+  { key: "status", label: "Status", min: 96, initial: 124 },
+]
+
+const ACTIONS_COL_WIDTH = 56
+const COL_STORAGE_KEY = "backlot:shotlist:colwidths:v1"
+
+/** Column widths with drag-to-resize, persisted across sessions. */
+function useColumnWidths() {
+  const [widths, setWidths] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem(COL_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length === COLUMNS.length) {
+          return parsed as number[]
+        }
+      }
+    } catch {
+      /* fall through to defaults */
+    }
+    return COLUMNS.map((c) => c.initial)
+  })
+
+  const widthsRef = useRef(widths)
+  widthsRef.current = widths
+
+  const beginResize = (index: number) => (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = widthsRef.current[index]!
+    const min = COLUMNS[index]!.min
+
+    const onMove = (ev: PointerEvent) => {
+      const next = [...widthsRef.current]
+      next[index] = Math.max(min, Math.round(startW + ev.clientX - startX))
+      setWidths(next)
+    }
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      try {
+        localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(widthsRef.current))
+      } catch {
+        /* ignore persistence failures */
+      }
+    }
+
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+  }
+
+  return { widths, beginResize }
+}
+
+/** A scene's shotlist file sits next to its scene.fountain. */
+function shotlistPathForScene(scriptPath: string): string {
+  return scriptPath.replace(/[^/]+$/, "shotlist.backlot.json")
+}
+
+function randomId(): string {
+  return `shot-local-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`
+}
 
 export function ShotlistSurface() {
-  const active = useAtomValue(activeEntityAtom)
   const chatId = useAtomValue(selectedAgentChatIdAtom)
-  const selectedProject = useAtomValue(selectedProjectAtom)
-  const root: EntityRoot | null = chatId
-    ? { chatId }
-    : selectedProject?.id
-      ? { projectId: selectedProject.id }
-      : null
-
-  if (!root) {
-    return <ShotlistEmpty title="No project open" message="Pick a project before opening a shotlist." />
+  if (!chatId) {
+    return (
+      <ShotlistEmpty
+        title="No scene context"
+        message="Open a chat to work on a scene's shotlist."
+      />
+    )
   }
-
-  if (active?.kind === "shotlist") {
-    return <ShotlistDocumentView root={root} relPath={active.path} />
-  }
-
-  return <DefaultShotlistLoader root={root} />
+  return <ShotlistWorkspace chatId={chatId} />
 }
 
-function DefaultShotlistLoader({ root }: { root: EntityRoot }) {
-  const defaultShotlist = trpc.shotlists.findDefault.useQuery(root, {
-    refetchOnWindowFocus: true,
-    refetchInterval: LIVE_POLL_MS,
-  })
+function ShotlistWorkspace({ chatId }: { chatId: string }) {
+  const hierarchy = trpc.entities.list.useQuery({ chatId })
+  const active = useAtomValue(activeEntityAtom)
+  const scenes = hierarchy.data?.scenes ?? []
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
 
-  if (defaultShotlist.isPending) {
+  useEffect(() => {
+    if (scenes.length === 0) return
+    if (selectedSceneId && scenes.some((s) => s.id === selectedSceneId)) return
+    const fromActive =
+      active?.kind === "scene"
+        ? scenes.find((s) => s.id === active.id)
+        : undefined
+    setSelectedSceneId((fromActive ?? scenes[0]!).id)
+  }, [scenes, active, selectedSceneId])
+
+  const scene = scenes.find((s) => s.id === selectedSceneId) ?? null
+
+  if (hierarchy.isPending) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        Loading shotlist
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Loading scenes
       </div>
     )
   }
 
-  if (defaultShotlist.data?.relPath) {
+  if (scenes.length === 0) {
     return (
-      <ShotlistDocumentView root={root} relPath={defaultShotlist.data.relPath} />
+      <ShotlistEmpty
+        title="No scenes yet"
+        message="Add scenes to your screenplay first — each scene gets its own shotlist."
+      />
     )
   }
-
-  return <ShotlistStartScreen root={root} />
-}
-
-function ShotlistStartScreen({ root }: { root: EntityRoot }) {
-  const utils = trpc.useUtils()
-  const importHtml = trpc.shotlists.pickAndImportHtml.useMutation({
-    onSuccess: () => utils.shotlists.findDefault.invalidate(),
-    onError: (err) => toast.error(err.message || "Couldn't import shotlist"),
-  })
 
   return (
-    <div className="flex h-full items-center justify-center px-10">
-      <div className="max-w-md text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card">
-          <Clapperboard className="h-5 w-5 text-primary" />
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <header className="no-drag flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="h-3.5 w-[3px] rounded-full bg-primary" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+            Shotlist
+          </span>
         </div>
-        <h2
-          className="text-xl text-foreground"
-          style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+        <Select
+          value={scene?.id ?? ""}
+          onValueChange={(value) => setSelectedSceneId(value)}
         >
-          No shotlist yet
-        </h2>
-        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          Ask the agent in chat to build a shotlist from your screenplay. It
-          breaks scenes into shots and writes generation prompts — the list
-          fills in here as it works.
-        </p>
-        <button
-          type="button"
-          onClick={() => importHtml.mutate(root)}
-          disabled={importHtml.isPending}
-          className={cn(
-            "press mt-5 inline-flex items-center gap-2 rounded px-3 py-1.5",
-            "border border-border bg-background text-xs text-foreground/85",
-            "hover:bg-secondary hover:text-foreground transition-colors",
-            "disabled:opacity-60",
-          )}
-        >
-          {importHtml.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <FileUp className="h-3.5 w-3.5" />
-          )}
-          Import an existing HTML shotlist
-        </button>
-      </div>
+          <SelectTrigger className="h-8 w-auto min-w-[260px] rounded-lg shadow-none">
+            <SelectValue placeholder="Select a scene" />
+          </SelectTrigger>
+          <SelectContent>
+            {scenes.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {s.order != null ? String(s.order).padStart(2, "0") : "—"}
+                </span>
+                <span className="ml-2">{s.label}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </header>
+      {scene && (
+        <SceneShotlistView
+          key={scene.id}
+          chatId={chatId}
+          sceneId={scene.id}
+          sceneLabel={scene.label}
+          sceneOrder={scene.order}
+          scriptPath={scene.scriptPath}
+        />
+      )}
     </div>
   )
 }
 
-function ShotlistDocumentView({
-  root,
-  relPath,
+function SceneShotlistView({
+  chatId,
+  sceneId,
+  sceneLabel,
+  sceneOrder,
+  scriptPath,
 }: {
-  root: EntityRoot
-  relPath: string
+  chatId: string
+  sceneId: string
+  sceneLabel: string
+  sceneOrder: number | null
+  scriptPath: string
 }) {
+  const relPath = useMemo(() => shotlistPathForScene(scriptPath), [scriptPath])
   const read = trpc.shotlists.read.useQuery(
-    { ...root, relPath },
+    { chatId, relPath },
     { refetchOnWindowFocus: true, refetchInterval: LIVE_POLL_MS },
   )
   const write = trpc.shotlists.write.useMutation({
     onError: (err) => toast.error(err.message || "Couldn't save shotlist"),
   })
-  const [doc, setDoc] = useState<ShotlistDocument | null>(null)
-  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
-  const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
+
+  const [doc, setDoc] = useState<SceneShotlist | null>(null)
+  const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
+  const [dialogShotId, setDialogShotId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
-  const [planFilter, setPlanFilter] = useState("")
+  const [promptMode, setPromptMode] = usePromptMode()
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle")
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localEditAtRef = useRef(0)
@@ -166,68 +332,14 @@ function ShotlistDocumentView({
     }
   }, [])
 
-  const scenes = doc?.scenes ?? []
-
-  // Keep the scene selection valid as the agent adds/removes scenes.
-  useEffect(() => {
-    if (scenes.length === 0) return
-    if (!selectedSceneId || !scenes.some((s) => s.id === selectedSceneId)) {
-      setSelectedSceneId(scenes[0]!.id)
-    }
-  }, [scenes, selectedSceneId])
-
-  const scene =
-    scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null
-
-  const promptById = useMemo(() => {
-    const map = new Map<string, ShotlistPrompt>()
-    for (const prompt of scene?.prompts ?? []) map.set(prompt.id, prompt)
-    return map
-  }, [scene?.prompts])
-
-  // Reset the prompt selection when the active scene changes.
-  useEffect(() => {
-    setSelectedPromptId(scene?.prompts[0]?.id ?? null)
-  }, [scene?.id])
-
-  const selectedPrompt =
-    selectedPromptId ? promptById.get(selectedPromptId) ?? null : null
-  const planOptions = useMemo(() => {
-    return Array.from(
-      new Set((scene?.rows ?? []).map((row) => row.plan).filter(Boolean)),
-    )
-  }, [scene?.rows])
-  const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return (scene?.rows ?? []).filter((row) => {
-      const prompt = row.promptId ? promptById.get(row.promptId) : null
-      const text = [
-        row.id,
-        row.plan,
-        row.planLabel,
-        row.camera,
-        row.action,
-        row.sceneText,
-        prompt?.tag,
-        prompt?.promptZh,
-        prompt?.promptEn,
-        prompt?.promptRunway,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-      return (!q || text.includes(q)) && (!planFilter || row.plan === planFilter)
-    })
-  }, [planFilter, promptById, query, scene?.rows])
-
-  const queueSave = (next: ShotlistDocument) => {
+  const queueSave = (next: SceneShotlist) => {
     setDoc(next)
     localEditAtRef.current = Date.now()
     setSaveState("saving")
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       write.mutate(
-        { ...root, relPath, shotlist: next },
+        { chatId, relPath, shotlist: next },
         {
           onSuccess: () => {
             setSaveState("saved")
@@ -238,223 +350,971 @@ function ShotlistDocumentView({
     }, AUTOSAVE_MS)
   }
 
-  const updatePrompt = (
-    promptId: string,
-    updater: (prompt: ShotlistPrompt) => ShotlistPrompt,
-  ) => {
+  const startShotlist = () => {
+    queueSave({
+      schemaVersion: 1,
+      sceneId,
+      sceneNumber: sceneOrder != null ? String(sceneOrder) : "",
+      heading: sceneLabel,
+      scriptPath,
+      shots: [],
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  const updateScene = (patch: Partial<SceneShotlist>) => {
+    if (!doc) return
+    queueSave({ ...doc, ...patch })
+  }
+
+  const updateShot = (shotId: string, patch: Partial<ShotPrompt>) => {
     if (!doc) return
     queueSave({
       ...doc,
-      scenes: doc.scenes.map((currentScene) => ({
-        ...currentScene,
-        prompts: currentScene.prompts.map((prompt) =>
-          prompt.id === promptId ? updater(prompt) : prompt,
-        ),
-      })),
+      shots: doc.shots.map((shot) =>
+        shot.id === shotId
+          ? { ...shot, ...patch, updatedAt: new Date().toISOString() }
+          : shot,
+      ),
     })
   }
 
-  const markSubmitted = (prompt: ShotlistPrompt) => {
-    const sourcePromptField = prompt.promptRunway
-      ? "promptRunway"
-      : prompt.promptEn
-        ? "promptEn"
-        : "promptZh"
-    const submittedPrompt =
-      sourcePromptField === "promptRunway"
-        ? prompt.promptRunway ?? ""
-        : sourcePromptField === "promptEn"
-          ? prompt.promptEn ?? ""
-          : prompt.promptZh
-    const now = new Date().toISOString()
-    const current = prompt.generation?.runway ?? {
-      status: "not-submitted" as const,
-      attemptCount: 0,
-      submissions: [] as ShotlistSubmission[],
+  const addShot = () => {
+    if (!doc) return
+    const maxNumber = doc.shots.reduce((max, shot) => {
+      const n = Number.parseInt(shot.number, 10)
+      return Number.isFinite(n) && n > max ? n : max
+    }, 0)
+    const shot: ShotPrompt = {
+      id: randomId(),
+      number: String(maxNumber + 1),
+      plan: "",
+      camera: "",
+      action: "",
+      scriptRef: "",
+      text: "",
+      tag: "",
+      status: "draft",
+      updatedAt: new Date().toISOString(),
     }
-    const attempt = current.attemptCount + 1
-    updatePrompt(prompt.id, (existing) => ({
-      ...existing,
-      generation: {
-        ...existing.generation,
-        runway: {
-          status: "submitted",
-          attemptCount: attempt,
-          lastSubmittedAt: now,
-          submissions: [
-            ...(existing.generation?.runway?.submissions ?? []),
-            {
-              attempt,
-              submittedAt: now,
-              targetUrl: RUNWAY_URL,
-              sourcePromptField,
-              promptHash: clientHash(submittedPrompt),
-              reuseSource: "latest-generation",
-              notes: "Marked submitted from Backlot shotlist UI.",
-            },
-          ],
-        },
-      },
-    }))
-    toast.success(`Marked ${prompt.id} submitted`, {
-      description: `Attempt ${attempt} at ${now}`,
-    })
+    queueSave({ ...doc, shots: [...doc.shots, shot] })
+    setSelectedShotId(shot.id)
+    if (promptMode === "3") setDialogShotId(shot.id)
   }
+
+  const deleteShot = (shotId: string) => {
+    if (!doc) return
+    queueSave({ ...doc, shots: doc.shots.filter((s) => s.id !== shotId) })
+    if (selectedShotId === shotId) setSelectedShotId(null)
+    if (dialogShotId === shotId) setDialogShotId(null)
+  }
+
+  const addToContext = (shot: ShotPrompt) => {
+    if (!doc) return
+    const block = [
+      `Scene ${doc.sceneNumber || sceneOrder || "?"} · Shot ${shot.number}` +
+        (shot.plan ? ` (${shot.plan})` : ""),
+      shot.action ? `Action: ${shot.action}` : "",
+      shot.text ? `Prompt:\n${shot.text}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+    window.dispatchEvent(
+      new CustomEvent("file-viewer-add-to-context", {
+        detail: { text: block, source: { type: "file-viewer", filePath: relPath } },
+      }),
+    )
+    toast.success(`Shot ${shot.number} added to chat context`)
+  }
+
+  /** What happens when the prompt of a shot is opened, per variant. */
+  const openPrompt = (shotId: string) => {
+    setSelectedShotId(shotId)
+    if (promptMode === "3") setDialogShotId(shotId)
+  }
+
+  const filteredShots = useMemo(() => {
+    if (!doc) return []
+    const q = query.trim().toLowerCase()
+    if (!q) return doc.shots
+    return doc.shots.filter((shot) =>
+      [
+        shot.number,
+        shot.plan,
+        shot.camera,
+        shot.action,
+        shot.scriptRef,
+        shot.text,
+        shot.tag,
+        shot.status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    )
+  }, [doc, query])
 
   if (read.isPending && !doc) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+      <div className="flex flex-1 items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Loading shotlist
       </div>
     )
   }
 
-  if ((!read.data?.exists && !doc) || !doc) {
+  if (!doc) {
     return (
-      <ShotlistEmpty
-        title="Shotlist unavailable"
-        message="This shotlist file could not be read."
-      />
+      <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
+        <p className="text-sm font-medium text-foreground">
+          No shotlist for this scene
+        </p>
+        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          Ask the agent in chat to break this scene into shots — or start one
+          yourself and fill it in.
+        </p>
+        <button
+          type="button"
+          onClick={startShotlist}
+          className={cn(
+            "press mt-6 inline-flex items-center gap-2 rounded-lg px-3.5 py-2",
+            "border border-border bg-card text-xs font-medium text-foreground/85",
+            "hover:border-primary/40 hover:text-foreground",
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Start a shotlist
+        </button>
+      </div>
     )
   }
 
+  const selectedShot =
+    promptMode === "1" && selectedShotId
+      ? doc.shots.find((s) => s.id === selectedShotId) ?? null
+      : null
+  const dialogShot =
+    promptMode === "3" && dialogShotId
+      ? doc.shots.find((s) => s.id === dialogShotId) ?? null
+      : null
+
   return (
-    <div className="flex h-full flex-col bg-background overflow-hidden">
-      <ShotlistHeader doc={doc} relPath={relPath} saveState={saveState} />
-      <div className="flex flex-1 min-h-0">
-        <SceneRail
-          scenes={scenes}
-          selectedSceneId={scene?.id ?? null}
-          onSelect={setSelectedSceneId}
-        />
-        <main className="flex-1 min-w-0 flex flex-col">
-          {scene ? (
-            <>
-              <div className="flex items-center gap-2 px-5 py-2 border-b border-border bg-card/20">
-                <div className="relative flex-1 min-w-[220px]">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search shots, prompts, dialogue..."
-                    className={cn(
-                      "w-full h-8 rounded border border-border bg-background pl-7 pr-3",
-                      "text-xs outline-none focus:border-primary/60",
-                    )}
-                  />
-                </div>
-                <select
-                  value={planFilter}
-                  onChange={(e) => setPlanFilter(e.target.value)}
-                  className="h-8 rounded border border-border bg-background px-2 text-xs outline-none"
-                >
-                  <option value="">All plans</option>
-                  {planOptions.map((plan) => (
-                    <option key={plan} value={plan}>
-                      {plan}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <ShotRowsTable
-                rows={filteredRows}
-                promptById={promptById}
-                selectedPromptId={selectedPromptId}
-                onSelectPrompt={setSelectedPromptId}
-              />
-            </>
-          ) : (
-            <div className="flex flex-1 items-center justify-center px-10 text-center text-sm text-muted-foreground">
-              The agent hasn't added any scenes yet.
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scene title block. */}
+      <div className="flex shrink-0 items-start justify-between gap-6 px-6 pb-4 pt-5">
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70">
+            Scene {doc.sceneNumber || (sceneOrder != null ? sceneOrder : "—")}
+          </div>
+          <h1 className="font-display mt-0.5 text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
+            {doc.heading || sceneLabel}
+          </h1>
+          <input
+            value={doc.synopsis ?? ""}
+            onChange={(e) =>
+              updateScene({ synopsis: e.target.value || undefined })
+            }
+            placeholder="Add a one-line synopsis for this scene"
+            className="mt-1.5 w-full bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground/40"
+          />
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
+          <SaveState state={saveState} />
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">
+            {doc.shots.length} {doc.shots.length === 1 ? "shot" : "shots"}
+          </span>
+        </div>
+      </div>
+
+      {/* Toolbar — search, prompt-view switcher, add shot. */}
+      <div className="flex shrink-0 items-center gap-3 border-y border-border bg-card/40 px-6 py-2">
+        <div className="relative w-full max-w-[240px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/55" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search shots…"
+            className={cn(
+              "h-8 w-full rounded-lg border border-border bg-background pl-8 pr-2.5 text-sm outline-none",
+              "placeholder:text-muted-foreground/45 focus:border-primary/45",
+            )}
+          />
+        </div>
+        {query.trim() && (
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/70">
+            {filteredShots.length} / {doc.shots.length}
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={addShot}
+          className={cn(
+            "press ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5",
+            "border border-border bg-background text-xs font-medium text-foreground/85",
+            "hover:border-primary/40 hover:text-foreground",
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add shot
+        </button>
+      </div>
+
+      {/* The three explorable long-prompt modes — /1 /2 /3. */}
+      <PromptModeBar mode={promptMode} onChange={setPromptMode} />
+
+      {/* Body — table, plus the side panel in variant 1. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {doc.shots.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
+              <p className="text-sm text-muted-foreground">No shots yet.</p>
+              <p className="mt-1 text-sm text-muted-foreground/65">
+                Add one above, or ask the agent to break down the scene.
+              </p>
             </div>
+          ) : (
+            <ShotlistTable
+              shots={filteredShots}
+              totalCount={doc.shots.length}
+              promptMode={promptMode}
+              selectedShotId={selectedShotId}
+              onSelect={setSelectedShotId}
+              onOpenPrompt={openPrompt}
+              onChange={updateShot}
+              onAddToContext={addToContext}
+              onDelete={deleteShot}
+            />
           )}
-        </main>
-        <PromptInspector
-          prompt={selectedPrompt}
-          rows={(scene?.rows ?? []).filter(
-            (row) => row.promptId === selectedPrompt?.id,
+        </div>
+
+        {selectedShot && (
+          <ShotDetailPanel
+            shot={selectedShot}
+            onClose={() => setSelectedShotId(null)}
+            onChange={(patch) => updateShot(selectedShot.id, patch)}
+            onAddToContext={() => addToContext(selectedShot)}
+            onDelete={() => deleteShot(selectedShot.id)}
+          />
+        )}
+      </div>
+
+      {/* Variant 3 — the prompt opens in a dialog. */}
+      <Dialog
+        open={!!dialogShot}
+        onOpenChange={(open) => {
+          if (!open) setDialogShotId(null)
+        }}
+      >
+        <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+          <DialogTitle className="sr-only">
+            Shot {dialogShot?.number ?? ""} prompt
+          </DialogTitle>
+          {dialogShot && (
+            <ShotEditor
+              shot={dialogShot}
+              variant="dialog"
+              onChange={(patch) => updateShot(dialogShot.id, patch)}
+              onAddToContext={() => addToContext(dialogShot)}
+              onDelete={() => deleteShot(dialogShot.id)}
+            />
           )}
-          onChange={(promptId, patch) =>
-            updatePrompt(promptId, (prompt) => ({ ...prompt, ...patch }))
-          }
-          onMarkSubmitted={markSubmitted}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/**
+ * The long-prompt mode bar. Three explorable modes — /1 side panel,
+ * /2 expand inline, /3 dialog — each a different way to read and edit a
+ * full prompt while the table keeps a clamped preview.
+ */
+function PromptModeBar({
+  mode,
+  onChange,
+}: {
+  mode: PromptMode
+  onChange: (mode: PromptMode) => void
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background px-6 py-1.5">
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60">
+        Long prompt
+      </span>
+      <div className="flex items-center gap-1">
+        {PROMPT_MODES.map(({ id, label, hint }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(id)}
+            title={hint}
+            aria-pressed={mode === id}
+            className={cn(
+              "press inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors",
+              mode === id
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "font-mono font-semibold",
+                mode === id ? "opacity-100" : "opacity-60",
+              )}
+            >
+              /{id}
+            </span>
+            <span className="font-medium">{label}</span>
+          </button>
+        ))}
+      </div>
+      <span className="ml-auto hidden text-[11px] text-muted-foreground/60 lg:inline">
+        {PROMPT_MODES.find((m) => m.id === mode)?.hint}
+      </span>
+    </div>
+  )
+}
+
+function ShotlistTable({
+  shots,
+  totalCount,
+  promptMode,
+  selectedShotId,
+  onSelect,
+  onOpenPrompt,
+  onChange,
+  onAddToContext,
+  onDelete,
+}: {
+  shots: ShotPrompt[]
+  totalCount: number
+  promptMode: PromptMode
+  selectedShotId: string | null
+  onSelect: (id: string) => void
+  onOpenPrompt: (id: string) => void
+  onChange: (shotId: string, patch: Partial<ShotPrompt>) => void
+  onAddToContext: (shot: ShotPrompt) => void
+  onDelete: (shotId: string) => void
+}) {
+  const { widths, beginResize } = useColumnWidths()
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const tableWidth = widths.reduce((sum, w) => sum + w, 0) + ACTIONS_COL_WIDTH
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <Table
+      containerClassName="flex-1 min-h-0"
+      className="table-fixed border-separate border-spacing-0"
+      style={{ minWidth: tableWidth }}
+    >
+      <colgroup>
+        {COLUMNS.map((col, i) => (
+          <col key={col.key} style={{ width: widths[i] }} />
+        ))}
+        <col style={{ width: ACTIONS_COL_WIDTH }} />
+      </colgroup>
+
+      <TableHeader className="[&_tr]:border-0">
+        <tr>
+          {COLUMNS.map((col, i) => (
+            <th
+              key={col.key}
+              className={cn(
+                "sticky top-0 z-20 select-none border-b border-border bg-background",
+                "relative h-9 px-2.5 text-left align-middle",
+                "font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80",
+                col.key === "num" && "text-center",
+              )}
+            >
+              {col.label}
+              <span
+                onPointerDown={beginResize(i)}
+                className="group/resize absolute -right-1 top-0 z-10 flex h-full w-2.5 cursor-col-resize items-center justify-center"
+              >
+                <span className="h-4 w-px bg-border transition-colors group-hover/resize:bg-primary" />
+              </span>
+            </th>
+          ))}
+          <th className="sticky top-0 z-20 border-b border-border bg-background" />
+        </tr>
+      </TableHeader>
+
+      <TableBody>
+        {shots.length === 0 ? (
+          <tr>
+            <td
+              colSpan={COLUMNS.length + 1}
+              className="px-6 py-14 text-center text-sm text-muted-foreground"
+            >
+              No shots match your search.
+            </td>
+          </tr>
+        ) : (
+          shots.map((shot) => (
+            <ShotRow
+              key={shot.id}
+              shot={shot}
+              promptMode={promptMode}
+              expanded={expandedIds.has(shot.id)}
+              selected={shot.id === selectedShotId}
+              onSelect={() => onSelect(shot.id)}
+              onOpenPrompt={() => onOpenPrompt(shot.id)}
+              onToggleExpand={() => toggleExpand(shot.id)}
+              onChange={(patch) => onChange(shot.id, patch)}
+              onAddToContext={() => onAddToContext(shot)}
+              onDelete={() => onDelete(shot.id)}
+            />
+          ))
+        )}
+      </TableBody>
+
+      {shots.length > 0 && (
+        <tfoot>
+          <tr>
+            <td
+              colSpan={COLUMNS.length + 1}
+              className="px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/45"
+            >
+              {shots.length === totalCount
+                ? `${totalCount} ${totalCount === 1 ? "shot" : "shots"}`
+                : `${shots.length} of ${totalCount} shots`}
+            </td>
+          </tr>
+        </tfoot>
+      )}
+    </Table>
+  )
+}
+
+const CELL_BASE = "border-b border-border/55 px-2.5 py-3 align-top"
+
+function ShotRow({
+  shot,
+  promptMode,
+  expanded,
+  selected,
+  onSelect,
+  onOpenPrompt,
+  onToggleExpand,
+  onChange,
+  onAddToContext,
+  onDelete,
+}: {
+  shot: ShotPrompt
+  promptMode: PromptMode
+  expanded: boolean
+  selected: boolean
+  onSelect: () => void
+  onOpenPrompt: () => void
+  onToggleExpand: () => void
+  onChange: (patch: Partial<ShotPrompt>) => void
+  onAddToContext: () => void
+  onDelete: () => void
+}) {
+  return (
+    <tr
+      onClick={onSelect}
+      data-state={selected ? "selected" : undefined}
+      className="group"
+    >
+      {/* # — carries the selection indicator. */}
+      <td
+        className={cn(
+          CELL_BASE,
+          "border-l-2 pl-2 pr-1.5",
+          selected ? "border-l-primary" : "border-l-transparent",
+        )}
+      >
+        <input
+          value={shot.number}
+          onChange={(e) => onChange({ number: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Shot number"
+          className={cn(
+            "w-full bg-transparent text-center font-mono text-base font-semibold tabular-nums outline-none",
+            selected ? "text-primary" : "text-foreground/80",
+          )}
         />
+      </td>
+
+      {/* Plan. */}
+      <td className={CELL_BASE}>
+        <input
+          value={shot.plan}
+          onChange={(e) => onChange({ plan: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          placeholder="—"
+          className="w-full bg-transparent font-mono text-[11px] font-medium uppercase tracking-wide text-foreground/85 outline-none placeholder:text-muted-foreground/35"
+        />
+      </td>
+
+      {/* Camera. */}
+      <td className={CELL_BASE}>
+        <AutoGrowTextarea
+          value={shot.camera}
+          onChange={(value) => onChange({ camera: value })}
+          placeholder="lens, movement"
+          className="text-xs leading-5 text-muted-foreground placeholder:text-muted-foreground/35"
+        />
+      </td>
+
+      {/* Action — the headline of the shot. */}
+      <td className={CELL_BASE}>
+        <AutoGrowTextarea
+          value={shot.action}
+          onChange={(value) => onChange({ action: value })}
+          placeholder="What happens in this shot"
+          className="text-[13px] font-medium leading-6 text-foreground placeholder:font-normal placeholder:text-muted-foreground/40"
+        />
+      </td>
+
+      {/* Script beat. */}
+      <td className={CELL_BASE}>
+        <AutoGrowTextarea
+          value={shot.scriptRef}
+          onChange={(value) => onChange({ scriptRef: value })}
+          placeholder="Script beat"
+          className="text-xs italic leading-5 text-muted-foreground/80 placeholder:not-italic placeholder:text-muted-foreground/35"
+        />
+      </td>
+
+      {/* Prompt — the cell adapts to the chosen variant. */}
+      <td className={CELL_BASE}>
+        <PromptCell
+          shot={shot}
+          promptMode={promptMode}
+          expanded={expanded}
+          onChange={onChange}
+          onOpenPrompt={onOpenPrompt}
+          onToggleExpand={onToggleExpand}
+        />
+      </td>
+
+      {/* Tag. */}
+      <td className={CELL_BASE}>
+        <input
+          value={shot.tag}
+          onChange={(e) => onChange({ tag: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          placeholder="15s · 21:9"
+          className="w-full bg-transparent font-mono text-[11px] text-muted-foreground/75 outline-none placeholder:text-muted-foreground/30"
+        />
+      </td>
+
+      {/* Status. */}
+      <td className={CELL_BASE}>
+        <StatusPicker
+          value={shot.status}
+          onChange={(status) => onChange({ status })}
+        />
+      </td>
+
+      {/* Row actions. */}
+      <td className={cn(CELL_BASE, "px-1")}>
+        <div className="flex flex-col items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            title="Add to chat context"
+            onClick={(e) => {
+              e.stopPropagation()
+              onAddToContext()
+            }}
+            className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-accent hover:text-foreground"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="Delete shot"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+            className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+/**
+ * The Prompt cell. Always a clamped 3-line preview, except variant 2 when
+ * the row is expanded — then the full editable textarea takes over.
+ */
+function PromptCell({
+  shot,
+  promptMode,
+  expanded,
+  onChange,
+  onOpenPrompt,
+  onToggleExpand,
+}: {
+  shot: ShotPrompt
+  promptMode: PromptMode
+  expanded: boolean
+  onChange: (patch: Partial<ShotPrompt>) => void
+  onOpenPrompt: () => void
+  onToggleExpand: () => void
+}) {
+  const empty = !shot.text.trim()
+
+  if (promptMode === "2" && expanded) {
+    return (
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+            Prompt
+          </span>
+          <button
+            type="button"
+            title="Collapse"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleExpand()
+            }}
+            className="press flex h-5 w-5 items-center justify-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <AutoGrowTextarea
+          value={shot.text}
+          onChange={(value) => onChange({ text: value })}
+          placeholder="Generation prompt…"
+          className="text-[13px] leading-6 text-foreground/90 placeholder:text-muted-foreground/40"
+        />
+      </div>
+    )
+  }
+
+  const openable = promptMode === "1" || promptMode === "3"
+
+  return (
+    <div className="flex items-start gap-1">
+      <p
+        onClick={
+          openable
+            ? (e) => {
+                e.stopPropagation()
+                onOpenPrompt()
+              }
+            : undefined
+        }
+        className={cn(
+          "line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-6",
+          empty ? "text-muted-foreground/40" : "text-foreground/85",
+          openable && "cursor-pointer",
+        )}
+      >
+        {empty ? "Generation prompt…" : shot.text}
+      </p>
+      {promptMode === "2" ? (
+        <button
+          type="button"
+          title="Expand prompt"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleExpand()
+          }}
+          className="press flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent hover:text-foreground"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <span className="mt-0.5 shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/50">
+          Open
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Variant 1 — a side panel pinned to the right of the table. */
+function ShotDetailPanel({
+  shot,
+  onClose,
+  onChange,
+  onAddToContext,
+  onDelete,
+}: {
+  shot: ShotPrompt
+  onClose: () => void
+  onChange: (patch: Partial<ShotPrompt>) => void
+  onAddToContext: () => void
+  onDelete: () => void
+}) {
+  return (
+    <aside className="flex w-[400px] shrink-0 flex-col border-l border-border bg-background">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+          Shot detail
+        </span>
+        <button
+          type="button"
+          title="Close"
+          onClick={onClose}
+          className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <ShotEditor
+        shot={shot}
+        variant="panel"
+        onChange={onChange}
+        onAddToContext={onAddToContext}
+        onDelete={onDelete}
+      />
+    </aside>
+  )
+}
+
+/**
+ * The full single-shot editor — shared by the variant-1 side panel and the
+ * variant-3 dialog. The prompt is the reading surface: a wide, borderless,
+ * auto-growing block of text.
+ */
+function ShotEditor({
+  shot,
+  variant,
+  onChange,
+  onAddToContext,
+  onDelete,
+}: {
+  shot: ShotPrompt
+  variant: "panel" | "dialog"
+  onChange: (patch: Partial<ShotPrompt>) => void
+  onAddToContext: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Header — number + status + actions. */}
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-3 pl-5",
+          variant === "dialog" ? "pb-3 pr-12 pt-5" : "pb-3 pr-5 pt-4",
+        )}
+      >
+        <span className="flex items-baseline font-mono text-[28px] font-semibold leading-none tabular-nums text-foreground">
+          <span className="text-muted-foreground/35">#</span>
+          <input
+            value={shot.number}
+            onChange={(e) => onChange({ number: e.target.value })}
+            aria-label="Shot number"
+            className="w-[2.5ch] bg-transparent outline-none"
+          />
+        </span>
+        <StatusPicker
+          value={shot.status}
+          onChange={(status) => onChange({ status })}
+        />
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            title="Add to chat context"
+            onClick={onAddToContext}
+            className="press flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Delete shot"
+            onClick={onDelete}
+            className="press flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable body. */}
+      <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
+        {/* Technical metadata. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 pb-3">
+          <EditorField label="Plan">
+            <input
+              value={shot.plan}
+              onChange={(e) => onChange({ plan: e.target.value })}
+              placeholder="WS"
+              className="w-16 bg-transparent font-mono text-xs font-medium uppercase tracking-wide text-foreground/85 outline-none placeholder:text-muted-foreground/35"
+            />
+          </EditorField>
+          <EditorField label="Camera">
+            <input
+              value={shot.camera}
+              onChange={(e) => onChange({ camera: e.target.value })}
+              placeholder="lens, movement"
+              className="w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/35"
+            />
+          </EditorField>
+          <EditorField label="Tag">
+            <input
+              value={shot.tag}
+              onChange={(e) => onChange({ tag: e.target.value })}
+              placeholder="15s · 21:9"
+              className="w-24 bg-transparent font-mono text-[11px] text-muted-foreground/80 outline-none placeholder:text-muted-foreground/30"
+            />
+          </EditorField>
+        </div>
+
+        {/* Action. */}
+        <input
+          value={shot.action}
+          onChange={(e) => onChange({ action: e.target.value })}
+          placeholder="What happens in this shot"
+          className="mt-3 w-full bg-transparent text-[15px] font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/40"
+        />
+
+        {/* Script beat. */}
+        <input
+          value={shot.scriptRef}
+          onChange={(e) => onChange({ scriptRef: e.target.value })}
+          placeholder="Script beat — the screenplay line this shot covers"
+          className="mt-1 w-full bg-transparent text-xs italic text-muted-foreground/80 outline-none placeholder:not-italic placeholder:text-muted-foreground/35"
+        />
+
+        {/* Prompt — the reading surface. */}
+        <div className="mt-4">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+            Prompt
+          </span>
+          <AutoGrowTextarea
+            value={shot.text}
+            onChange={(value) => onChange({ text: value })}
+            placeholder="Generation prompt…"
+            className="mt-1.5 max-w-[64ch] text-[14px] leading-7 text-foreground/90 placeholder:text-muted-foreground/40"
+          />
+        </div>
       </div>
     </div>
   )
 }
 
-function ShotlistHeader({
-  doc,
-  relPath,
-  saveState,
+function EditorField({
+  label,
+  children,
 }: {
-  doc: ShotlistDocument
-  relPath: string
-  saveState: "idle" | "saving" | "saved"
+  label: string
+  children: React.ReactNode
 }) {
-  const sceneCount = doc.scenes.length
-  const shotCount = doc.scenes.reduce((sum, s) => sum + s.rows.length, 0)
-  const promptCount = doc.scenes.reduce((sum, s) => sum + s.prompts.length, 0)
-  const derived: Array<[string, string | number]> = [
-    ["Scenes", sceneCount],
-    ["Shots", shotCount],
-    ["Prompts", promptCount],
-  ]
+  return (
+    <label className="flex min-w-0 flex-1 items-baseline gap-2">
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+        {label}
+      </span>
+      {children}
+    </label>
+  )
+}
+
+function StatusPicker({
+  value,
+  onChange,
+}: {
+  value: ShotStatus
+  onChange: (value: ShotStatus) => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "press inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 outline-none",
+          "hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40",
+        )}
+      >
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[value])} />
+        <span className="truncate font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+          {value}
+        </span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[150px]">
+        {STATUS_OPTIONS.map((status) => (
+          <DropdownMenuItem
+            key={status}
+            onClick={(e) => e.stopPropagation()}
+            onSelect={() => onChange(status)}
+            className="gap-2"
+          >
+            <span
+              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])}
+            />
+            <span className="font-mono text-[11px] uppercase tracking-wide">
+              {status}
+            </span>
+            {status === value && (
+              <Check className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * A borderless textarea that grows with its content. Inside a resizable
+ * table cell it also re-measures when the column width changes, so the
+ * row height always matches the wrapped text.
+ */
+function AutoGrowTextarea({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const resize = () => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight}px`
+  }
+
+  useEffect(resize, [value])
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(resize)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <header className="shrink-0 px-6 pt-5 pb-4 border-b border-border bg-background">
-      <div className="flex items-start justify-between gap-5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="inline-block w-4 h-px bg-primary" />
-            <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-mono">
-              Shotlist
-            </span>
-          </div>
-          <h1
-            className="text-[28px] leading-tight text-foreground truncate"
-            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
-          >
-            {doc.title}
-          </h1>
-          {doc.subtitle && (
-            <p className="mt-1 text-xs text-muted-foreground truncate">
-              {doc.subtitle}
-            </p>
-          )}
-        </div>
-        <div className="shrink-0 text-right">
-          <SaveState state={saveState} />
-          <div className="mt-1 text-[10px] text-muted-foreground/65 font-mono max-w-[360px] truncate">
-            {relPath}
-          </div>
-        </div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-5">
-        {derived.map(([label, value]) => (
-          <div key={label}>
-            <div className="text-lg font-semibold tabular-nums text-primary leading-none">
-              {value}
-            </div>
-            <div className="mt-1 text-[9px] uppercase tracking-[0.16em] text-muted-foreground font-mono">
-              {label}
-            </div>
-          </div>
-        ))}
-        {Object.entries(doc.stats).map(([label, value]) => (
-          <div key={label}>
-            <div className="text-lg font-semibold tabular-nums text-foreground/70 leading-none">
-              {value}
-            </div>
-            <div className="mt-1 text-[9px] uppercase tracking-[0.16em] text-muted-foreground font-mono">
-              {label}
-            </div>
-          </div>
-        ))}
-      </div>
-    </header>
+    <textarea
+      ref={ref}
+      value={value}
+      placeholder={placeholder}
+      spellCheck
+      rows={1}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        "block w-full resize-none overflow-hidden bg-transparent outline-none",
+        className,
+      )}
+    />
   )
 }
 
@@ -475,328 +1335,9 @@ function SaveState({ state }: { state: "idle" | "saving" | "saved" }) {
       </span>
     )
   }
-  return <span className="text-[11px] text-muted-foreground/55">Idle</span>
-}
-
-function SceneRail({
-  scenes,
-  selectedSceneId,
-  onSelect,
-}: {
-  scenes: ShotlistScene[]
-  selectedSceneId: string | null
-  onSelect: (sceneId: string) => void
-}) {
   return (
-    <aside className="w-56 shrink-0 border-r border-border bg-card/20 flex flex-col min-h-0">
-      <div className="shrink-0 px-3 py-2 border-b border-border text-[10px] uppercase tracking-[0.16em] text-muted-foreground font-mono">
-        Scenes
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto py-1">
-        {scenes.length === 0 && (
-          <div className="px-3 py-4 text-[11px] text-muted-foreground/60">
-            No scenes yet.
-          </div>
-        )}
-        {scenes.map((scene) => {
-          const selected = scene.id === selectedSceneId
-          return (
-            <button
-              key={scene.id}
-              type="button"
-              onClick={() => onSelect(scene.id)}
-              className={cn(
-                "block w-full text-left px-3 py-2 border-l-2 transition-colors",
-                selected
-                  ? "border-primary bg-primary/10"
-                  : "border-transparent hover:bg-secondary/40",
-              )}
-            >
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-mono">
-                {scene.numberLabel}
-              </div>
-              <div className="mt-0.5 text-xs text-foreground/90 line-clamp-2">
-                {scene.title}
-              </div>
-              <div className="mt-1 text-[10px] text-muted-foreground/70 font-mono">
-                {scene.rows.length} shots · {scene.prompts.length} prompts
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </aside>
-  )
-}
-
-function ShotRowsTable({
-  rows,
-  promptById,
-  selectedPromptId,
-  onSelectPrompt,
-}: {
-  rows: ShotlistRow[]
-  promptById: Map<string, ShotlistPrompt>
-  selectedPromptId: string | null
-  onSelectPrompt: (promptId: string) => void
-}) {
-  return (
-    <div className="flex-1 min-h-0 overflow-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead className="sticky top-0 z-10 bg-card border-b border-border">
-          <tr className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-mono">
-            <th className="text-left font-medium px-4 py-2 w-16">#</th>
-            <th className="text-left font-medium px-2 py-2 w-28">Plan</th>
-            <th className="text-left font-medium px-2 py-2 w-36">Camera</th>
-            <th className="text-left font-medium px-2 py-2">Action</th>
-            <th className="text-left font-medium px-2 py-2">Scene text</th>
-            <th className="text-left font-medium px-2 py-2 w-44">Prompt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const prompt = row.promptId ? promptById.get(row.promptId) : null
-            const selected = prompt?.id === selectedPromptId
-            return (
-              <tr
-                key={row.id}
-                onClick={() => prompt?.id && onSelectPrompt(prompt.id)}
-                className={cn(
-                  "border-b border-border/50 align-top cursor-default",
-                  selected ? "bg-primary/10" : "hover:bg-secondary/35",
-                )}
-              >
-                <td className="px-4 py-2 text-muted-foreground font-mono tabular-nums">
-                  {row.id}
-                </td>
-                <td className="px-2 py-2">
-                  <PlanBadge plan={row.plan} label={row.planLabel} />
-                </td>
-                <td className="px-2 py-2 text-muted-foreground">
-                  {row.camera}
-                </td>
-                <td className="px-2 py-2 text-foreground/90">{row.action}</td>
-                <td className="px-2 py-2 text-muted-foreground max-w-[320px]">
-                  <div className="line-clamp-4 whitespace-pre-line">
-                    {row.sceneText}
-                  </div>
-                </td>
-                <td className="px-2 py-2">
-                  {prompt ? (
-                    <div className="space-y-1">
-                      <div className="font-medium text-foreground">
-                        {prompt.label}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground line-clamp-2">
-                        {prompt.tag}
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground/50">None</span>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      {rows.length === 0 && (
-        <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No shots in this scene yet.
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PromptInspector({
-  prompt,
-  rows,
-  onChange,
-  onMarkSubmitted,
-}: {
-  prompt: ShotlistPrompt | null
-  rows: ShotlistRow[]
-  onChange: (promptId: string, patch: Partial<ShotlistPrompt>) => void
-  onMarkSubmitted: (prompt: ShotlistPrompt) => void
-}) {
-  if (!prompt) {
-    return (
-      <aside className="w-[440px] shrink-0 border-l border-border bg-card/20 flex items-center justify-center px-8 text-center text-sm text-muted-foreground">
-        Select a row to inspect its prompt.
-      </aside>
-    )
-  }
-  const runway = prompt.generation?.runway
-  return (
-    <aside className="w-[460px] shrink-0 border-l border-border bg-card/20 flex flex-col min-h-0">
-      <div className="shrink-0 px-4 py-3 border-b border-border bg-card/40">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono">
-              Prompt {prompt.number}
-            </div>
-            <h2 className="mt-1 text-sm font-semibold text-foreground truncate">
-              {prompt.tag || prompt.label}
-            </h2>
-          </div>
-          <div className="text-right shrink-0">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-mono">
-              Runway
-            </div>
-            <div className="mt-1 text-xs text-foreground">
-              {runway?.status ?? "not-submitted"} · {runway?.attemptCount ?? 0}
-            </div>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1">
-          {rows.map((row) => (
-            <span
-              key={row.id}
-              className="px-1.5 py-0.5 rounded bg-background border border-border text-[10px] font-mono text-muted-foreground"
-            >
-              {row.id}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto px-4 py-3 space-y-4">
-        <PromptTextarea
-          label="Runway prompt"
-          value={prompt.promptRunway ?? ""}
-          placeholder="Optional Runway-specific prompt. If empty, Backlot uses EN first, then ZH."
-          onChange={(value) =>
-            onChange(prompt.id, { promptRunway: value || undefined })
-          }
-        />
-        <PromptTextarea
-          label="English translation"
-          icon={<Languages className="h-3.5 w-3.5" />}
-          value={prompt.promptEn ?? ""}
-          placeholder="Precise English translation for review and Runway fallback."
-          onChange={(value) =>
-            onChange(prompt.id, {
-              promptEn: value || undefined,
-              translationStatus: value ? "reviewed" : "missing",
-            })
-          }
-        />
-        <PromptTextarea
-          label="Chinese source"
-          value={prompt.promptZh}
-          onChange={(value) =>
-            onChange(prompt.id, {
-              promptZh: value,
-              translationStatus: "stale",
-            })
-          }
-        />
-      </div>
-      <div className="shrink-0 border-t border-border bg-card/40 px-4 py-3 space-y-2">
-        <div className="grid grid-cols-3 gap-2">
-          <SmallAction
-            icon={<Clipboard className="h-3.5 w-3.5" />}
-            label="Copy EN"
-            onClick={() =>
-              copyText(prompt.promptEn || prompt.promptZh, "Copied English prompt")
-            }
-          />
-          <SmallAction
-            icon={<Clipboard className="h-3.5 w-3.5" />}
-            label="Copy ZH"
-            onClick={() => copyText(prompt.promptZh, "Copied Chinese prompt")}
-          />
-          <SmallAction
-            icon={<Send className="h-3.5 w-3.5" />}
-            label="Submitted"
-            onClick={() => onMarkSubmitted(prompt)}
-          />
-        </div>
-        {runway?.lastSubmittedAt && (
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Clock3 className="h-3.5 w-3.5" />
-            Last submitted {runway.lastSubmittedAt}
-          </div>
-        )}
-      </div>
-    </aside>
-  )
-}
-
-function PromptTextarea({
-  label,
-  value,
-  placeholder,
-  icon,
-  onChange,
-}: {
-  label: string
-  value: string
-  placeholder?: string
-  icon?: ReactNode
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block">
-      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground font-mono">
-        {icon}
-        {label}
-      </div>
-      <textarea
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          "w-full min-h-[180px] rounded border border-border bg-background p-3",
-          "text-[11.5px] leading-5 text-foreground/90 outline-none resize-y",
-          "focus:border-primary/60",
-        )}
-        spellCheck
-      />
-    </label>
-  )
-}
-
-function SmallAction({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: ReactNode
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "press inline-flex items-center justify-center gap-1.5 rounded px-2 py-1.5",
-        "border border-border bg-background text-xs text-foreground/85",
-        "hover:bg-secondary hover:text-foreground transition-colors",
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  )
-}
-
-function PlanBadge({ plan, label }: { plan: string; label: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]",
-        plan === "WS" && "bg-blue-500/15 text-blue-600 dark:text-blue-300",
-        plan === "MS" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-        plan === "CU" && "bg-violet-500/15 text-violet-600 dark:text-violet-300",
-        plan === "ECU" && "bg-rose-500/15 text-rose-600 dark:text-rose-300",
-        !["WS", "MS", "CU", "ECU"].includes(plan) &&
-          "bg-secondary text-muted-foreground",
-      )}
-      title={label}
-    >
-      {label || plan || "Shot"}
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/45">
+      Autosaves
     </span>
   )
 }
@@ -811,29 +1352,9 @@ function ShotlistEmpty({
   return (
     <div className="flex h-full flex-col items-center justify-center px-10 text-center">
       <p className="text-sm font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+      <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+        {message}
+      </p>
     </div>
   )
-}
-
-async function copyText(text: string, message: string) {
-  try {
-    if (window.desktopApi?.clipboardWrite) {
-      await window.desktopApi.clipboardWrite(text)
-    } else {
-      await navigator.clipboard.writeText(text)
-    }
-    toast.success(message)
-  } catch {
-    toast.error("Couldn't copy prompt")
-  }
-}
-
-function clientHash(text: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `fnv1a-${(hash >>> 0).toString(16)}`
 }
