@@ -28,6 +28,7 @@ import {
   type McpSdkServerConfigWithInstance,
 } from "@anthropic-ai/claude-agent-sdk"
 import { createProposal } from "./proposals"
+import { requestSkillWorkbenchFocus } from "./workbench-focus"
 
 /** Server name as it appears in MCP config. Keep stable — referenced
  *  by the renderer when displaying tool calls. */
@@ -35,6 +36,9 @@ export const SKILLS_MCP_SERVER_NAME = "backlot-skills"
 
 /** Tool name as the agent invokes it. Stable. */
 export const PROPOSE_SKILL_CHANGE_TOOL = "propose_skill_change"
+
+/** Tool the agent calls to bring a skill into the Skill Workbench. */
+export const OPEN_SKILL_WORKBENCH_TOOL = "open_skill_workbench"
 
 /**
  * Resolve a skill path the agent may have given us. Accepts:
@@ -253,6 +257,87 @@ export function buildSkillsMcpServer(opts: {
                 text: userEdited
                   ? `User applied the change to ${skillName} after editing your proposed content in the diff. ${absPath} now holds their edited version — re-read it before making further changes.`
                   : `User applied the proposed change to ${skillName}. ${absPath} updated on disk.`,
+              },
+            ],
+          }
+        },
+      ),
+      tool(
+        OPEN_SKILL_WORKBENCH_TOOL,
+        [
+          "Switch Backlot into Skill Workbench mode and open a skill so",
+          "the user can see and edit it alongside this chat. ALWAYS call",
+          "this FIRST — before propose_skill_change — when the user asks",
+          "to modify, adapt, refine, rewrite, or work on a skill. It",
+          "brings the skill on screen so the user has context for the",
+          "edits you propose next.",
+          "",
+          "Inputs:",
+          "  • skill_name: the skill's slug — the directory name under",
+          "    ~/.claude/skills (e.g. 'nano-banana-pro').",
+          "  • file: optional path inside the skill folder to open,",
+          "    relative to the skill directory. Defaults to 'SKILL.md'.",
+          "",
+          "Returns: confirmation that the workbench is focused on the",
+          "skill. This only changes what the user sees — it does not",
+          "edit any file.",
+        ].join("\n"),
+        {
+          skill_name: z
+            .string()
+            .min(1)
+            .describe("Skill slug — the directory name under ~/.claude/skills."),
+          file: z
+            .string()
+            .optional()
+            .describe("Optional file to open, relative to the skill folder."),
+        },
+        async (args) => {
+          // Skills the workbench can open live directly under the user
+          // skills root. Reject anything with separators so a slug can't
+          // smuggle a path.
+          const slug = args.skill_name.trim()
+          if (
+            !slug ||
+            slug.includes("/") ||
+            slug.includes("\\") ||
+            slug.includes("..")
+          ) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Invalid skill_name "${args.skill_name}". Pass the bare skill slug, e.g. "nano-banana-pro".`,
+                },
+              ],
+              isError: true,
+            }
+          }
+
+          const skillDir = path.join(os.homedir(), ".claude", "skills", slug)
+          try {
+            const stat = await fs.stat(skillDir)
+            if (!stat.isDirectory()) throw new Error("not a directory")
+          } catch {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Skill "${slug}" is not installed at ${skillDir}. Nothing to open.`,
+                },
+              ],
+              isError: true,
+            }
+          }
+
+          const relPath = args.file?.trim() || "SKILL.md"
+          requestSkillWorkbenchFocus({ skillName: slug, skillDir, relPath })
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Skill Workbench is now focused on ${slug}/${relPath}. The user can see the skill on screen.`,
               },
             ],
           }

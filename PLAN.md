@@ -144,6 +144,16 @@ Verified: `git diff --check` passes, and `electron-vite build` passes with the b
 
 Next: vestigial cleanup still pending — the worktree-setup-command section inside `agents-project-worktree-tab.tsx`, the `create-branch-dialog` branch picker in `new-chat-form.tsx`, the now-unused `src/main/lib/git/worktree*.ts`, and the `directionName` prop name. Also still open: prune the stale `~/.backlot/worktrees/daddy-issues/*` directories, the Codex skills story, rip out Ollama.
 
+## Session note — 2026-05-17
+
+Shipped: added Skill Workbench as a fifth workdesk mode next to Screenwriting, Prompts, Shotlist, and Canvas. It pairs the assistant rail with a multi-tab editor over the skills Backlot surfaces in Settings (`BACKLOT_SKILL_REGISTRY`). In this mode the left rail swaps the project file tree for a skill explorer: registry skills grouped by category, each an expandable folder so reference files shipped alongside `SKILL.md` are reachable. The center editor supports an optional side-by-side split — any tab can move to a second pane via its tab handle. Editing is direct + autosave; the agent's own skill edits still route through the existing `propose_skill_change` diff modal.
+
+New: `skill-workbench` tRPC router (`list` registry skills + folders, `tree` a skill directory, `readFile`/`writeFile` with path containment, `focusEvents` subscription); `src/main/lib/skills/workbench-focus.ts` focus event bus; renderer `skill-workbench-view.tsx` (multi-tab split editor + `useOpenSkillFile`), `skill-explorer.tsx` (left-rail skill browser), `skill-workbench-focus-host.tsx` (subscription host). Added `viewModeAtom` `"skill"` member and three workbench atoms.
+
+Shipped: new MCP tool `open_skill_workbench` on the in-process `backlot-skills` server. When the user says "let's modify/adapt the X skill", the agent calls it first to bring the skill on screen — it flips the app into Skill Workbench mode and opens the file via the focus bus. Fire-and-forget (no user verdict), live-only (never replayed on relaunch). Claude-only, like `propose_skill_change`.
+
+Verified: `bun run build` passes. Not yet click-tested in-app.
+
 ## Week 1 — v1 backbone (UI + auth + chat)
 
 - [x] `git init`, write PRD/PLAN/CLAUDE.md/README/NAMING

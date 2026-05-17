@@ -136,7 +136,12 @@ export const projectTreeOpenAtom = atomWithStorage<boolean>(
 // between them as a workflow shift, not as a layout preference.
 // ────────────────────────────────────────────────────────────────────────
 
-export type ViewMode = "screenwriting" | "multishot" | "shotlist" | "canvas"
+export type ViewMode =
+  | "screenwriting"
+  | "multishot"
+  | "shotlist"
+  | "canvas"
+  | "skill"
 
 // Remembered per project — each project keeps its own pipeline stage.
 const viewModeByProjectAtom = atomWithStorage<Record<string, ViewMode>>(
@@ -158,6 +163,48 @@ export const viewModeAtom = atom(
       [projectId]: mode,
     })
   },
+)
+
+// ────────────────────────────────────────────────────────────────────────
+// Skill Workbench — the mode for inspecting and editing the Agent SDK
+// skills Backlot has access to. The left rail becomes a skill explorer
+// (registry skills, each a folder that may hold more than SKILL.md), the
+// center is a multi-tab editor with an optional side-by-side split, and
+// the assistant rail stays put so the user can ask the agent to adapt
+// the skill in view.
+//
+// A tab is one file inside one skill folder. `skillDir` is stored
+// absolute so a reload re-opens the same file without re-resolving the
+// registry. `pane` decides which side of the split a file sits on; when
+// no tab is on the right, the editor renders as a single full pane.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface SkillWorkbenchTab {
+  /** Stable id — `${skillName}::${relPath}`. */
+  id: string
+  skillName: string
+  /** Absolute path of the skill's directory. */
+  skillDir: string
+  /** File path relative to `skillDir` (e.g. "SKILL.md"). */
+  relPath: string
+  pane: "left" | "right"
+}
+
+export const skillWorkbenchTabsAtom = atomWithStorage<SkillWorkbenchTab[]>(
+  "backlot:skill-workbench-tabs",
+  [],
+)
+
+/** Active tab id per pane. `null` = that pane has no active tab. */
+export const skillWorkbenchActiveAtom = atomWithStorage<{
+  left: string | null
+  right: string | null
+}>("backlot:skill-workbench-active", { left: null, right: null })
+
+/** Fraction of the editor width given to the left pane when split. */
+export const skillWorkbenchSplitAtom = atomWithStorage<number>(
+  "backlot:skill-workbench-split",
+  0.5,
 )
 
 // ────────────────────────────────────────────────────────────────────────

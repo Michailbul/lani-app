@@ -38,6 +38,7 @@ import {
   PenLine,
   Plus,
   Trash2,
+  Wrench,
 } from "lucide-react"
 import { toast } from "sonner"
 import { ProjectTreeRail } from "./project-tree-rail"
@@ -45,6 +46,7 @@ import { MultishotSurface } from "./multishot-surface"
 import { CanvasModeView } from "./canvas-mode-view"
 import { EntityEditor } from "./entity-editor"
 import { ShotlistSurface } from "./shotlist-surface"
+import { SkillWorkbenchView } from "./skill-workbench-view"
 import {
   activeEntityAtom,
   assistantRailOpenAtom,
@@ -150,6 +152,7 @@ const WORKFLOW_MODES = [
   { id: "multishot", label: "Multishot", Icon: Sparkles },
   { id: "shotlist", label: "Shotlist", Icon: Clapperboard },
   { id: "canvas", label: "Canvas", Icon: LayoutGrid },
+  { id: "skill", label: "Skills", Icon: Wrench },
 ] as const
 
 function ModeDock() {
@@ -163,7 +166,7 @@ function ModeDock() {
       <GlassFilter />
       <div
         className={cn(
-          "pointer-events-auto relative grid grid-cols-4 h-11 p-1 rounded-2xl",
+          "pointer-events-auto relative grid grid-cols-5 h-11 p-1 rounded-2xl",
           "border border-white/55",
           "shadow-[0_1px_2px_rgba(20,22,14,0.06),0_14px_34px_-12px_rgba(20,22,14,0.30)]",
         )}
@@ -182,7 +185,7 @@ function ModeDock() {
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
-            width: "calc((100% - 0.5rem) / 4)",
+            width: "calc((100% - 0.5rem) / 5)",
             transform: `translateX(${activeIndex * 100}%)`,
           }}
         />
@@ -247,6 +250,10 @@ function ModeAwareCenter({ chatId }: ModeAwareCenterProps) {
   // Atomic markdown entities (brief/world/main-script/character/location/
   // act) always land in the editor regardless of mode — the multishot UI
   // only makes sense for scenes/shots.
+
+  if (mode === "skill") {
+    return <SkillWorkbenchView />
+  }
 
   if (mode === "canvas") {
     return <CanvasModeView worktreeId={chatId} />
