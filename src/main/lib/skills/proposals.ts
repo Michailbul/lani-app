@@ -46,7 +46,15 @@ export interface SkillProposal extends SkillProposalInput {
 }
 
 export type ProposalResolution =
-  | { action: "apply" }
+  | {
+      action: "apply"
+      /**
+       * The content to write. Present when the user edited the agent's
+       * proposal in the diff drawer before applying — that edited buffer
+       * is what lands on disk. Absent → write the agent's `newContent`.
+       */
+      finalContent?: string
+    }
   | { action: "dismiss" }
 
 interface PendingEntry {

@@ -14,6 +14,25 @@
 
 import type { ActiveEntity } from "./atoms"
 
+export function isShotlistPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return (
+    lower.endsWith("/shotlist/shotlist.backlot.json") ||
+    lower === "shotlist.backlot.json" ||
+    lower.endsWith("/shotlist.backlot.json") ||
+    lower.endsWith(".shotlist") ||
+    lower.endsWith(".shotlist.json")
+  )
+}
+
+export function isMultishotPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return (
+    lower === "multishot.backlot.json" ||
+    lower.endsWith("/multishot.backlot.json")
+  )
+}
+
 export function activeEntityFromPath(
   path: string,
   label: string,
@@ -29,13 +48,17 @@ export function activeEntityFromPath(
     return { kind: "main-script", path }
   }
 
-  if (
-    path.endsWith("/shotlist/shotlist.backlot.json") ||
-    path === "shotlist.backlot.json" ||
-    path.endsWith(".shotlist.json")
-  ) {
+  if (isShotlistPath(path)) {
     return {
       kind: "shotlist",
+      label,
+      path,
+    }
+  }
+
+  if (isMultishotPath(path)) {
+    return {
+      kind: "multishot",
       label,
       path,
     }
@@ -127,6 +150,6 @@ export function activeEntityFromPath(
  * (so "Dockerfile" stays "Dockerfile").
  */
 export function labelFromFilename(name: string): string {
-  const m = /^(.+)\.(md|fountain|txt|json|yaml|yml)$/i.exec(name)
+  const m = /^(.+)\.(md|fountain|txt|json|yaml|yml|shotlist)$/i.exec(name)
   return m ? m[1]! : name
 }

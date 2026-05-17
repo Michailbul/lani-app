@@ -20,11 +20,12 @@ import {
   IconSpinner,
   PlanIcon,
   AgentIcon,
-  IconOpenSidebarRight,
   PinFilledIcon,
   DiffIcon,
   ClockIcon,
   QuestionIcon,
+  ClaudeCodeIcon,
+  CodexIcon,
 } from "../../../components/ui/icons"
 import { Button } from "../../../components/ui/button"
 import { cn } from "../../../lib/utils"
@@ -54,11 +55,85 @@ import {
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu"
 import { InlineEdit } from "./inline-edit"
+import { threadColorsAtom, threadStripHeightAtom } from "../../backlot/atoms"
+
+// Drag handle under the thread tab strip — a thin bar with a small grip
+// pill. Dragging it vertically resizes the strip so more thread rows
+// show at once.
+function StripResizeHandle({
+  onResize,
+}: {
+  onResize: (deltaY: number) => void
+}) {
+  const [dragging, setDragging] = useState(false)
+  const lastYRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => {
+      if (lastYRef.current == null) {
+        lastYRef.current = e.clientY
+        return
+      }
+      const d = e.clientY - lastYRef.current
+      lastYRef.current = e.clientY
+      if (d !== 0) onResize(d)
+    }
+    const onUp = () => {
+      setDragging(false)
+      lastYRef.current = null
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+    document.body.style.cursor = "row-resize"
+    document.body.style.userSelect = "none"
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [dragging, onResize])
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      title="Drag to resize the thread strip"
+      onMouseDown={(e) => {
+        e.preventDefault()
+        lastYRef.current = e.clientY
+        setDragging(true)
+      }}
+      className="group/resize flex shrink-0 items-center justify-center h-3 cursor-row-resize"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
+      <div
+        className={cn(
+          "h-[3px] w-8 rounded-full transition-colors duration-150",
+          dragging
+            ? "bg-primary"
+            : "bg-border group-hover/resize:bg-muted-foreground/50",
+        )}
+      />
+    </div>
+  )
+}
 import { api } from "../../../lib/mock-api"
 import { toast } from "sonner"
 import { SearchCombobox } from "../../../components/ui/search-combobox"
 import { SubChatContextMenu } from "./sub-chat-context-menu"
 import { formatTimeAgo } from "../utils/format-time-ago"
+
+// Thread tabs size to their own name. To keep the wrapping strip tightly
+// packed (no ragged gaps from a handful of very long tabs), the visible
+// name is capped — anything longer is truncated with an ellipsis. The
+// full name still shows in the tab's native tooltip and on rename.
+const MAX_TAB_NAME_CHARS = 22
+const truncateTabName = (name: string) =>
+  name.length > MAX_TAB_NAME_CHARS
+    ? `${name.slice(0, MAX_TAB_NAME_CHARS).trimEnd()}…`
+    : name
 
 interface DiffStats {
   fileCount: number
@@ -221,10 +296,10 @@ export function SubChatSelector({
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
   const subChatUnseenChanges = useAtomValue(agentsSubChatUnseenChangesAtom)
   const setSubChatUnseenChanges = useSetAtom(agentsSubChatUnseenChangesAtom)
-  const [subChatsSidebarMode, setSubChatsSidebarMode] = useAtom(
-    agentsSubChatsSidebarModeAtom,
-  )
+  const subChatsSidebarMode = useAtomValue(agentsSubChatsSidebarModeAtom)
   const pendingQuestionsMap = useAtomValue(pendingUserQuestionsAtom)
+  const threadColors = useAtomValue(threadColorsAtom)
+  const [stripHeight, setStripHeight] = useAtom(threadStripHeightAtom)
 
   // Overview sidebar state - to check if widgets are visible
   const isUnifiedSidebarEnabled = useAtomValue(unifiedSidebarEnabledAtom)
@@ -365,7 +440,7 @@ export function SubChatSelector({
       if (error.data?.code === "NOT_FOUND") {
         toast.error("Send a message first before renaming this chat")
       } else {
-        toast.error("Failed to rename chat")
+        toast.error(`Failed to rename chat: ${error.message}`)
       }
     },
   })
@@ -467,36 +542,23 @@ export function SubChatSelector({
   }, [subChatsSidebarMode])
 
   // Keyboard shortcut: Cmd+Shift+T / Ctrl+Shift+T for new sub-chat
-  // Scroll to active tab when it changes
+  // Scroll the active tab into view when it changes. The strip wraps onto
+  // two rows, so a freshly created (and now-active) thread can land on an
+  // overflowed row — scrollIntoView brings it into view vertically, not
+  // just horizontally, with the minimal scroll needed.
   useEffect(() => {
-    if (!activeSubChatId || !tabsContainerRef.current) return
-
-    const container = tabsContainerRef.current
+    if (!activeSubChatId) return
     const activeTabElement = tabRefs.current.get(activeSubChatId)
+    if (!activeTabElement) return
 
-    if (activeTabElement) {
-      setTimeout(() => {
-        const containerRect = container.getBoundingClientRect()
-        const tabRect = activeTabElement.getBoundingClientRect()
-
-        const isTabLeftOfView = tabRect.left < containerRect.left
-        const isTabRightOfView = tabRect.right > containerRect.right
-
-        if (isTabLeftOfView || isTabRightOfView) {
-          const tabCenter =
-            activeTabElement.offsetLeft + activeTabElement.offsetWidth / 2
-          const containerCenter = container.offsetWidth / 2
-          const targetScroll = tabCenter - containerCenter
-          const maxScroll = container.scrollWidth - container.offsetWidth
-          const clampedScroll = Math.max(0, Math.min(targetScroll, maxScroll))
-
-          container.scrollTo({
-            left: clampedScroll,
-            behavior: "smooth",
-          })
-        }
-      }, 0)
-    }
+    const timer = setTimeout(() => {
+      activeTabElement.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "smooth",
+      })
+    }, 0)
+    return () => clearTimeout(timer)
   }, [activeSubChatId, openSubChats])
 
   // Check if text is truncated for each tab - updates ref and DOM directly
@@ -597,8 +659,9 @@ export function SubChatSelector({
   }, [openSubChatIds])
 
   return (
+    <div className="flex flex-col w-full">
     <div
-      className="flex items-center gap-1 h-7 w-full"
+      className="flex items-center gap-1 min-h-7 w-full"
       style={{
         // @ts-expect-error - WebKit-specific property for Electron window dragging
         WebkitAppRegion: "drag",
@@ -622,26 +685,8 @@ export function SubChatSelector({
         </Button>
       )}
 
-      {/* Open sidebar button - only on desktop when in tabs mode */}
-      {!isMobile && subChatsSidebarMode === "tabs" && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSubChatsSidebarMode("sidebar")}
-              className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md flex items-center justify-center"
-              style={{
-                // @ts-expect-error - WebKit-specific property
-                WebkitAppRegion: "no-drag",
-              }}
-            >
-              <IconOpenSidebarRight className="h-4 w-4 scale-x-[-1]" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Open chats pane</TooltipContent>
-        </Tooltip>
-      )}
+      {/* Open-sidebar button removed — Backlot has no sub-chats sidebar;
+          switching to "sidebar" mode only reserves dead layout space. */}
 
       <div
         className="relative flex-1 min-w-0 flex items-center"
@@ -661,24 +706,23 @@ export function SubChatSelector({
         <div
           ref={tabsContainerRef}
           className={cn(
-            "flex items-center px-1 py-1 -my-1 gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-hide pr-12",
-            // Hide tabs when sidebar is open (desktop) or when only one chat exists
+            // Wrapping tab strip — tabs flow onto as many rows as the
+            // strip height allows; it's user-resizable via the handle
+            // below it, scrolling once the rows outgrow that height.
+            "flex flex-wrap content-start px-1 py-1 -my-1 gap-1 flex-1 min-w-0 overflow-y-auto scrollbar-hide",
+            // Hide the strip when the sub-chats sidebar is open (desktop)
             (subChatsSidebarMode === "sidebar" && !isMobile) && "hidden",
-            hasSingleChat && "invisible",
           )}
+          style={{ maxHeight: stripHeight }}
         >
-          {hasNoChats
-            ? null
-            : openSubChats.map((subChat, index) => {
+          {openSubChats.length > 1 &&
+            openSubChats.map((subChat, index) => {
                 const isActive = activeSubChatId === subChat.id
+                const threadColor = threadColors[subChat.id]
                 const isLoading = loadingSubChats.has(subChat.id)
                 const hasUnseen = subChatUnseenChanges.has(subChat.id)
                 const hasTabsToRight = index < openSubChats.length - 1
                 const isPinned = pinnedSubChatIds.includes(subChat.id)
-                const providerLabel =
-                  subChat.provider === "codex" ? "Codex" : "Claude"
-                // Get mode from sub-chat itself (defaults to "agent")
-                const mode = subChat.mode || "agent"
                 // Check if this chat is waiting for user answer
                 const hasPendingQuestion = pendingQuestionsMap.has(subChat.id)
                 // Check if this chat has a pending plan approval
@@ -725,19 +769,37 @@ export function SubChatSelector({
                           }
                         }}
                         className={cn(
+                          // Tabs size to their own content so a thread's
+                          // name shows in full; they keep that width (never
+                          // grow to fill, never shrink) and wrap onto a
+                          // second row, scrolling once past two rows.
                           "group relative flex items-center text-sm rounded-md transition-colors duration-75 cursor-pointer h-6 flex-shrink-0",
                           "outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
                           editingSubChatId === subChat.id
                             ? "overflow-visible px-0"
-                            : "overflow-hidden px-1.5 py-0.5 whitespace-nowrap min-w-[50px] gap-1.5",
+                            : "overflow-hidden px-1.5 py-0.5 whitespace-nowrap max-w-[220px] gap-1.5",
                           isActive
-                            ? "bg-muted text-foreground max-w-[180px]"
-                            : "hover:bg-muted/80 max-w-[150px]",
+                            ? "bl-glass-button text-foreground font-medium"
+                            : "text-muted-foreground hover:bg-muted/60",
                         )}
+                        style={{
+                          // Selected tab is the liquid-glass button — the
+                          // same .bl-glass-button surface the mode dock's
+                          // thumb uses. Its fill is a soft wash of the
+                          // thread's colour (plain card when it has none).
+                          background: isActive
+                            ? threadColor
+                              ? `color-mix(in srgb, ${threadColor} 24%, hsl(var(--card)))`
+                              : "hsl(var(--card))"
+                            : undefined,
+                        }}
                       >
                         {/* Icon: question icon (priority) OR loading spinner OR mode icon with badge (hide when editing) */}
                         {editingSubChatId !== subChat.id && (
-                          <div className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center relative">
+                          <div
+                            className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center relative"
+                            style={threadColor ? { color: threadColor } : undefined}
+                          >
                             {hasPendingQuestion ? (
                               // Waiting for user answer: show question icon (highest priority)
                               <QuestionIcon className="w-3.5 h-3.5 text-blue-500" />
@@ -746,18 +808,29 @@ export function SubChatSelector({
                               <IconSpinner className="w-3.5 h-3.5 text-muted-foreground" />
                             ) : (
                               <>
-                                {/* Main mode icon */}
-                                {mode === "plan" ? (
-                                  <PlanIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                                {/* Provider icon — Claude vs Codex, so the
+                                    thread's agent reads at a glance. */}
+                                {subChat.provider === "codex" ? (
+                                  <CodexIcon
+                                    className={cn(
+                                      "w-3.5 h-3.5",
+                                      !threadColor && "text-muted-foreground",
+                                    )}
+                                  />
                                 ) : (
-                                  <AgentIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                                  <ClaudeCodeIcon
+                                    className={cn(
+                                      "w-3.5 h-3.5",
+                                      !threadColor && "text-muted-foreground",
+                                    )}
+                                  />
                                 )}
                                 {/* Badge in bottom-right corner: amber dot (plan) > unseen dot > pin icon */}
                                 {(hasPendingPlan || hasUnseen || isPinned) && (
                                   <div
                                     className={cn(
                                       "absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full flex items-center justify-center",
-                                      isActive ? "bg-muted" : "bg-background",
+                                      isActive ? "bg-card" : "bg-background",
                                     )}
                                   >
                                     {hasPendingPlan ? (
@@ -794,15 +867,11 @@ export function SubChatSelector({
                                   textRefs.current.delete(subChat.id)
                                 }
                               }}
+                              title={subChat.name || "New Chat"}
                               className="text-left flex-1 min-w-0 overflow-hidden block whitespace-nowrap"
                             >
-                              {subChat.name || "New Chat"}
+                              {truncateTabName(subChat.name || "New Chat")}
                             </span>
-                            {isActive && (
-                              <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 border border-border/70 rounded px-1 leading-3 flex-shrink-0">
-                                {providerLabel}
-                              </span>
-                            )}
                           </div>
                         )}
 
@@ -813,7 +882,7 @@ export function SubChatSelector({
                             className={cn(
                               "absolute right-0 top-0 bottom-0 w-6 pointer-events-none z-[1] rounded-r-md opacity-100 group-hover:opacity-0 transition-opacity duration-200",
                               isActive
-                                ? "bg-gradient-to-l from-muted to-transparent"
+                                ? "bg-gradient-to-l from-card to-transparent"
                                 : "bg-gradient-to-l from-background to-transparent",
                             )}
                             style={{ display: truncatedTabsRef.current.has(subChat.id) ? "block" : "none" }}
@@ -828,7 +897,7 @@ export function SubChatSelector({
                                 className={cn(
                                   "absolute right-0 top-0 bottom-0 w-9 flex items-center justify-center rounded-r-md",
                                   isActive
-                                    ? "bg-[linear-gradient(to_left,hsl(var(--muted))_0%,hsl(var(--muted))_60%,transparent_100%)]"
+                                    ? "bg-[linear-gradient(to_left,hsl(var(--card))_0%,hsl(var(--card))_60%,transparent_100%)]"
                                     : "bg-[linear-gradient(to_left,color-mix(in_srgb,hsl(var(--muted))_80%,hsl(var(--background)))_0%,color-mix(in_srgb,hsl(var(--muted))_80%,hsl(var(--background)))_60%,transparent_100%)]",
                                 )}
                               />
@@ -872,83 +941,80 @@ export function SubChatSelector({
                   </ContextMenu>
                 )
               })}
-        </div>
 
-        {/* Plus button - absolute positioned on right with gradient cover */}
-        {(isMobile || (!isMobile && subChatsSidebarMode === "tabs")) && (
-          <div className="absolute right-0 top-0 bottom-0 flex items-center z-20">
-            {/* Gradient to cover content peeking from the left */}
-            <div className="w-6 h-full bg-gradient-to-r from-transparent to-background" />
-            <div className="h-full flex items-center bg-background pr-1">
-              <DropdownMenu>
-                <Tooltip>
-                  <DropdownMenuTrigger asChild>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                  </DropdownMenuTrigger>
-                  <TooltipContent side="bottom">
-                    New thread
-                    {newAgentHotkey && <Kbd>{newAgentHotkey}</Kbd>}
-                  </TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem
-                    disabled={!activeSubChatId}
-                    onClick={() =>
-                      onCreateNew({ kind: "branch", provider: "claude-code" })
-                    }
-                  >
-                    <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <div className="flex flex-col">
-                      <span>Branch into Claude</span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Keep current thread history
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={!activeSubChatId}
-                    onClick={() =>
-                      onCreateNew({ kind: "branch", provider: "codex" })
-                    }
-                  >
-                    <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <div className="flex flex-col">
-                      <span>Branch into Codex</span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Keep current thread history
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() =>
-                      onCreateNew({ kind: "fresh", provider: "claude-code" })
-                    }
-                  >
-                    <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
-                    Start new chat with Claude
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      onCreateNew({ kind: "fresh", provider: "codex" })
-                    }
-                  >
-                    <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
-                    Start new chat with Codex
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        )}
+          {/* New-thread button — flows inline as the last item in the
+              wrapping strip, so it sits right after the final tab
+              instead of pinning to the far right and leaving a tall
+              empty column down the side of the strip. */}
+          {(isMobile || subChatsSidebarMode === "tabs") && (
+            <DropdownMenu>
+              <Tooltip>
+                <DropdownMenuTrigger asChild>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md flex-shrink-0"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                </DropdownMenuTrigger>
+                <TooltipContent side="bottom">
+                  New thread
+                  {newAgentHotkey && <Kbd>{newAgentHotkey}</Kbd>}
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                  disabled={!activeSubChatId}
+                  onClick={() =>
+                    onCreateNew({ kind: "branch", provider: "claude-code" })
+                  }
+                >
+                  <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <div className="flex flex-col">
+                    <span>Branch into Claude</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Keep current thread history
+                    </span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!activeSubChatId}
+                  onClick={() =>
+                    onCreateNew({ kind: "branch", provider: "codex" })
+                  }
+                >
+                  <GitBranch className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <div className="flex flex-col">
+                    <span>Branch into Codex</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Keep current thread history
+                    </span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() =>
+                    onCreateNew({ kind: "fresh", provider: "claude-code" })
+                  }
+                >
+                  <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
+                  Start new chat with Claude
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    onCreateNew({ kind: "fresh", provider: "codex" })
+                  }
+                >
+                  <MessageSquarePlus className="h-4 w-4 mr-2 text-muted-foreground" />
+                  Start new chat with Codex
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {/* Action buttons - always visible on mobile, on desktop only in tabs mode */}
@@ -1045,6 +1111,14 @@ export function SubChatSelector({
         </div>
       )}
 
+    </div>
+    {!hasNoChats && !hasSingleChat && (
+      <StripResizeHandle
+        onResize={(d) =>
+          setStripHeight((h) => Math.max(36, Math.min(220, h + d)))
+        }
+      />
+    )}
     </div>
   )
 }

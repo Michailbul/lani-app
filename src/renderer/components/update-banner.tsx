@@ -21,7 +21,6 @@ export function UpdateBanner() {
     justUpdated: realJustUpdated,
     justUpdatedVersion,
     dismissJustUpdated,
-    openChangelog,
   } = useJustUpdated()
   const hasTriggeredInstall = useRef(false)
 
@@ -134,17 +133,6 @@ export function UpdateBanner() {
     }
   }
 
-  const handleOpenChangelog = () => {
-    // Open changelog URL
-    window.desktopApi?.openExternal("https://1code.dev/changelog")
-    // Dismiss the banner
-    if (isMocking) {
-      setMockStatus("dismissed")
-    } else {
-      dismissJustUpdated()
-    }
-  }
-
   const handleDismissWhatsNew = () => {
     if (isMocking) {
       setMockStatus("dismissed")
@@ -166,9 +154,6 @@ export function UpdateBanner() {
           Updated to v{displayVersion}
         </span>
         <div className="flex items-center gap-2 ml-2">
-          <Button size="sm" onClick={handleOpenChangelog}>
-            See what's new
-          </Button>
           <button
             onClick={handleDismissWhatsNew}
             className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted"

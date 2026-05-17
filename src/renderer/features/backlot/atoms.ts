@@ -5,7 +5,9 @@
  * pane, project-tree) can subscribe without cyclic imports.
  */
 
+import { atom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
+import { selectedProjectAtom } from "../agents/atoms"
 
 // ────────────────────────────────────────────────────────────────────────
 // Active entity — what the user has selected in the project tree.
@@ -78,6 +80,11 @@ export type ActiveEntity =
       path: string
     }
   | {
+      kind: "multishot"
+      label: string
+      path: string
+    }
+  | {
       // Generic file — anything in the worktree that doesn't match the
       // canonical schema (brief / world / main-script / character /
       // location / act / scene / shot). The Cursor-style file tree
@@ -88,9 +95,27 @@ export type ActiveEntity =
     }
   | null
 
-export const activeEntityAtom = atomWithStorage<ActiveEntity>(
-  "backlot:active-entity",
-  null,
+// Remembered per project, so switching projects and back restores the
+// surface the writer had open. Keyed by project id.
+const activeEntityByProjectAtom = atomWithStorage<Record<string, ActiveEntity>>(
+  "backlot:active-entity-by-project",
+  {},
+)
+
+export const activeEntityAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return null
+    return get(activeEntityByProjectAtom)[projectId] ?? null
+  },
+  (get, set, entity: ActiveEntity) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    set(activeEntityByProjectAtom, {
+      ...get(activeEntityByProjectAtom),
+      [projectId]: entity,
+    })
+  },
 )
 
 // ────────────────────────────────────────────────────────────────────────
@@ -105,18 +130,34 @@ export const projectTreeOpenAtom = atomWithStorage<boolean>(
 // ────────────────────────────────────────────────────────────────────────
 // View mode — the user's pipeline stage. Distinct surfaces, NOT a
 // split. Screenwriting mode = the screenplay editor takes the whole
-// center; Prompts mode = a different surface (screenplay on the left
-// for reference, prompt text-blocks in the center, chat right);
-// Shotlist mode = the generation queue / prompt tracking surface. The
-// user toggles between them as a workflow shift, not as a layout
-// preference.
+// center; Multishot mode = the scene's screenplay paired with one
+// multi-shot generation prompt; Shotlist mode = the scene cut into Parts
+// with per-Part prompts; Canvas mode = the visual board. The user toggles
+// between them as a workflow shift, not as a layout preference.
 // ────────────────────────────────────────────────────────────────────────
 
-export type ViewMode = "screenwriting" | "prompts" | "shotlist" | "canvas"
+export type ViewMode = "screenwriting" | "multishot" | "shotlist" | "canvas"
 
-export const viewModeAtom = atomWithStorage<ViewMode>(
-  "backlot:view-mode",
-  "screenwriting",
+// Remembered per project — each project keeps its own pipeline stage.
+const viewModeByProjectAtom = atomWithStorage<Record<string, ViewMode>>(
+  "backlot:view-mode-by-project",
+  {},
+)
+
+export const viewModeAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return "screenwriting" as ViewMode
+    return get(viewModeByProjectAtom)[projectId] ?? "screenwriting"
+  },
+  (get, set, mode: ViewMode) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    set(viewModeByProjectAtom, {
+      ...get(viewModeByProjectAtom),
+      [projectId]: mode,
+    })
+  },
 )
 
 // ────────────────────────────────────────────────────────────────────────
@@ -126,18 +167,6 @@ export const viewModeAtom = atomWithStorage<ViewMode>(
 export const projectTreeWidthAtom = atomWithStorage<number>(
   "backlot:project-tree-width",
   260,
-)
-
-/** Fraction of the center pane width allocated to the Script panel. */
-export const scriptPromptSplitAtom = atomWithStorage<number>(
-  "backlot:script-prompt-split",
-  0.5,
-)
-
-/** Height of the references panel in pixels (when expanded). */
-export const refsPanelHeightAtom = atomWithStorage<number>(
-  "backlot:refs-panel-height",
-  140,
 )
 
 /**
@@ -155,4 +184,25 @@ export const assistantRailWidthAtom = atomWithStorage<number>(
 export const assistantRailOpenAtom = atomWithStorage<boolean>(
   "backlot:assistant-rail-open",
   true,
+)
+
+// ────────────────────────────────────────────────────────────────────────
+// Thread colours — a per-thread (sub-chat) accent the user picks from the
+// tab's right-click menu. Renderer-only: keyed by sub-chat id, persisted
+// to localStorage. Drives the tab's mode-icon tint and its selected-state
+// ring so threads stay visually distinct at a glance.
+// ────────────────────────────────────────────────────────────────────────
+
+export const threadColorsAtom = atomWithStorage<Record<string, string>>(
+  "backlot:thread-colors",
+  {},
+)
+
+/**
+ * Thread tab strip — user-resizable height in pixels. Drag the handle
+ * below the strip to grow it and see more thread rows at once.
+ */
+export const threadStripHeightAtom = atomWithStorage<number>(
+  "backlot:thread-strip-height",
+  60,
 )

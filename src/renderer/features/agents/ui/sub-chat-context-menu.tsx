@@ -1,4 +1,6 @@
 import React, { useMemo, useCallback } from "react"
+import { useAtom } from "jotai"
+import { Check } from "lucide-react"
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -8,11 +10,25 @@ import {
   ContextMenuSubContent,
 } from "../../../components/ui/context-menu"
 import { Kbd } from "../../../components/ui/kbd"
-import { isMac } from "../../../lib/utils"
+import { cn, isMac } from "../../../lib/utils"
 import { isDesktopApp } from "../../../lib/utils/platform"
 import type { SubChatMeta } from "../stores/sub-chat-store"
 import { useResolvedHotkeyDisplay } from "../../../lib/hotkeys"
 import { exportChat, copyChat, type ExportFormat } from "../lib/export-chat"
+import { threadColorsAtom } from "../../backlot/atoms"
+
+// Curated thread-accent palette — the studio's warm set plus the kiwi
+// app accent. Picked from the tab context menu; see threadColorsAtom.
+const THREAD_COLORS = [
+  "#C9E34B",
+  "#F26157",
+  "#FF8C42",
+  "#E8A838",
+  "#79B791",
+  "#5E91A8",
+  "#A87BB8",
+  "#C77B9C",
+] as const
 
 const openInNewWindow = (chatId: string, subChatId: string) => {
   window.desktopApi?.newWindow({ chatId, subChatId })
@@ -72,6 +88,22 @@ export function SubChatContextMenu({
 }: SubChatContextMenuProps) {
   const closeTabShortcut = useCloseTabShortcut()
 
+  const [threadColors, setThreadColors] = useAtom(threadColorsAtom)
+  const currentColor = threadColors[subChat.id]
+  const setThreadColor = useCallback(
+    (color: string | null) => {
+      setThreadColors((prev) => {
+        if (!color) {
+          const next = { ...prev }
+          delete next[subChat.id]
+          return next
+        }
+        return { ...prev, [subChat.id]: color }
+      })
+    },
+    [setThreadColors, subChat.id],
+  )
+
   const handleExport = useCallback((format: ExportFormat) => {
     if (!chatId) return
     exportChat({ chatId, subChatId: subChat.id, format })
@@ -90,6 +122,63 @@ export function SubChatContextMenu({
       <ContextMenuItem onClick={() => onRename(subChat)}>
         Rename chat
       </ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <span className="flex items-center gap-2">
+            <span
+              className="h-3 w-3 rounded-full border border-border/60 shrink-0"
+              style={
+                currentColor
+                  ? { backgroundColor: currentColor }
+                  : { backgroundColor: "hsl(var(--muted))" }
+              }
+            />
+            Thread color
+          </span>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent
+          sideOffset={6}
+          alignOffset={-4}
+          className="w-[184px] p-2"
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {THREAD_COLORS.map((color) => {
+              const selected = currentColor === color
+              return (
+                <ContextMenuItem
+                  key={color}
+                  onClick={() => setThreadColor(color)}
+                  className={cn(
+                    "h-7 w-7 p-0 rounded-full flex items-center justify-center",
+                    "cursor-pointer transition-transform duration-100 hover:scale-110",
+                    "focus:scale-110",
+                  )}
+                  style={{
+                    backgroundColor: color,
+                    boxShadow: selected
+                      ? `0 0 0 2px hsl(var(--popover)), 0 0 0 4px ${color}`
+                      : undefined,
+                  }}
+                >
+                  {selected && (
+                    <Check
+                      className="h-3.5 w-3.5 text-white"
+                      style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }}
+                    />
+                  )}
+                </ContextMenuItem>
+              )
+            })}
+          </div>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={() => setThreadColor(null)}
+            disabled={!currentColor}
+          >
+            Clear color
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
       {chatId && (
         <ContextMenuSub>
           <ContextMenuSubTrigger>Export chat</ContextMenuSubTrigger>

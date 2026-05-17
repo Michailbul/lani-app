@@ -1,101 +1,135 @@
 /**
- * Skills filter — user-controlled allowlist / denylist over the curated
- * Backlot skill registry.
+ * Skill preset — the curated set of skills the Backlot Claude agent
+ * loads.
  *
- * Persisted to `~/.backlot/skills-filter.json` so the choice sticks
- * across sessions. Schema:
+ * A **factory** default list ships in code (`BACKLOT_SKILL_REGISTRY`).
+ * The user's edited list persists to `~/.backlot/skills-preset.json`.
+ * The effective list is just an explicit array of skill names — what
+ * the user has switched on.
  *
- *   {
- *     "mode": "allow" | "deny",
- *     "selected": ["nano-banana-pro", "seedance-prompting", ...]
- *   }
- *
- * Semantics:
- *   - `mode: "allow"` → only the names in `selected` are active.
- *     Empty `selected` = nothing active. The strict opt-in mode.
- *   - `mode: "deny"`  → everything except names in `selected` is active.
- *     Empty `selected` = everything active. The default; safer because
- *     a fresh install has all curated skills available.
- *
- * The renderer reads `getFilter`, mutates locally, calls `setFilter`
- * with the new state. A single file write per change — no need for
- * fancy locking, the user is the only writer.
+ * How it reaches the agent: at session start `buildSessionSkillsDir()`
+ * fills `<CLAUDE_CONFIG_DIR>/skills/` with one symlink per preset skill.
+ * The Claude Agent SDK discovers that directory as the "user" skill
+ * source (the session runs with a redirected `CLAUDE_CONFIG_DIR` and
+ * `settingSources` includes `"user"`). So the agent sees exactly this
+ * curated set — never the user's full `~/.claude/skills`. `CLAUDE.md`
+ * is deliberately never linked in, so the user's global memory file
+ * does not bleed into Backlot sessions.
  */
 
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
+import { dirname, join } from "node:path"
 
-import { BACKLOT_SKILL_REGISTRY, getAllRegistrySkillNames } from "./registry"
+import { getAllRegistrySkillNames } from "./registry"
 
-const FILTER_PATH = join(homedir(), ".backlot", "skills-filter.json")
+const PRESET_PATH = join(homedir(), ".backlot", "skills-preset.json")
+const USER_SKILLS_DIR = join(homedir(), ".claude", "skills")
 
-export type SkillFilterMode = "allow" | "deny"
-
-export interface SkillFilter {
-  mode: SkillFilterMode
-  /** Skill names participating in the filter (interpretation depends on mode). */
-  selected: string[]
+export interface SkillPreset {
+  /** Skill names the Claude agent loads. */
+  skills: string[]
 }
 
-const DEFAULT_FILTER: SkillFilter = {
-  mode: "deny",
-  selected: [],
+/** The factory default skill set — ships in code via the registry. */
+export function getFactorySkillNames(): string[] {
+  return getAllRegistrySkillNames()
 }
 
-/**
- * Read the current filter from disk. Returns the default when no file
- * exists yet, or when the file is unreadable / malformed (so a corrupt
- * config never bricks the settings UI). Selections are intersected with
- * the registry — any stale entries (skills removed from the registry)
- * are silently dropped.
- */
-export async function readSkillFilter(): Promise<SkillFilter> {
-  if (!existsSync(FILTER_PATH)) return { ...DEFAULT_FILTER }
-  try {
-    const raw = await readFile(FILTER_PATH, "utf-8")
-    const parsed = JSON.parse(raw) as Partial<SkillFilter>
-    const mode: SkillFilterMode = parsed.mode === "allow" ? "allow" : "deny"
-    const known = new Set(getAllRegistrySkillNames())
-    const selected = Array.isArray(parsed.selected)
-      ? parsed.selected.filter((n): n is string => typeof n === "string" && known.has(n))
-      : []
-    return { mode, selected }
-  } catch (err) {
-    console.warn("[skills.filter] could not read filter, using default:", err)
-    return { ...DEFAULT_FILTER }
-  }
-}
-
-/** Write the filter to disk. Creates `~/.backlot/` if missing. */
-export async function writeSkillFilter(filter: SkillFilter): Promise<void> {
-  const known = new Set(getAllRegistrySkillNames())
-  const safe: SkillFilter = {
-    mode: filter.mode === "allow" ? "allow" : "deny",
-    selected: Array.from(
-      new Set(
-        (filter.selected ?? []).filter(
-          (n) => typeof n === "string" && known.has(n),
-        ),
-      ),
+function dedupeNames(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return Array.from(
+    new Set(
+      input.filter((n): n is string => typeof n === "string" && n.length > 0),
     ),
-  }
-  await mkdir(dirname(FILTER_PATH), { recursive: true })
-  await writeFile(FILTER_PATH, JSON.stringify(safe, null, 2) + "\n", "utf-8")
+  )
 }
 
 /**
- * Resolve the filter into the concrete set of *active* skill names
- * (the ones Backlot should expose to the agent). Used by injection.
+ * Read the active preset. No file yet → the factory defaults. A
+ * malformed file also falls back to factory so a bad write never
+ * bricks skill loading.
  */
-export function resolveActiveSkillNames(filter: SkillFilter): string[] {
-  const all = getAllRegistrySkillNames()
-  const sel = new Set(filter.selected)
-  return filter.mode === "allow"
-    ? all.filter((n) => sel.has(n))
-    : all.filter((n) => !sel.has(n))
+export async function readSkillPreset(): Promise<SkillPreset> {
+  if (!existsSync(PRESET_PATH)) return { skills: getFactorySkillNames() }
+  try {
+    const parsed = JSON.parse(await readFile(PRESET_PATH, "utf-8")) as
+      | Partial<SkillPreset>
+      | undefined
+    if (!parsed || !Array.isArray(parsed.skills)) {
+      return { skills: getFactorySkillNames() }
+    }
+    return { skills: dedupeNames(parsed.skills) }
+  } catch (err) {
+    console.warn("[skills.preset] could not read preset, using factory:", err)
+    return { skills: getFactorySkillNames() }
+  }
 }
 
-/** Re-export so callers don't need a second import. */
-export { BACKLOT_SKILL_REGISTRY }
+/** Persist the preset. Creates `~/.backlot/` if missing. */
+export async function writeSkillPreset(skills: string[]): Promise<SkillPreset> {
+  const clean = dedupeNames(skills)
+  await mkdir(dirname(PRESET_PATH), { recursive: true })
+  await writeFile(
+    PRESET_PATH,
+    JSON.stringify({ skills: clean }, null, 2) + "\n",
+    "utf-8",
+  )
+  return { skills: clean }
+}
+
+/**
+ * Build the per-session skills directory the Claude Agent SDK reads as
+ * its "user" skill source. Rebuilt from scratch each call — cheap (a
+ * few dozen symlinks) and never stale, so a preset change takes effect
+ * on the next agent turn. Only preset skills that actually exist under
+ * `~/.claude/skills/<name>/SKILL.md` are linked. Returns the names
+ * that were linked.
+ */
+export async function buildSessionSkillsDir(
+  configDir: string,
+): Promise<string[]> {
+  const skillsDir = join(configDir, "skills")
+  // Remove whatever is there (a stale per-skill set, or a legacy
+  // whole-directory symlink). `rm` unlinks a symlink without touching
+  // its target, so the real ~/.claude/skills is never at risk.
+  await rm(skillsDir, { recursive: true, force: true }).catch(() => {})
+  await mkdir(skillsDir, { recursive: true })
+
+  const { skills } = await readSkillPreset()
+  const linked: string[] = []
+  for (const name of skills) {
+    const source = join(USER_SKILLS_DIR, name)
+    if (!existsSync(join(source, "SKILL.md"))) continue
+    try {
+      await symlink(source, join(skillsDir, name), "dir")
+      linked.push(name)
+    } catch (err) {
+      console.warn(`[skills.preset] failed to link skill "${name}":`, err)
+    }
+  }
+  return linked
+}
+
+/**
+ * Names of skills installed under `~/.claude/skills` that are NOT in
+ * the preset — useful for the settings UI's "add a skill" list. Cheap
+ * directory scan; descriptions are read elsewhere (`skills.list`).
+ */
+export async function listInstalledSkillNames(): Promise<string[]> {
+  try {
+    const entries = await readdir(USER_SKILLS_DIR, { withFileTypes: true })
+    const names: string[] = []
+    for (const entry of entries) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        if (existsSync(join(USER_SKILLS_DIR, entry.name, "SKILL.md"))) {
+          names.push(entry.name)
+        }
+      }
+    }
+    return names.sort((a, b) => a.localeCompare(b))
+  } catch {
+    return []
+  }
+}

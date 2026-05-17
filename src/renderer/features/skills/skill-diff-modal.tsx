@@ -7,23 +7,36 @@
  * Why a drawer, not a center modal: the user wants to see the change
  * in context with the rest of their workspace (project tree, file
  * preview, chat). A modal yanks them out of the work; a drawer pulls
- * the change into the work. Same physical gesture as Cursor's "Open
- * in chat" panel, Stripe Dashboard's resource side-pane, Bear's note
- * inspector — slide in from the right, dim the workspace very lightly,
- * close on Apply / Dismiss / X / overlay-click / Esc.
+ * the change into the work. Close on Apply / Dismiss / X / overlay-click
+ * / Esc.
  *
- * Visual register: editorial. Mono kicker ("SKILL CHANGE PROPOSED"),
- * display headline (skill name in Darker Grotesque), Coral hairline
- * tick as the only accent, full hairline rules between regions, no
- * coloured bg pads or shadow-bling. The diff body is the densest
- * region — keep everything else airy so the diff reads cleanly.
+ * The diff body is NOT a read-only GitHub-style two-column patch. It is
+ * the proposed skill as one editable document: no card, no container
+ * fill, no +/− gutter. Changed lines carry a 2px Coral margin tick;
+ * removed lines sit inline as faint, struck-through ghosts just above
+ * their replacement. The writer edits the document directly — what they
+ * see is what Apply writes to disk.
+ *
+ * Visual register: editorial. Mono kicker, display headline, Coral
+ * hairline accents, hairline rules between regions — no boxes.
  */
 
-import { memo, useMemo } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { diffLines } from "diff"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { motion } from "motion/react"
 import { Check, Loader2, X } from "lucide-react"
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+  keymap,
+} from "@codemirror/view"
+import { EditorState, type Range } from "@codemirror/state"
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { cn } from "../../lib/utils"
 
 export interface SkillProposalForUi {
@@ -41,73 +54,11 @@ interface SkillDiffDrawerProps {
   proposal: SkillProposalForUi | null
   /** True while waiting for the resolveProposal mutation to land. */
   pending: "apply" | "dismiss" | null
-  onApply: () => void
+  /** Apply carries the (possibly edited) document the user sees. */
+  onApply: (finalContent: string) => void
   onDismiss: () => void
   /** User closed via X / Esc / overlay — same semantics as dismiss. */
   onClose: () => void
-}
-
-interface DiffSegment {
-  kind: "add" | "del" | "ctx"
-  /** lines, each WITHOUT trailing newline */
-  lines: string[]
-  /** True for the synthetic "… N lines …" collapse marker. */
-  isCollapse?: boolean
-}
-
-/**
- * Convert raw `diffLines` chunks into renderable segments. Long
- * unchanged regions get visually collapsed to head + tail with a
- * "… N lines …" marker so the diff stays scannable.
- */
-function buildSegments(
-  oldContent: string,
-  newContent: string,
-  contextLines = 3,
-): DiffSegment[] {
-  const chunks = diffLines(oldContent, newContent)
-  const segments: DiffSegment[] = []
-
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i]
-    const text = chunk.value.replace(/\n$/, "")
-    const lines = text.length > 0 ? text.split("\n") : []
-    if (chunk.added) {
-      segments.push({ kind: "add", lines })
-    } else if (chunk.removed) {
-      segments.push({ kind: "del", lines })
-    } else {
-      const isFirst = i === 0
-      const isLast = i === chunks.length - 1
-      if (lines.length > contextLines * 2 + 1 && !isFirst && !isLast) {
-        segments.push({ kind: "ctx", lines: lines.slice(0, contextLines) })
-        segments.push({
-          kind: "ctx",
-          isCollapse: true,
-          lines: [`${lines.length - contextLines * 2} unchanged lines`],
-        })
-        segments.push({ kind: "ctx", lines: lines.slice(-contextLines) })
-      } else if (isFirst && lines.length > contextLines + 1) {
-        segments.push({
-          kind: "ctx",
-          isCollapse: true,
-          lines: [`${lines.length - contextLines} unchanged lines`],
-        })
-        segments.push({ kind: "ctx", lines: lines.slice(-contextLines) })
-      } else if (isLast && lines.length > contextLines + 1) {
-        segments.push({ kind: "ctx", lines: lines.slice(0, contextLines) })
-        segments.push({
-          kind: "ctx",
-          isCollapse: true,
-          lines: [`${lines.length - contextLines} unchanged lines`],
-        })
-      } else {
-        segments.push({ kind: "ctx", lines })
-      }
-    }
-  }
-
-  return segments
 }
 
 function diffStats(oldContent: string, newContent: string) {
@@ -138,21 +89,6 @@ export const SkillDiffDrawer = memo(function SkillDiffDrawer({
 }: SkillDiffDrawerProps) {
   const open = !!proposal
 
-  const segments = useMemo(
-    () =>
-      proposal
-        ? buildSegments(proposal.oldContent, proposal.newContent)
-        : [],
-    [proposal?.id],
-  )
-  const stats = useMemo(
-    () =>
-      proposal
-        ? diffStats(proposal.oldContent, proposal.newContent)
-        : { added: 0, removed: 0 },
-    [proposal?.id],
-  )
-
   return (
     <DialogPrimitive.Root
       open={open}
@@ -161,9 +97,8 @@ export const SkillDiffDrawer = memo(function SkillDiffDrawer({
       }}
     >
       <DialogPrimitive.Portal>
-        {/* Very soft backdrop — we want the workspace to stay visible
-            so the user keeps context. Just a hint that something is
-            modal-blocking. */}
+        {/* Very soft backdrop — keep the workspace visible so the user
+            keeps context; just a hint that something is modal. */}
         <DialogPrimitive.Overlay
           className={cn(
             "fixed inset-0 z-50 bg-foreground/[0.04] backdrop-blur-[1px]",
@@ -186,10 +121,9 @@ export const SkillDiffDrawer = memo(function SkillDiffDrawer({
         >
           {proposal && (
             <DrawerBody
+              key={proposal.id}
               proposal={proposal}
               pending={pending}
-              segments={segments}
-              stats={stats}
               onApply={onApply}
               onDismiss={onDismiss}
               onClose={onClose}
@@ -202,35 +136,37 @@ export const SkillDiffDrawer = memo(function SkillDiffDrawer({
 })
 
 // ──────────────────────────────────────────────────────────────────────
-// Body — kept separate so the entrance animation orchestration is
-// scoped to a re-mounted node when a new proposal pops, instead of the
-// outer Radix container which only animates on open/close transitions.
+// Body — keyed by proposal.id so each new proposal gets a fresh mount:
+// fresh editable draft, fresh entrance animation.
 // ──────────────────────────────────────────────────────────────────────
 
 interface DrawerBodyProps extends Omit<SkillDiffDrawerProps, "proposal"> {
   proposal: SkillProposalForUi
-  segments: DiffSegment[]
-  stats: { added: number; removed: number }
 }
 
 function DrawerBody({
   proposal,
   pending,
-  segments,
-  stats,
   onApply,
   onDismiss,
   onClose,
 }: DrawerBodyProps) {
+  // The editable document. Seeded with the agent's proposal; the writer
+  // can tweak anything before applying. Apply writes exactly this.
+  const [draft, setDraft] = useState(proposal.newContent)
+
+  const stats = useMemo(
+    () => diffStats(proposal.oldContent, draft),
+    [proposal.oldContent, draft],
+  )
+  const noChange = draft === proposal.oldContent
+
   return (
     <>
       {/* ── Header ───────────────────────────────────────────────── */}
       <header className="relative shrink-0 px-7 pt-7 pb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            {/* Mono kicker with Coral hairline tick — same idiom as
-                EntityEditor's masthead, so the drawer sits in the same
-                editorial register as the rest of the workspace. */}
             <div className="flex items-center gap-2">
               <span
                 aria-hidden
@@ -251,7 +187,6 @@ function DrawerBody({
               </span>
             </div>
 
-            {/* Display headline */}
             <DialogPrimitive.Title asChild>
               <motion.h2
                 initial={{ opacity: 0, y: 4 }}
@@ -305,8 +240,7 @@ function DrawerBody({
         </div>
       </header>
 
-      {/* Hairline + diff stats — single line under the masthead, same
-          rhythm as EntityEditor's bottom rule + path. */}
+      {/* Hairline + diff stats — single line under the masthead. */}
       <div className="px-7">
         <div className="h-px bg-border/70" />
       </div>
@@ -316,7 +250,7 @@ function DrawerBody({
             className="text-[10px] uppercase tracking-[0.20em] text-muted-foreground/65"
             style={{ fontFamily: "var(--font-mono)" }}
           >
-            Diff
+            Editable diff
           </span>
           <span
             className="flex items-center gap-1.5 text-[11.5px] tabular-nums"
@@ -339,31 +273,29 @@ function DrawerBody({
         </span>
       </div>
 
-      {/* ── Diff body ───────────────────────────────────────────── */}
-      <div
-        className={cn(
-          "flex-1 min-h-0 overflow-auto",
-          "border-y border-border/60",
-          // very faint zebra by region — the segment chrome itself
-          // carries the green/red so the container can stay neutral
-          "bg-muted/20",
-        )}
-      >
-        <pre
-          className="text-[12.5px] leading-[1.65] m-0 py-3"
-          style={{ fontFamily: "var(--font-mono)" }}
-        >
-          {segments.map((seg, idx) => (
-            <DiffBlock key={idx} seg={seg} />
-          ))}
-        </pre>
+      <div className="px-7">
+        <div className="h-px bg-border/70" />
+      </div>
+
+      {/* ── Diff body — editable document, no box ───────────────── */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <SkillDiffEditor
+          oldContent={proposal.oldContent}
+          initialValue={proposal.newContent}
+          onChange={setDraft}
+        />
+      </div>
+
+      <div className="px-7">
+        <div className="h-px bg-border/70" />
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
       <footer className="shrink-0 px-7 py-4 flex items-center justify-between gap-3">
         <p className="text-[11px] text-muted-foreground/65 leading-[1.5] max-w-[280px]">
-          Apply writes the file. Dismiss leaves it untouched. Either way the
-          agent is told the verdict.
+          Apply writes the file exactly as shown above — your edits
+          included. Dismiss leaves it untouched. The agent is told the
+          verdict either way.
         </p>
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -390,8 +322,9 @@ function DrawerBody({
           </button>
           <button
             type="button"
-            onClick={onApply}
-            disabled={!!pending}
+            onClick={() => onApply(draft)}
+            disabled={!!pending || noChange}
+            title={noChange ? "Nothing to apply — matches the current file" : undefined}
             className={cn(
               "press h-9 px-5 rounded-md",
               "bg-primary text-primary-foreground",
@@ -421,64 +354,204 @@ function DrawerBody({
   )
 }
 
-/**
- * One contiguous block of diff lines. Adds + dels get a 2px Coral-ish
- * left accent bar (green/red respectively) and a very faint background
- * tint. Context is plain. Collapse markers render as a single italic
- * mono line.
- */
-function DiffBlock({ seg }: { seg: DiffSegment }) {
-  if (seg.lines.length === 0) return null
+// ──────────────────────────────────────────────────────────────────────
+// SkillDiffEditor — CodeMirror surface holding the proposed content as
+// an editable document. A ViewPlugin re-diffs against `oldContent` on
+// every keystroke and decorates: changed lines get a Coral margin tick;
+// removed lines render as faint struck-through ghost rows inline.
+// ──────────────────────────────────────────────────────────────────────
 
-  if (seg.kind === "ctx") {
-    if (seg.isCollapse) {
-      return (
-        <div className="px-7 py-1 text-muted-foreground/45 italic select-none flex items-center gap-2">
-          <span className="inline-block w-3 h-px bg-muted-foreground/30" />
-          <span>{seg.lines[0]}</span>
-          <span className="inline-block flex-1 h-px bg-muted-foreground/15" />
-        </div>
-      )
-    }
+/** Faint, struck-through ghost rows for lines the change removed. */
+class RemovedLinesWidget extends WidgetType {
+  constructor(readonly lines: string[]) {
+    super()
+  }
+
+  eq(other: RemovedLinesWidget) {
     return (
-      <div className="px-7 text-foreground/55">
-        {seg.lines.map((line, i) => (
-          <div key={i} className="whitespace-pre-wrap break-words">
-            <span className="inline-block w-3 mr-2 select-none text-muted-foreground/30">
-              {" "}
-            </span>
-            {line || " "}
-          </div>
-        ))}
-      </div>
+      other.lines.length === this.lines.length &&
+      other.lines.every((line, i) => line === this.lines[i])
     )
   }
 
-  const isAdd = seg.kind === "add"
-  return (
-    <div
-      className={cn(
-        "pl-7 pr-7 py-[1px] border-l-2",
-        isAdd
-          ? "bg-emerald-500/[0.045] border-emerald-500/55 text-emerald-900 dark:bg-emerald-400/[0.06] dark:border-emerald-400/55 dark:text-emerald-100"
-          : "bg-rose-500/[0.045] border-rose-500/50 text-rose-900 dark:bg-rose-400/[0.06] dark:border-rose-400/50 dark:text-rose-100",
-      )}
-    >
-      {seg.lines.map((line, i) => (
-        <div key={i} className="whitespace-pre-wrap break-words">
-          <span
-            className={cn(
-              "inline-block w-3 mr-2 select-none",
-              isAdd
-                ? "text-emerald-600/80 dark:text-emerald-400/80"
-                : "text-rose-600/80 dark:text-rose-400/80",
-            )}
-          >
-            {isAdd ? "+" : "−"}
-          </span>
-          {line || " "}
-        </div>
-      ))}
-    </div>
+  toDOM() {
+    const wrap = document.createElement("div")
+    wrap.className = "cm-skilldiff-removed"
+    for (const line of this.lines) {
+      const row = document.createElement("div")
+      row.className = "cm-skilldiff-removed-line"
+      row.textContent = line.length > 0 ? line : " "
+      wrap.appendChild(row)
+    }
+    return wrap
+  }
+
+  ignoreEvent() {
+    return true
+  }
+}
+
+/**
+ * Diff the editor's current doc against `oldContent` and build the
+ * decoration set: a line decoration (Coral tick) for each added/changed
+ * line, a block widget of ghost rows wherever lines were removed.
+ */
+function buildDiffDecorations(
+  view: EditorView,
+  oldContent: string,
+): DecorationSet {
+  const doc = view.state.doc
+  const chunks = diffLines(oldContent, doc.toString())
+  const ranges: Range<Decoration>[] = []
+
+  // 1-based line cursor into the *new* doc.
+  let newLine = 1
+  let pendingRemoved: string[] = []
+
+  const flushRemoved = () => {
+    if (pendingRemoved.length === 0) return
+    const lines = pendingRemoved
+    pendingRemoved = []
+    const widget = Decoration.widget({
+      widget: new RemovedLinesWidget(lines),
+      block: true,
+      side: newLine > doc.lines ? 1 : -1,
+    })
+    const pos =
+      newLine > doc.lines ? doc.length : doc.line(newLine).from
+    ranges.push(widget.range(pos))
+  }
+
+  for (const chunk of chunks) {
+    const text = chunk.value.replace(/\n$/, "")
+    const count = text.length > 0 ? text.split("\n").length : 0
+
+    if (chunk.removed) {
+      if (count > 0) pendingRemoved.push(...text.split("\n"))
+      continue
+    }
+
+    // Unchanged or added: these lines exist in the new doc. Any pending
+    // removed lines belong on the seam right above them.
+    flushRemoved()
+
+    if (chunk.added) {
+      for (let i = 0; i < count; i++) {
+        const line = doc.line(newLine + i)
+        ranges.push(
+          Decoration.line({ class: "cm-skilldiff-changed" }).range(line.from),
+        )
+      }
+    }
+    newLine += count
+  }
+  // Trailing removed lines (the change deleted the tail of the file).
+  flushRemoved()
+
+  return Decoration.set(ranges, true)
+}
+
+function skillDiffDecorations(oldContent: string) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+
+      constructor(view: EditorView) {
+        this.decorations = buildDiffDecorations(view, oldContent)
+      }
+
+      update(update: ViewUpdate) {
+        if (update.docChanged) {
+          this.decorations = buildDiffDecorations(update.view, oldContent)
+        }
+      }
+    },
+    { decorations: (plugin) => plugin.decorations },
   )
+}
+
+// Boxless editorial theme: transparent surface, mono document, a 2px
+// Coral inset tick on changed lines, faint struck ghost rows. No
+// gutter, no line numbers, no container chrome.
+const skillDiffTheme = EditorView.theme({
+  "&": {
+    height: "100%",
+    backgroundColor: "transparent",
+    color: "hsl(var(--foreground) / 0.92)",
+    fontSize: "12.5px",
+  },
+  "&.cm-focused": { outline: "none" },
+  ".cm-scroller": {
+    fontFamily: "var(--font-mono)",
+    lineHeight: "1.7",
+    overflow: "auto",
+  },
+  ".cm-content": { padding: "12px 0", caretColor: "hsl(var(--primary))" },
+  ".cm-line": { padding: "0 28px" },
+  ".cm-skilldiff-changed": {
+    boxShadow: "inset 2px 0 0 0 hsl(var(--primary))",
+  },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "hsl(var(--primary))",
+  },
+  ".cm-selectionBackground": {
+    backgroundColor: "hsl(var(--primary) / 0.13)",
+  },
+  "&.cm-focused .cm-selectionBackground": {
+    backgroundColor: "hsl(var(--primary) / 0.18)",
+  },
+  ".cm-skilldiff-removed": {
+    padding: "1px 0",
+  },
+  ".cm-skilldiff-removed-line": {
+    padding: "0 28px",
+    color: "hsl(var(--muted-foreground) / 0.5)",
+    textDecoration: "line-through",
+    textDecorationColor: "hsl(var(--muted-foreground) / 0.35)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+})
+
+function SkillDiffEditor({
+  oldContent,
+  initialValue,
+  onChange,
+}: {
+  oldContent: string
+  initialValue: string
+  onChange: (next: string) => void
+}) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!hostRef.current) return
+
+    const state = EditorState.create({
+      doc: initialValue,
+      extensions: [
+        history(),
+        keymap.of([...defaultKeymap, ...historyKeymap]),
+        EditorView.lineWrapping,
+        skillDiffDecorations(oldContent),
+        skillDiffTheme,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            onChangeRef.current(update.state.doc.toString())
+          }
+        }),
+      ],
+    })
+    const view = new EditorView({ state, parent: hostRef.current })
+
+    return () => view.destroy()
+    // The whole drawer body is keyed by proposal.id, so this mounts
+    // fresh per proposal — oldContent/initialValue never change for a
+    // given mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return <div ref={hostRef} className="h-full" />
 }

@@ -223,12 +223,17 @@ export function buildSkillsMcpServer(opts: {
             }
           }
 
-          // Apply: write the new content. We do the actual write
-          // here on the main side so it's tied to the resolved
-          // verdict and can fail with a clear message back to the
-          // agent if disk is unwritable.
+          // Apply: write the content. The diff drawer is editable, so
+          // the user may have tweaked the proposal before applying —
+          // `finalContent` is that edited buffer. Fall back to the
+          // agent's original proposal when they applied it untouched.
+          // The write happens here on the main side so it's tied to the
+          // resolved verdict and can fail with a clear message back to
+          // the agent if disk is unwritable.
+          const contentToWrite = verdict.finalContent ?? args.new_content
+          const userEdited = contentToWrite !== args.new_content
           try {
-            await fs.writeFile(absPath, args.new_content, "utf-8")
+            await fs.writeFile(absPath, contentToWrite, "utf-8")
           } catch (e) {
             return {
               content: [
@@ -245,7 +250,9 @@ export function buildSkillsMcpServer(opts: {
             content: [
               {
                 type: "text",
-                text: `User applied the proposed change to ${skillName}. ${absPath} updated on disk.`,
+                text: userEdited
+                  ? `User applied the change to ${skillName} after editing your proposed content in the diff. ${absPath} now holds their edited version — re-read it before making further changes.`
+                  : `User applied the proposed change to ${skillName}. ${absPath} updated on disk.`,
               },
             ],
           }

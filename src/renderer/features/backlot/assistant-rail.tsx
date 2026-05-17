@@ -24,13 +24,12 @@ import { useAtom } from "jotai"
 import { Resizer } from "./resizer"
 import { assistantRailOpenAtom, assistantRailWidthAtom } from "./atoms"
 
-// The rail is drag-resizable via the handle on its left edge. It can be
-// made narrower, but never wider than its default: the chat lays out
-// comfortably at the default width, and a wider rail only steals canvas
-// from the screenplay. So default IS the max.
+// The rail is drag-resizable via the handle on its left edge — from a
+// snug minimum out to twice its default width when the writer wants a
+// roomy chat. Clamped at 2× so it can't swallow the editor entirely.
 const RAIL_DEFAULT_WIDTH = 420 // keep in sync with assistantRailWidthAtom
 const RAIL_MIN_WIDTH = 340
-const RAIL_MAX_WIDTH = RAIL_DEFAULT_WIDTH
+const RAIL_MAX_WIDTH = RAIL_DEFAULT_WIDTH * 2
 
 export function AssistantRail({ children }: { children: ReactNode }) {
   const [railOpen, setRailOpen] = useAtom(assistantRailOpenAtom)
@@ -80,9 +79,9 @@ export function AssistantRail({ children }: { children: ReactNode }) {
 
       {/* The rail card — a floating island, inset from the window edges
           to match the editor's island gutters. The chat fills it top to
-          bottom: its own header IS the rail's header, with no extra chrome
-          stacked above it. Closed via the assistant toggle in the editor's
-          macOS strip, or Cmd+\. */}
+          bottom; its built-in thread-tab strip is the rail's header.
+          Closed via the assistant toggle in the editor's macOS strip,
+          or Cmd+\. */}
       <aside
         className="relative my-2 mr-2 flex flex-col min-w-0 bl-island rounded-2xl overflow-hidden"
         style={{ width: railWidth }}

@@ -7,9 +7,10 @@
  * lives as one file on disk: brief, world, main script, character,
  * location, act, AND scenes (their `scene.fountain`) and shots.
  *
- * Prompts mode swaps scenes/shots over to PromptsModeView (script +
- * prompt + refs split); atomic markdown entities still land here in
- * either mode because the prompts surface is scene-specific.
+ * Multishot mode swaps scenes/shots over to MultishotSurface (the scene
+ * screenplay paired with one multi-shot prompt); atomic markdown entities
+ * still land here in either mode because the multishot surface is
+ * scene-specific.
  *
  * Flow (Cursor-style):
  *   1. User clicks an entity in the project tree → activeEntityAtom set
@@ -76,6 +77,11 @@ export function EntityEditor() {
     : selectedProject?.id
       ? { projectId: selectedProject.id }
       : null
+  const entityRootKey = chatId
+    ? `chat:${chatId}`
+    : selectedProject?.id
+      ? `project:${selectedProject.id}`
+      : null
 
   if (!active) {
     return <PlaceholderState />
@@ -89,7 +95,13 @@ export function EntityEditor() {
     return null
   }
 
-  return <ActiveEntityFile entityRoot={entityRoot} active={active} />
+  return (
+    <ActiveEntityFile
+      key={`${entityRootKey}:${"path" in active ? active.path : ""}`}
+      entityRoot={entityRoot}
+      active={active}
+    />
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────

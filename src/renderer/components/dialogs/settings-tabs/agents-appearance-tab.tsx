@@ -20,8 +20,6 @@ import {
   BUILTIN_THEME_NAMES,
 } from "../../../lib/themes/builtin-themes"
 import {
-  generateCSSVariables,
-  applyCSSVariables,
   removeCSSVariables,
   getThemeTypeFromColors,
 } from "../../../lib/themes/vscode-to-css-mapping"
@@ -236,25 +234,23 @@ export function AgentsAppearanceTab() {
     [systemDarkThemeId],
   )
 
-  // Apply theme based on current settings
+  // Apply theme based on current settings.
+  //
+  // Backlot's brand chrome is owned entirely by globals.css. We must NOT
+  // paint VS Code theme colours onto the root element — doing so overrides
+  // the brand tokens and repaints the app in the editor theme (the bug
+  // where the lime accent went blue/white). We only set the theme atoms
+  // and the light/dark class; the VSCodeThemeProvider picks up the atoms
+  // and drives Shiki + the terminal. Stale inline vars from older builds
+  // are cleared so globals.css always wins.
   const applyTheme = useCallback(
     (themeId: string | null) => {
+      removeCSSVariables()
+
       if (themeId === null) {
-        // System mode - apply theme based on system preference
-        removeCSSVariables()
+        // System mode - next-themes handles the light/dark class.
         setFullThemeData(null)
         setNextTheme("system")
-
-        // Apply the appropriate system theme
-        const isDark = resolvedTheme === "dark"
-        const systemTheme = isDark
-          ? getBuiltinThemeById(systemDarkThemeId)
-          : getBuiltinThemeById(systemLightThemeId)
-
-        if (systemTheme) {
-          const cssVars = generateCSSVariables(systemTheme.colors)
-          applyCSSVariables(cssVars)
-        }
         return
       }
 
@@ -263,10 +259,6 @@ export function AgentsAppearanceTab() {
                     importedThemes.find((t) => t.id === themeId)
       if (theme) {
         setFullThemeData(theme)
-
-        // Apply CSS variables
-        const cssVars = generateCSSVariables(theme.colors)
-        applyCSSVariables(cssVars)
 
         // Sync next-themes with theme type
         const themeType = getThemeTypeFromColors(theme.colors)
@@ -280,14 +272,7 @@ export function AgentsAppearanceTab() {
         setNextTheme(themeType)
       }
     },
-    [
-      resolvedTheme,
-      systemLightThemeId,
-      systemDarkThemeId,
-      setFullThemeData,
-      setNextTheme,
-      importedThemes,
-    ],
+    [setFullThemeData, setNextTheme, importedThemes],
   )
 
   // Handle main theme selection
@@ -308,32 +293,16 @@ export function AgentsAppearanceTab() {
   const handleSystemLightThemeChange = useCallback(
     (themeId: string) => {
       setSystemLightThemeId(themeId)
-      // If currently in light mode, apply the new theme
-      if (resolvedTheme === "light" && selectedThemeId === null) {
-        const theme = getBuiltinThemeById(themeId)
-        if (theme) {
-          const cssVars = generateCSSVariables(theme.colors)
-          applyCSSVariables(cssVars)
-        }
-      }
     },
-    [setSystemLightThemeId, resolvedTheme, selectedThemeId],
+    [setSystemLightThemeId],
   )
 
   // Handle system dark theme change
   const handleSystemDarkThemeChange = useCallback(
     (themeId: string) => {
       setSystemDarkThemeId(themeId)
-      // If currently in dark mode, apply the new theme
-      if (resolvedTheme === "dark" && selectedThemeId === null) {
-        const theme = getBuiltinThemeById(themeId)
-        if (theme) {
-          const cssVars = generateCSSVariables(theme.colors)
-          applyCSSVariables(cssVars)
-        }
-      }
     },
-    [setSystemDarkThemeId, resolvedTheme, selectedThemeId],
+    [setSystemDarkThemeId],
   )
 
   // Group imported themes by type
@@ -345,27 +314,6 @@ export function AgentsAppearanceTab() {
     () => importedThemes.filter((t) => t.type === "light"),
     [importedThemes],
   )
-
-  // Re-apply theme when system preference changes
-  useEffect(() => {
-    if (selectedThemeId === null && mounted) {
-      const isDark = resolvedTheme === "dark"
-      const systemTheme = isDark
-        ? getBuiltinThemeById(systemDarkThemeId)
-        : getBuiltinThemeById(systemLightThemeId)
-
-      if (systemTheme) {
-        const cssVars = generateCSSVariables(systemTheme.colors)
-        applyCSSVariables(cssVars)
-      }
-    }
-  }, [
-    resolvedTheme,
-    selectedThemeId,
-    systemLightThemeId,
-    systemDarkThemeId,
-    mounted,
-  ])
 
   if (!mounted) {
     return (

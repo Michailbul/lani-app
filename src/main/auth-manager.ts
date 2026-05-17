@@ -8,11 +8,11 @@
  * by running `claude /login` (or `claude setup-token`) — official
  * Anthropic CLI commands shipped with the bundled Claude binary.
  *
- * The upstream 1code AuthManager brokered auth through a 21st.dev
+ * The upstream AuthManager brokered auth through a remote
  * backend (exchangeCode / refresh against /api/auth/desktop/*). All of
  * that is gone — Backlot talks to Anthropic directly. The public method
  * surface is preserved so existing routers (chats, voice, claude-code)
- * keep compiling; calls that previously hit 21st.dev now return null
+ * keep compiling; calls that previously hit the remote backend now return null
  * tokens and the routers' fallback paths handle that gracefully.
  */
 
@@ -51,7 +51,7 @@ export class AuthManager {
   }
 
   /**
-   * Deprecated. Was 21st.dev's deep-link auth-code exchange. The deep-link
+   * Deprecated. Was the legacy deep-link auth-code exchange. The deep-link
    * handler in main/index.ts still calls this on `backlot://auth-callback`
    * URLs; we keep the signature so it does not throw, but the flow is
    * obsolete with Anthropic-direct auth.
@@ -175,7 +175,7 @@ export class AuthManager {
   }
 
   /**
-   * Fetch user's subscription plan. Was a 21st.dev call for analytics
+   * Fetch user's subscription plan. Was a remote call for analytics
    * enrichment; not available without their backend. Returns null.
    */
   async fetchUserPlan(): Promise<{ email: string; plan: string; status: string | null } | null> {

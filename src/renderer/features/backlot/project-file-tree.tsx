@@ -64,7 +64,11 @@ import {
   ContextMenuTrigger,
 } from "../../components/ui/context-menu"
 import { activeEntityAtom, viewModeAtom } from "./atoms"
-import { activeEntityFromPath, labelFromFilename } from "./entity-kind"
+import {
+  activeEntityFromPath,
+  isShotlistPath,
+  labelFromFilename,
+} from "./entity-kind"
 import { toast } from "sonner"
 
 interface TreeNode {
@@ -103,7 +107,9 @@ type FileStatus =
   | "clean"
 const ChangedFilesContext = createContext<Map<string, FileStatus>>(new Map())
 
-export function ProjectFileTree() {
+export function ProjectFileTree({
+  trafficLightInset = false,
+}: { trafficLightInset?: boolean } = {}) {
   const [chatId] = useAtom(selectedAgentChatIdAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
   const projectId = selectedProject?.id ?? null
@@ -161,13 +167,16 @@ export function ProjectFileTree() {
   if (!entityRoot) {
     return (
       <RailMessage
+        insetTop={trafficLightInset}
         kicker="No project"
         body="Pick a project from the recents to see its files."
       />
     )
   }
   if (tree.isPending) {
-    return <RailMessage kicker="Loading" body={null} />
+    return (
+      <RailMessage insetTop={trafficLightInset} kicker="Loading" body={null} />
+    )
   }
 
   // tRPC error — most commonly because the main-process restart hasn't
@@ -176,6 +185,7 @@ export function ProjectFileTree() {
   if (tree.isError) {
     return (
       <RailMessage
+        insetTop={trafficLightInset}
         kicker="Couldn't read tree"
         body={tree.error.message}
         action={{ label: "Retry", onClick: () => tree.refetch() }}
@@ -189,7 +199,9 @@ export function ProjectFileTree() {
     const body = entityRoot.chatId
       ? "This chat has no project folder attached."
       : "This project's folder couldn't be found on disk."
-    return <RailMessage kicker="No files" body={body} />
+    return (
+      <RailMessage insetTop={trafficLightInset} kicker="No files" body={body} />
+    )
   }
 
   // Tree exists but has zero files (excluding noise). Render the
@@ -205,6 +217,7 @@ export function ProjectFileTree() {
         onChanged={tree.refetch}
         onImportShotlist={() => importShotlist.mutate(entityRoot)}
         importingShotlist={importShotlist.isPending}
+        trafficLightInset={trafficLightInset}
       />
       {isEmpty ? (
         <div className="px-3 py-4">
@@ -238,13 +251,15 @@ function RailMessage({
   kicker,
   body,
   action,
+  insetTop = false,
 }: {
   kicker: string
   body: string | null
   action?: { label: string; onClick: () => void }
+  insetTop?: boolean
 }) {
   return (
-    <div className="px-4 py-5 space-y-2">
+    <div className={cn("px-4 py-5 space-y-2", insetTop && "pt-12")}>
       <span
         className="block text-[10px] uppercase tracking-[0.22em] text-muted-foreground/65"
         style={{ fontFamily: "var(--font-mono)" }}
@@ -288,21 +303,30 @@ function RootRow({
   onChanged,
   onImportShotlist,
   importingShotlist,
+  trafficLightInset,
 }: {
   tree: TreeNode
   entityRoot: EntityRoot
   onChanged: () => void
   onImportShotlist: () => void
   importingShotlist: boolean
+  trafficLightInset: boolean
 }) {
   const [creating, setCreating] = useState<null | "file" | "folder">(null)
   void tree
 
   return (
     <>
-      <div className="group/root flex items-center justify-between px-2 py-1">
+      <div
+        className={cn(
+          "group/root flex h-10 items-center justify-between",
+          // When the rail is the window's left-most panel, shift the
+          // header right so "Files" clears the native traffic lights.
+          trafficLightInset ? "pl-[74px] pr-2" : "px-2",
+        )}
+      >
         <span
-          className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground/70"
+          className="text-[10px] uppercase leading-none tracking-[0.22em] text-muted-foreground/70"
           style={{ fontFamily: "var(--font-mono)" }}
         >
           Files
@@ -534,12 +558,23 @@ function FileRow({
     setActive(nextActive)
     if (nextActive.kind === "shotlist") {
       setViewMode("shotlist")
+    } else if (nextActive.kind === "multishot") {
+      setViewMode("multishot")
+    } else {
+      // Opening any other file (a screenplay, brief, character note…)
+      // while parked in a generation mode would leave the writer staring
+      // at that surface instead of the file they just clicked. Drop back
+      // to screenwriting so the file opens in preview. Other modes are
+      // left untouched.
+      setViewMode((mode) =>
+        mode === "shotlist" || mode === "multishot" ? "screenwriting" : mode,
+      )
     }
   }
 
   // Selection visual: neutral grey fill on the row, slightly heavier
   // text. No left accent bar, no Coral tint — same restrained idiom
-  // as the 21st nav (and the settings tab list). Hover and active
+  // as the main nav (and the settings tab list). Hover and active
   // share the foreground/5 fill so movement between rows feels like
   // a single drift of weight, not a colour switch.
   return (
@@ -752,6 +787,7 @@ function CreateInline({
   const inputRef = useRef<HTMLInputElement>(null)
   const submittedRef = useRef(false)
   const [, setActive] = useAtom(activeEntityAtom)
+  const setViewMode = useSetAtom(viewModeAtom)
   const createFile = trpc.entities.createFile.useMutation()
   const createFolder = trpc.entities.createFolder.useMutation()
 
@@ -783,7 +819,13 @@ function CreateInline({
       if (kind === "file") {
         await createFile.mutateAsync({ ...entityRoot, path })
         // Open the newly-created file in the editor.
-        setActive(activeEntityFromPath(path, labelFromFilename(trimmed)))
+        const nextActive = activeEntityFromPath(path, labelFromFilename(trimmed))
+        setActive(nextActive)
+        if (nextActive.kind === "shotlist") {
+          setViewMode("shotlist")
+        } else if (nextActive.kind === "multishot") {
+          setViewMode("multishot")
+        }
       } else {
         await createFolder.mutateAsync({ ...entityRoot, path })
       }
@@ -887,7 +929,7 @@ function iconForFile(name: string, path: string): typeof File {
     return Clapperboard
   }
   if (lower.endsWith(".fountain")) return Film
-  if (lower === "shotlist.backlot.json" || lower.endsWith(".shotlist.json")) {
+  if (isShotlistPath(path)) {
     return Clapperboard
   }
   if (lower.endsWith(".md")) return FileText

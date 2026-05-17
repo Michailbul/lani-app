@@ -70,9 +70,79 @@ Shipped: replaced the `.fountain` click-to-edit flow with a CodeMirror 6 styled-
 
 Also redesigned `DiffSurface` (the pending-changes review view): one continuous unified diff instead of a stack of per-hunk cards — hunks joined into a single table with a thin location rail carrying Approve/Dismiss. Blank-line add/remove rows render slim and faint instead of as tall solid colour bars. Diff lines are now editable in place in the entity editor — click a `+`/context line, type, and the file is rewritten with that line swapped (`commitLineEdit`, wired via `paths`/`entities.write`).
 
-Note: `screenplay-pane.tsx` still carries its own duplicate `DiffSurface` (pre-existing) — not touched this session; consolidating onto the shared component is open debt.
+## Session note — 2026-05-16
 
-Next: visual pass in-app (build is green; UI not yet click-tested). Possible follow-ups — inline emphasis decorations (`*italic*` markers), screenwriter Tab/Enter block flow, scene navigator, dedupe the screenplay-pane DiffSurface.
+Shipped: merged the assistant rail thread-tab design pass from `claude/friendly-mclaren-0e13d1` into main. The rail now seeds recent threads as tabs, wraps and resizes the tab strip, shows provider icons, supports per-thread colors, keeps pinned tabs sorted first, and uses the shared `.bl-glass-button` treatment for both the active thread tab and the mode dock thumb.
+
+Fixed: hardened thread rename handling across the mock API bridge and the `renameSubChat` router, including clearer renderer error toasts. New active threads now scroll into view in the wrapped tab strip.
+
+Verified: `./node_modules/.bin/electron-vite build` passes when run with the bundled workspace Node runtime. Plain `bun run build` could not start in this shell because `bun` is not on PATH.
+
+Shipped: merged the screenplay-pane diff dedupe from `claude/romantic-williamson-e265ce`. The screenplay pane now imports the shared `DiffSurface` and shared diff types instead of maintaining its own private near-duplicate diff renderer.
+
+Shipped: integrated the Shotlist Split Desk redesign into main. The surface now uses a fixed scene bar, horizontal Parts strip, editable readable-measure Prompt column, read-only Screenplay column, draggable persisted split, version tabs, and a one-click Copy control. Added prompt version fields to `ShotPrompt` and the read-only `shotlists.readScript` query for the screenplay reference column.
+
+Shipped: upgraded the built-in Shotlist MCP path for the split-desk view. The server now discovers scenes without opening screenplay files, writes full ordered Parts in one call, normalizes summaries and prompt versions, migrates reads from the brief nested shotlist path, and keeps `text` aligned with the active prompt-version tab. Updated the Backlot harness so Claude and Codex agents know to use Shotlist MCP tools for chat-driven prompt writing instead of hand-editing JSON or legacy prompt files.
+
+Verified: `git diff --check` passes, and the Electron build passes with the bundled workspace Node runtime.
+
+Shipped: redesigned the Shotlist surface around the screenplay as the index. Dropped the horizontal Parts strip. Each Part owns a contiguous `scriptRef` slice, and the slices joined in order reconstruct the scene screenplay. The Screenplay column is now one continuous editable Fountain leaf — the same styled-source CodeMirror surface as the Screenwriting editor (Courier paper page, scene headings bold, dialogue indented), not a stack of region cards. Dividers are block widgets on the seams between Parts, tracked through edits as a CodeMirror `StateField`; the Part under the cursor gets a faint wash and binds the Prompt column. "Split here" drops a divider at the cursor's line (⌘⇧↵), a divider's hover "merge" removes it, and plain typing streams slices back to the Parts model without disturbing the cursor. New file: `shotlist-screenplay.tsx`. Empty state offers "Import screenplay" (seeds one undivided Part from `scene.fountain`) or an empty Part. `ShotPrompt.scriptRef` re-documented as the owned slice (schema v1 unchanged — legacy shotlists still load).
+
+Shipped: updated the Shotlist MCP tool descriptions and the Backlot harness for the owned-slice model. `shotlist_set_shots` is now framed as the decompose tool — split the screenplay into ordered Parts whose `scriptRef` slices concatenate with no gaps or overlaps. Placing/removing a divider maps to moving text between adjacent Parts' `scriptRef` values.
+
+Adjusted: removed the screenplay text reader from the Shotlist MCP surface. Agents now use scene text already present in chat/UI context for shotlist decomposition, and ask for the needed scene/context instead of calling a file-read tool just to fetch screenplay text.
+
+Verified: `tsc --noEmit` reports no new errors in the shotlist files (the repo's pre-existing baseline errors in unrelated files are unchanged); `node --check` passes on the Shotlist MCP server; `electron-vite build` passes. No live Electron UI run this session — the surface was not exercised in-app.
+
+Shipped: removed the `backlot-shotlist` MCP server entirely. The shotlist is a plain `shotlist.backlot.json` file the agent reads and writes with `Read`/`Write` — the Shotlist surface already polls the file, so an MCP write layer was redundant CRUD that drove no UI change the poll didn't. Deleted `mcp/shotlist/`, dropped the builtin-server wiring from `claude.ts` and `codex.ts`. Normalization moved to the read path: `normalizeShotlist()` in `shared/shotlist-types.ts` fills missing ids/status/schemaVersion (deterministic position-based id fallback so polls don't thrash), called from `shotlists.read`. Rewrote the Backlot harness (v1.3 → v1.4): the "Shotlist conventions" section now teaches what a shotlist is, the JSON schema, and the edit rule — read the file, change only the Part(s) in scope, keep every other Part byte-identical, write the whole valid document back in one `Write`. Dropped the hand-copied shotlist-MCP tool list and the "do not read the screenplay" instruction; the agent now owns `scene.fountain` via `Read`/`Edit`. `electron-vite build` passes; no live UI run this session.
+
+Shipped: redesigned the skill-change diff drawer (`SkillDiffDrawer`) as an editable, boxless surface. The diff body is no longer a read-only GitHub-style patch — it is the proposed SKILL.md as one editable CodeMirror document: no container fill, no card, no +/− gutter. A ViewPlugin re-diffs the live buffer against the on-disk content on every keystroke; changed lines carry a 2px Coral inset margin tick, removed lines render inline as faint struck-through ghost rows on the seam above their replacement (block widgets). The writer edits the document directly and Apply writes exactly what they see. Plumbed the edited buffer end to end: `ProposalResolution` now carries `finalContent`, `skills.resolveProposal` accepts it, and the `propose_skill_change` MCP tool writes the edited content (and tells the agent the user edited it). Apply is disabled when the draft matches the current file. `electron-vite build` passes; no live UI run this session.
+
+Shipped: killed the Directions feature. Regular chats already ran in the project's single main checkout (`createChat` sets `worktreePath = project.path`) — only `forkDirection` still spun up worktrees. Removed `forkDirection` and `directionsForProject` from `chats.ts` plus the Direction-only helpers (`DIRECTION_PALETTE`, `pickDirectionColor`, `autoForkName`); kept `stripForkedSessionMetadata` since thread-level message inheritance still uses it. Dropped `baseBranch` / `branchType` / `useWorktree` from the `createChat` input. Renderer: removed the `LineageBreadcrumb` and its render, the dead `ForkActiveButton`, and the dead `DirectionsSection` / `DirectionRow` / `DirectionDot` / `buildDirectionRows` block from `screenplay-workspace.tsx` and `project-tree-rail.tsx`; "No direction" → "Untitled". Deleted the dead `agents-worktrees-tab.tsx` and the unused `AgentsProjectWorktreeTab` re-export. `electron-vite build` passes; no live UI run.
+
+Shipped: fixed skills for the Claude agent with a curated preset. The agent no longer gets the user's whole `~/.claude/skills` library — it gets a **preset**: a factory default list (`BACKLOT_SKILL_REGISTRY`) that the user edits, persisted to `~/.backlot/skills-preset.json`. Rewrote `skills/filter.ts` as the preset module — `readSkillPreset` / `writeSkillPreset` / `getFactorySkillNames`, plus `buildSessionSkillsDir()` which rebuilds `<CLAUDE_CONFIG_DIR>/skills/` each session with one symlink per preset skill. `claude.ts` now calls `buildSessionSkillsDir` instead of whole-directory symlinking, drops the dead agents symlink and the `symlinksCreated` cache, and sets `settingSources: ["project", "user"]` — so the SDK discovers the curated skills as the "user" source. `CLAUDE.md` is still never symlinked, so the user's global memory file does not bleed in. `skills.ts` router swapped `registry`/`getFilter`/`setFilter`/`active` for `factory`/`getPreset`/`setPreset`. Rewrote the Skills settings tab around the preset: a searchable list of installed user skills, an Active switch per skill, factory skills marked, a "Reset to factory" control. `electron-vite build` passes; runtime not exercised. Codex still has no skills — separate (no MCP, would need prompt injection).
+
+Shipped: added a **Project Memory** settings tab — a live editor for the active project's `CLAUDE.md`. New `projects.readClaudeMd` / `projects.writeClaudeMd` tRPC procedures (write checkpoints the file as a focused git commit when it was clean, so a settings edit never leaves the project dirty). New tab component `agents-project-memory-tab.tsx`, wired into the settings sidebar (after System Prompt), `SettingsTab` union, `settings-content` switch, and `settings-tabs/index.ts`. The editor seeds once per project so a background refetch never clobbers in-progress edits. `electron-vite build` passes; runtime not exercised.
+
+Fixed: raised dark-theme contrast for inactive ModeDock labels. The dock keeps the same glass/thumb geometry; inactive labels now use the dock ink colour in dark mode instead of the page-muted token.
+
+Fixed: preserved the dark-theme glass texture on the active ModeDock thumb. The lime thumb now opts into a dark-mode accent glass shadow recipe so its bevel/refraction lines remain visible against the dark shell.
+
+Fixed: starting the first assistant thread no longer exposes or creates stale template diffs. Project-mode entity saves now settle into focused git commits when the target file was clean, matching the existing worktree-mode behavior, so edits made before a thread starts do not suddenly appear as agent pending changes. The entity editor is also remounted across project-root/chat-root and file changes, clearing pending autosave/TipTap state before the root switch can flush stale content into the selected path. Verified with `./node_modules/.bin/electron-vite build`.
+
+Shipped: expanded the Settings prompt editing surfaces into wider, boxless, Notion-style editors. System Prompt and `CLAUDE.md` now use the full settings panel instead of the narrow wrapper, with borderless full-height textareas. The Project Memory tab is labeled `CLAUDE.md`. Skill instructions now open directly in a larger borderless editor, with preview still available from the toggle.
+
+Verified: `electron-vite build` passes with the bundled Codex workspace Node runtime (`/Users/michael/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`). Running the same build with the shell's default Node failed before app code on Rollup's native optional package signature.
+
+Fixed: removed the paper-card treatment from `scene.fountain` in both styled-source and preview modes. Fountain now sits on the same open canvas placement as markdown entities: max-width 720px, matching horizontal padding, transparent content background, and no border or shadow.
+
+Verified: `electron-vite build` passes with the bundled Codex workspace Node runtime.
+
+Fixed: hardened Codex chat startup in local dev. Backlot now falls back to an installed Codex CLI (`/Applications/Codex.app/...` or `codex` on PATH) when `resources/bin/<platform>/codex` has not been downloaded, builds Codex provider/CLI env from the login shell while restoring `CODEX_API_KEY` / `OPENAI_API_KEY`, chooses ACP key auth when those credentials exist, and avoids resuming stale Codex sessions for key-auth runs. Codex MCP env/header resolution now uses that same Codex env. Also removed the old 21st sub-chat-name API call so a Codex send no longer triggers Claude token refresh / 21st 404 noise before the agent turn.
+
+Verified: upgraded `@zed-industries/codex-acp` to `0.14.0`; direct ACP probe through `streamText` returns `ok`; installed Codex CLI `mcp list --json` returns MCP server JSON; `git diff --check` passes; `bun run build` / `electron-vite build` passes. `bun run ts:check` is still blocked because the script calls missing `tsgo`; fallback `tsc --noEmit` remains blocked by the existing repo-wide baseline TypeScript errors.
+
+Fixed: removed the Backlot logo/name wordmark from the left sidebar chrome while keeping the collapse control and spacing intact.
+
+Fixed: aligned the collapsed file-tree rail with the projects sidebar chrome so the macOS traffic lights keep the same visual relationship when the projects panel is hidden. The file rail now uses the same shell inset/radius cadence as the projects panel, and the previously typed `setTrafficLightPosition` API is now wired through preload/main with a shared default/reset position.
+
+Fixed: aligned the file-tree `Files` header to the same 40px macOS chrome row as the project path and top-bar buttons. Removed the file rail's extra top padding and made the root header an `h-10` row with centered label text.
+
+Fixed: clicking or creating `.shotlist` files now classifies them as Shotlist entities, switches into Shotlist mode, and keeps the center pane on `ShotlistSurface` instead of falling back to the screenplay pane. The surface also resolves the selected shotlist back to its owning scene so non-canonical shotlist filenames open the matching scene context.
+
+Verified: `git diff --check` passes and `./node_modules/.bin/electron-vite build` passes. A dev Electron launch built main/preload/renderer and started the app, then the process exited cleanly before an interactive screenshot pass.
+
+Verified: `git diff --check` passes for the shotlist routing files, and `electron-vite build` passes with the bundled Codex workspace Node runtime. Full `tsc --noEmit` remains blocked by existing repo-wide baseline errors.
+
+## Session note — 2026-05-17
+
+Fixed: Shotlist and Multishot surfaces now use the same root selection as the file tree and entity editor. With an active chat they read/write that chat root; on the project home page they read/write the selected project root, so opening `shotlist.backlot.json` no longer shows "No scene context" just because no assistant thread is open. Also widened `entities.list` to resolve project roots as well as chat roots.
+
+Fixed: removed the legacy `ScreenplayPane` fallback from Screenwriting mode when no file is selected. The center now stays on the regular entity editor placeholder instead of mounting the old `screenplay.fountain` surface with Editor / Preview / Split / History controls.
+
+Verified: `git diff --check` passes, and `electron-vite build` passes with the bundled Codex workspace Node runtime. The default shell Node still fails before app code on Rollup's native optional package signature, matching the existing local build caveat.
+
+Next: vestigial cleanup still pending — the worktree-setup-command section inside `agents-project-worktree-tab.tsx`, the `create-branch-dialog` branch picker in `new-chat-form.tsx`, the now-unused `src/main/lib/git/worktree*.ts`, and the `directionName` prop name. Also still open: prune the stale `~/.backlot/worktrees/daddy-issues/*` directories, the Codex skills story, rip out Ollama.
 
 ## Week 1 — v1 backbone (UI + auth + chat)
 

@@ -15,21 +15,8 @@ export function getNextMode(current: AgentMode): AgentMode {
   return AGENT_MODES[(idx + 1) % AGENT_MODES.length]
 }
 
-// Selected agent chat ID - null means "new chat" view (persisted to restore on reload)
-// Uses window-scoped storage so each Electron window can have its own selected chat
-export const selectedAgentChatIdAtom = atomWithWindowStorage<string | null>(
-  "agents:selectedChatId",
-  null,
-  { getOnInit: true },
-)
-
-// Whether the selected chat is a remote (sandbox) chat
-// This is needed because remote and local chats may have the same ID
-export const selectedChatIsRemoteAtom = atomWithWindowStorage<boolean>(
-  "agents:selectedChatIsRemote",
-  false,
-  { getOnInit: true },
-)
+// Selected agent chat ID and its remote flag are remembered per project.
+// Defined below, after selectedProjectAtom (see "Selected chat" section).
 
 // Previous agent chat ID - used to navigate back after archiving current chat
 // Not persisted - only tracks within current session
@@ -58,7 +45,7 @@ export const selectedDraftIdAtom = atom<string | null>(null)
 // explicitly: by clicking the sidebar's "New Project" button, by the new-chat
 // hotkey, or by ProjectHomeView's primary action.
 //
-// Upstream 1Code defaulted this to `true` so cold-start landed in the form
+// Upstream defaulted this to `true` so cold-start landed in the form
 // instead of the (then-default) kanban view. Backlot inherits that wiring
 // but routes the cold-start case differently — see agents-content.tsx.
 export const showNewChatFormAtom = atom<boolean>(false)
@@ -220,6 +207,64 @@ export const selectedProjectAtom = atomWithWindowStorage<SelectedProject>(
   "agents:selectedProject",
   null,
   { getOnInit: true },
+)
+
+// ────────────────────────────────────────────────────────────────────────
+// Selected chat — remembered per project.
+//
+// Each project keeps its own open chat, so switching projects and back
+// restores the chat the writer had open instead of dropping them on the
+// empty project home view. Window-scoped: each Electron window keeps an
+// independent project→chat mapping. Restores on reload too, because both
+// this map and selectedProjectAtom read from storage on init.
+// ────────────────────────────────────────────────────────────────────────
+
+type ProjectChatSelection = { id: string | null; isRemote: boolean }
+
+const selectedChatByProjectAtom = atomWithWindowStorage<
+  Record<string, ProjectChatSelection>
+>("agents:selectedChatByProject", {}, { getOnInit: true })
+
+// Selected agent chat ID for the active project. null = project home view
+// ("new chat"). Derived from the per-project map keyed by the active project.
+export const selectedAgentChatIdAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return null
+    return get(selectedChatByProjectAtom)[projectId]?.id ?? null
+  },
+  (get, set, chatId: string | null) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    const map = get(selectedChatByProjectAtom)
+    const current = map[projectId]
+    if (current && current.id === chatId) return
+    set(selectedChatByProjectAtom, {
+      ...map,
+      [projectId]: { id: chatId, isRemote: current?.isRemote ?? false },
+    })
+  },
+)
+
+// Whether the active project's selected chat is a remote (sandbox) chat.
+// Needed because remote and local chats may share an ID.
+export const selectedChatIsRemoteAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return false
+    return get(selectedChatByProjectAtom)[projectId]?.isRemote ?? false
+  },
+  (get, set, isRemote: boolean) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    const map = get(selectedChatByProjectAtom)
+    const current = map[projectId]
+    if (current && current.isRemote === isRemote) return
+    set(selectedChatByProjectAtom, {
+      ...map,
+      [projectId]: { id: current?.id ?? null, isRemote },
+    })
+  },
 )
 
 export const lastSelectedAgentIdAtom = atomWithStorage<string>(

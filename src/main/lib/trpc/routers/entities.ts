@@ -442,15 +442,23 @@ The leading number sets the order in the tree.
 
 export const entitiesRouter = router({
   /**
-   * Walk the worktree and return the project hierarchy. Cheap — the
+   * Walk the resolved project root and return the project hierarchy. Cheap — the
    * frontend can poll this freely (it's all readdir + stat, no git
-   * operations beyond the implicit worktree resolution).
+   * operations beyond the implicit root resolution).
    */
   list: publicProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+      }),
+    )
     .query(async ({ input }): Promise<ProjectHierarchy> => {
-      const lookup = lookupWorktree(input.chatId)
-      const emptySingleton = (kind: "brief" | "world" | "main-script", path: string): SingletonEntity => ({
+      const { root } = resolveRoot(input)
+      const emptySingleton = (
+        kind: "brief" | "world" | "main-script",
+        path: string,
+      ): SingletonEntity => ({
         kind,
         path,
         exists: false,
@@ -465,9 +473,7 @@ export const entitiesRouter = router({
         acts: [],
         scenes: [],
       }
-      if (!lookup?.worktreePath) return empty
-
-      const root = lookup.worktreePath
+      if (!root) return empty
 
       // Singletons at root.
       const briefPath = join(root, ENTITY_PATHS.brief)
@@ -762,8 +768,7 @@ export const entitiesRouter = router({
         throw new Error("Entity path escapes the root.")
       }
       const shouldSettle =
-        kind === "worktree" &&
-        !!input.chatId &&
+        (kind === "worktree" || kind === "project") &&
         (await isPathClean(root, input.entityPath))
       await mkdir(dirname(full), { recursive: true })
       await writeFile(full, input.content, "utf-8")

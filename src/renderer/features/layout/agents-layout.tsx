@@ -23,7 +23,7 @@ import {
   betaAutomationsEnabledAtom,
   chatSourceModeAtom,
 } from "../../lib/atoms"
-import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, fileSearchDialogOpenAtom } from "../agents/atoms"
+import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, fileSearchDialogOpenAtom, agentsSubChatsSidebarModeAtom } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
@@ -32,7 +32,7 @@ import { CodexLoginModal } from "../../components/dialogs/codex-login-modal"
 import { SkillProposalsHost } from "../skills/skill-proposals-host"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
-import { AgentsSidebar } from "../sidebar/agents-sidebar"
+import { ProjectsSidebar } from "../sidebar/projects-sidebar"
 import { AgentsContent } from "../agents/ui/agents-content"
 import { UpdateBanner } from "../../components/update-banner"
 import { WindowsTitleBar } from "../../components/windows-title-bar"
@@ -50,7 +50,7 @@ import { AppTopBar } from "../backlot/screenplay-workspace"
 // ============================================================================
 
 const SIDEBAR_MIN_WIDTH = 160
-const SIDEBAR_MAX_WIDTH = 300
+const SIDEBAR_MAX_WIDTH = 600
 const SIDEBAR_ANIMATION_DURATION = 0
 const SIDEBAR_CLOSE_HOTKEY = "⌘\\"
 
@@ -104,6 +104,15 @@ export function AgentsLayout() {
 
   // Check for updates on mount and periodically
   useUpdateChecker()
+
+  // Backlot never mounts the upstream sub-chats sidebar — the project
+  // tree rail is the navigator. Pin sub-chat display to inline tabs:
+  // "sidebar" mode reserves dead vertical space in the chat header and
+  // above the title for a pane that isn't there.
+  const setSubChatsSidebarMode = useSetAtom(agentsSubChatsSidebarModeAtom)
+  useEffect(() => {
+    setSubChatsSidebarMode("tabs")
+  }, [setSubChatsSidebarMode])
 
   const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
   const [sidebarWidth, setSidebarWidth] = useAtom(agentsSidebarWidthAtom)
@@ -330,7 +339,8 @@ export function AgentsLayout() {
             animationDuration={SIDEBAR_ANIMATION_DURATION}
             initialWidth={0}
             exitWidth={0}
-            disableResize
+            disableClickToClose
+            showResizeTooltip
             className="bg-background p-2"
             style={{ overflow: "visible" }}
           >
@@ -345,7 +355,7 @@ export function AgentsLayout() {
               {isSettingsView ? (
                 <SettingsSidebar />
               ) : (
-                <AgentsSidebar
+                <ProjectsSidebar
                   desktopUser={sidebarDesktopUser}
                   onSignOut={handleSignOut}
                   onToggleSidebar={handleCloseSidebar}

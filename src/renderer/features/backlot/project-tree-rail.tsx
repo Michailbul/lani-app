@@ -12,7 +12,7 @@
  * persisted in `projectTreeWidthAtom`).
  */
 
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import {
   BookOpen,
   Check,
@@ -25,7 +25,7 @@ import {
   Sparkles,
   User,
 } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   selectedAgentChatIdAtom,
@@ -33,7 +33,11 @@ import {
 } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
-import { agentsSidebarOpenAtom } from "../../lib/atoms"
+import {
+  agentsSidebarOpenAtom,
+  isDesktopAtom,
+  isFullscreenAtom,
+} from "../../lib/atoms"
 import {
   activeEntityAtom,
   projectTreeOpenAtom,
@@ -117,10 +121,34 @@ function sceneTemplate(label: string): string {
 const MIN_WIDTH = 200
 const MAX_WIDTH = 420
 
+// Match the projects sidebar island metrics so the native macOS traffic
+// lights keep the same visual relationship when this rail becomes the
+// window's left-most panel.
+const FILE_RAIL_TRAFFIC_LIGHT_POSITION = { x: 19, y: 20 }
+
 export function ProjectTreeRail() {
   const open = useAtomValue(projectTreeOpenAtom)
   const sidebarOpen = useAtomValue(agentsSidebarOpenAtom)
+  const isDesktop = useAtomValue(isDesktopAtom)
+  const isFullscreen = useAtomValue(isFullscreenAtom)
   const [width, setWidth] = useAtom(projectTreeWidthAtom)
+
+  // This rail is the window's left-most panel — so the native traffic
+  // lights land on it — only when it's visible and the projects sidebar
+  // is collapsed.
+  const trafficLightInset =
+    open && isDesktop && !isFullscreen && !sidebarOpen
+
+  // Move the native traffic lights to suit this rail's chrome while it
+  // owns the left-most slot; restore the default position otherwise.
+  useEffect(() => {
+    window.desktopApi?.setTrafficLightPosition?.(
+      trafficLightInset ? FILE_RAIL_TRAFFIC_LIGHT_POSITION : null,
+    )
+    return () => {
+      window.desktopApi?.setTrafficLightPosition?.(null)
+    }
+  }, [trafficLightInset])
 
   // Collapsed — render nothing. The file-explorer toggle lives in the
   // top navbar (IDE-style); the rail carries no collapse chrome itself.
@@ -129,20 +157,11 @@ export function ProjectTreeRail() {
   return (
     <div className="relative flex shrink-0 h-full">
       <aside
-        className="relative flex flex-col bl-island rounded-2xl overflow-hidden"
+        className="relative flex flex-col bl-island rounded-xl overflow-hidden"
         style={{ width }}
       >
-        {/* The tree starts flush at the top. Only when the projects
-            sidebar is collapsed does this rail become the window's
-            left-most panel — then pad the top so the tree clears the
-            native traffic lights. */}
-        <div
-          className={cn(
-            "flex-1 min-h-0 overflow-auto",
-            !sidebarOpen && "pt-9",
-          )}
-        >
-          <ProjectTreeContent />
+        <div className="flex-1 min-h-0 overflow-auto">
+          <ProjectTreeContent trafficLightInset={trafficLightInset} />
         </div>
       </aside>
 
@@ -159,147 +178,17 @@ export function ProjectTreeRail() {
 // Content
 // ────────────────────────────────────────────────────────────────────────
 
-function ProjectTreeContent() {
+function ProjectTreeContent({
+  trafficLightInset,
+}: {
+  trafficLightInset: boolean
+}) {
   // ProjectFileTree handles its own root resolution: it reads the
   // selected chat's worktree when a chat is active, otherwise it falls
   // back to the canonical project root. The tree shows files in both
   // modes — there's no "open a chat first" gate. When no project is
   // selected at all, ProjectFileTree renders its own empty state.
-  return (
-    <div className="py-2">
-      <ProjectFileTree />
-      <div className="mx-3 mt-3 mb-1 h-px bg-border/70" />
-      <DemoTrigger />
-    </div>
-  )
-}
-
-type DirectionRow = {
-  id: string
-  name: string | null
-  parentWorktreeId?: string | null
-  forkedAtCommit?: string | null
-  forkedAtMessageIndex?: number | null
-  directionColor?: string | null
-}
-
-function DirectionDot({
-  color,
-  active,
-}: {
-  color?: string | null
-  active: boolean
-}) {
-  return (
-    <span
-      className={cn(
-        "h-2 w-2 rounded-full border shrink-0",
-        active ? "border-primary" : "border-border",
-      )}
-      style={{ backgroundColor: color || "hsl(var(--muted-foreground))" }}
-    />
-  )
-}
-
-function buildDirectionRows(directions: DirectionRow[]): Array<{
-  direction: DirectionRow
-  depth: number
-}> {
-  const byParent = new Map<string | null, DirectionRow[]>()
-  for (const direction of directions) {
-    const parentId = direction.parentWorktreeId ?? null
-    byParent.set(parentId, [...(byParent.get(parentId) ?? []), direction])
-  }
-  for (const siblings of byParent.values()) {
-    siblings.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
-  }
-
-  const rows: Array<{ direction: DirectionRow; depth: number }> = []
-  const visit = (parentId: string | null, depth: number) => {
-    for (const direction of byParent.get(parentId) ?? []) {
-      rows.push({ direction, depth })
-      visit(direction.id, depth + 1)
-    }
-  }
-  visit(null, 0)
-
-  const renderedIds = new Set(rows.map((row) => row.direction.id))
-  for (const direction of directions) {
-    if (!renderedIds.has(direction.id)) {
-      rows.push({ direction, depth: 0 })
-    }
-  }
-  return rows
-}
-
-function DirectionsSection({
-  directions,
-  activeChatId,
-  onSelect,
-  isLoading,
-}: {
-  directions: DirectionRow[]
-  activeChatId: string | null
-  onSelect: (chatId: string | null) => void
-  isLoading: boolean
-}) {
-  const rows = buildDirectionRows(directions)
-
-  return (
-    <section className="px-1.5">
-      <div className="flex items-center justify-between gap-2 px-2 py-1">
-        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 font-mono">
-          Directions
-        </span>
-        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
-          {isLoading ? "..." : directions.length}
-        </span>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="px-2 pb-1 text-[11.5px] text-muted-foreground/60 italic">
-          No directions yet. Start a session, then fork when you want another take.
-        </div>
-      ) : (
-        <ul className="space-y-px">
-          {rows.map(({ direction, depth }) => {
-            const active = direction.id === activeChatId
-            const label = direction.name?.trim() || "Untitled direction"
-            return (
-              <li key={direction.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(direction.id)}
-                  className={cn(
-                    "press group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left",
-                    "transition-[background-color,color] duration-150 [transition-timing-function:var(--ease-natural)]",
-                    active
-                      ? "bg-primary/15 text-foreground font-medium"
-                      : "text-foreground/80 hover:bg-secondary/70",
-                  )}
-                  style={{ paddingLeft: 10 + depth * 16 }}
-                  title={
-                    direction.forkedAtCommit
-                      ? `${label} - forked at ${direction.forkedAtCommit.slice(0, 7)}`
-                      : label
-                  }
-                >
-                  {active ? (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--accent-deep))]" />
-                  ) : (
-                    <DirectionDot color={direction.directionColor} active={false} />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-[12.5px]">
-                    {label}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </section>
-  )
+  return <ProjectFileTree trafficLightInset={trafficLightInset} />
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -902,40 +791,6 @@ function EmptyState({
           <Plus className="h-3.5 w-3.5" />
         )}
         Set up screenwriter project
-      </button>
-    </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Demo trigger — small footer link, less aggressive than the button stack
-// from the previous iteration. Comes out completely once E1.4 wires real
-// scene data.
-// ────────────────────────────────────────────────────────────────────────
-
-function DemoTrigger() {
-  const setActive = useSetAtom(activeEntityAtom)
-  return (
-    <div className="px-4 py-2">
-      <button
-        type="button"
-        onClick={() =>
-          setActive({
-            kind: "scene",
-            id: "01-opening",
-            label: "Opening (demo)",
-            path: "__demo/scenes/01-opening/scene.fountain",
-          } as ActiveEntity)
-        }
-        className={cn(
-          "press flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-mono",
-          "text-muted-foreground/60 hover:text-primary",
-          "transition-[color] duration-150 [transition-timing-function:var(--ease-natural)]",
-        )}
-        title="Load mock data so the scene focus view is testable before E1.4"
-      >
-        <Sparkles className="h-2.5 w-2.5" />
-        Preview demo
       </button>
     </div>
   )

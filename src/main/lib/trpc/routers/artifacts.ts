@@ -889,7 +889,7 @@ async function buildSingleHunkPatch(
 
 // ────────────────────────────────────────────────────────────────────────
 // Diff parsing — minimal hand-rolled unified-diff reader for one file.
-// We don't pull in 1code's full diff-view stack because the screenplay
+// We don't pull in the upstream full diff-view stack because the screenplay
 // surface needs its own renderer; the structure here is what feeds it.
 // ────────────────────────────────────────────────────────────────────────
 

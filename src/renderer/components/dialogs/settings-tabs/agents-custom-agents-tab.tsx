@@ -11,6 +11,7 @@ import { Label } from "../../ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select"
 import { Textarea } from "../../ui/textarea"
 import { Button } from "../../ui/button"
+import { Switch } from "../../ui/switch"
 import { ResizableSidebar } from "../../ui/resizable-sidebar"
 import { toast } from "sonner"
 
@@ -21,8 +22,10 @@ interface FileAgent {
   tools?: string[]
   disallowedTools?: string[]
   model?: "sonnet" | "opus" | "haiku" | "inherit"
-  source: "user" | "project"
+  source: "user" | "project" | "builtin"
   path: string
+  enabled?: boolean
+  overridden?: boolean
 }
 
 // --- Detail Panel (Editable) ---
@@ -30,11 +33,18 @@ function AgentDetail({
   agent,
   onSave,
   isSaving,
+  onToggleEnabled,
+  onReset,
+  isResetting,
 }: {
   agent: FileAgent
   onSave: (data: { description: string; prompt: string; model?: "sonnet" | "opus" | "haiku" | "inherit" }) => void
   isSaving: boolean
+  onToggleEnabled?: (enabled: boolean) => void
+  onReset?: () => void
+  isResetting?: boolean
 }) {
+  const isBuiltin = agent.source === "builtin"
   const [description, setDescription] = useState(agent.description)
   const [prompt, setPrompt] = useState(agent.prompt)
   const [model, setModel] = useState<string>(agent.model || "inherit")
@@ -104,12 +114,45 @@ function AgentDetail({
             <h3 className="text-sm font-semibold text-foreground truncate">{agent.name}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{agent.path}</p>
           </div>
+          {isBuiltin && onToggleEnabled && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs text-muted-foreground">
+                {agent.enabled ? "Enabled" : "Disabled"}
+              </span>
+              <Switch
+                checked={agent.enabled !== false}
+                onCheckedChange={(v) => onToggleEnabled(v)}
+              />
+            </div>
+          )}
           {hasChanges && (
             <Button size="sm" onClick={handleSave} disabled={isSaving}>
               {isSaving ? "Saving..." : "Save"}
             </Button>
           )}
         </div>
+
+        {/* Built-in notice + reset */}
+        {isBuiltin && (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-input bg-muted/40 px-3 py-2">
+            <p className="text-[11px] text-muted-foreground">
+              {agent.overridden
+                ? "Edited — your changes override the version that ships with Backlot."
+                : "Ships with Backlot. Editing saves a personal copy that overrides the default."}
+            </p>
+            {agent.overridden && onReset && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onReset}
+                disabled={isResetting}
+                className="shrink-0"
+              >
+                {isResetting ? "Resetting..." : "Reset to built-in"}
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Description */}
         <div className="space-y-1.5">
@@ -172,15 +215,15 @@ function AgentDetail({
           </div>
         )}
 
-        {/* System Prompt */}
+        {/* System Prompt — boxless */}
         <div className="space-y-1.5">
           <Label>System Prompt</Label>
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onBlur={handleBlur}
-            rows={16}
-            className="font-mono resize-y"
+            rows={28}
+            className="font-mono text-[12.5px] leading-[1.6] resize-y border-0 bg-transparent px-0 rounded-none shadow-none focus-visible:ring-0 focus-visible:border-transparent"
             placeholder="System prompt for this agent..."
           />
         </div>
@@ -277,8 +320,8 @@ function CreateAgentForm({
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            rows={12}
-            className="font-mono resize-y"
+            rows={22}
+            className="font-mono text-[12.5px] leading-[1.6] resize-y border-0 bg-transparent px-0 rounded-none shadow-none focus-visible:ring-0 focus-visible:border-transparent"
             placeholder="You are a specialized agent that..."
           />
         </div>
@@ -315,6 +358,8 @@ export function AgentsCustomAgentsTab() {
 
   const updateMutation = trpc.agents.update.useMutation()
   const createMutation = trpc.agents.create.useMutation()
+  const deleteMutation = trpc.agents.delete.useMutation()
+  const toggleBuiltinMutation = trpc.claudeSettings.setBuiltinAgentEnabled.useMutation()
 
   const handleCreate = useCallback(async (data: {
     name: string; description: string; prompt: string; model?: string; source: "user" | "project"
@@ -346,12 +391,13 @@ export function AgentsCustomAgentsTab() {
     )
   }, [agents, searchQuery])
 
+  const builtinAgents = filteredAgents.filter((a) => a.source === "builtin")
   const userAgents = filteredAgents.filter((a) => a.source === "user")
   const projectAgents = filteredAgents.filter((a) => a.source === "project")
 
   const allAgentNames = useMemo(
-    () => [...userAgents, ...projectAgents].map((a) => a.name),
-    [userAgents, projectAgents]
+    () => [...builtinAgents, ...userAgents, ...projectAgents].map((a) => a.name),
+    [builtinAgents, userAgents, projectAgents]
   )
 
   const { containerRef: listRef, onKeyDown: listKeyDown } = useListKeyboardNav({
@@ -372,25 +418,65 @@ export function AgentsCustomAgentsTab() {
     agent: FileAgent,
     data: { description: string; prompt: string; model?: FileAgent["model"] },
   ) => {
+    const isBuiltin = agent.source === "builtin"
     try {
-      await updateMutation.mutateAsync({
-        originalName: agent.name,
-        name: agent.name,
-        description: data.description,
-        prompt: data.prompt,
-        model: data.model,
-        tools: agent.tools,
-        disallowedTools: agent.disallowedTools,
-        source: agent.source,
-        cwd: selectedProject?.path,
-      })
+      if (isBuiltin && !agent.overridden) {
+        // First edit of a built-in agent — create the user override file.
+        await createMutation.mutateAsync({
+          name: agent.name,
+          description: data.description,
+          prompt: data.prompt,
+          model: data.model,
+          tools: agent.tools,
+          disallowedTools: agent.disallowedTools,
+          source: "user",
+          cwd: selectedProject?.path,
+        })
+      } else {
+        await updateMutation.mutateAsync({
+          originalName: agent.name,
+          name: agent.name,
+          description: data.description,
+          prompt: data.prompt,
+          model: data.model,
+          tools: agent.tools,
+          disallowedTools: agent.disallowedTools,
+          // A built-in's override is stored as a user agent file.
+          source: isBuiltin ? "user" : agent.source,
+          cwd: selectedProject?.path,
+        })
+      }
       toast.success("Agent saved", { description: agent.name })
       await refetch()
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save"
       toast.error("Failed to save", { description: message })
     }
-  }, [updateMutation, selectedProject?.path, refetch])
+  }, [updateMutation, createMutation, selectedProject?.path, refetch])
+
+  const handleToggleBuiltin = useCallback(async (
+    agent: FileAgent,
+    enabled: boolean,
+  ) => {
+    try {
+      await toggleBuiltinMutation.mutateAsync({ name: agent.name, enabled })
+      await refetch()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update"
+      toast.error("Failed to update", { description: message })
+    }
+  }, [toggleBuiltinMutation, refetch])
+
+  const handleResetBuiltin = useCallback(async (agent: FileAgent) => {
+    try {
+      await deleteMutation.mutateAsync({ name: agent.name, source: "user" })
+      toast.success("Reset to built-in", { description: agent.name })
+      await refetch()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reset"
+      toast.error("Failed to reset", { description: message })
+    }
+  }, [deleteMutation, refetch])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -452,6 +538,63 @@ export function AgentsCustomAgentsTab() {
               </div>
             ) : (
               <div className="space-y-3">
+                {/* Built-in Agents */}
+                {builtinAgents.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
+                      Built-in
+                    </p>
+                    <div className="space-y-0.5">
+                      {builtinAgents.map((agent) => {
+                        const isSelected = selectedAgentName === agent.name
+                        const isOff = agent.enabled === false
+                        return (
+                          <button
+                            key={agent.name}
+                            data-item-id={agent.name}
+                            onClick={() => setSelectedAgentName(agent.name)}
+                            className={cn(
+                              "w-full text-left py-1.5 px-2 rounded-md transition-colors duration-150 cursor-pointer outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 focus-visible:-outline-offset-2",
+                              isSelected
+                                ? "bg-foreground/5 text-foreground"
+                                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "text-sm truncate flex-1",
+                                  isOff && "opacity-50"
+                                )}
+                              >
+                                {agent.name}
+                              </span>
+                              {isOff && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                  off
+                                </span>
+                              )}
+                              {agent.overridden && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                  edited
+                                </span>
+                              )}
+                            </div>
+                            {agent.description && (
+                              <div className={cn(
+                                "text-[11px] text-muted-foreground truncate mt-0.5",
+                                isOff && "opacity-50"
+                              )}>
+                                {agent.description}
+                              </div>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* User Agents */}
                 {userAgents.length > 0 && (
                   <div>
@@ -557,7 +700,18 @@ export function AgentsCustomAgentsTab() {
           <AgentDetail
             agent={selectedAgent}
             onSave={(data) => handleSave(selectedAgent, data)}
-            isSaving={updateMutation.isPending}
+            isSaving={updateMutation.isPending || createMutation.isPending}
+            onToggleEnabled={
+              selectedAgent.source === "builtin"
+                ? (enabled) => handleToggleBuiltin(selectedAgent, enabled)
+                : undefined
+            }
+            onReset={
+              selectedAgent.source === "builtin"
+                ? () => handleResetBuiltin(selectedAgent)
+                : undefined
+            }
+            isResetting={deleteMutation.isPending}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">

@@ -85,6 +85,18 @@ export async function getApprovedPluginMcpServers(): Promise<string[]> {
 }
 
 /**
+ * Get the names of built-in agents the user has disabled.
+ * Built-in agents are ENABLED by default — only names explicitly in
+ * settings.json `disabledBuiltinAgents` are turned off.
+ */
+export async function getDisabledBuiltinAgents(): Promise<string[]> {
+  const settings = await readClaudeSettings()
+  return Array.isArray(settings.disabledBuiltinAgents)
+    ? (settings.disabledBuiltinAgents as string[])
+    : []
+}
+
+/**
  * Check if a plugin MCP server is approved
  */
 export async function isPluginMcpApproved(pluginSource: string, serverName: string): Promise<boolean> {
@@ -271,6 +283,41 @@ export const claudeSettingsRouter = router({
       settings.approvedPluginMcpServers = approved.filter((id) => !id.startsWith(prefix))
       await writeClaudeSettings(settings)
       invalidateApprovedMcpCache()
+      return { success: true }
+    }),
+
+  /**
+   * Get the names of built-in agents the user has disabled.
+   * Built-in agents are enabled by default.
+   */
+  getDisabledBuiltinAgents: publicProcedure.query(async () => {
+    return await getDisabledBuiltinAgents()
+  }),
+
+  /**
+   * Enable or disable a built-in agent. A disabled built-in is not
+   * registered with the SDK, so the main agent cannot delegate to it.
+   */
+  setBuiltinAgentEnabled: publicProcedure
+    .input(
+      z.object({
+        name: z.string(),
+        enabled: z.boolean(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const settings = await readClaudeSettings()
+      const disabled = Array.isArray(settings.disabledBuiltinAgents)
+        ? (settings.disabledBuiltinAgents as string[])
+        : []
+
+      if (input.enabled) {
+        settings.disabledBuiltinAgents = disabled.filter((n) => n !== input.name)
+      } else if (!disabled.includes(input.name)) {
+        settings.disabledBuiltinAgents = [...disabled, input.name]
+      }
+
+      await writeClaudeSettings(settings)
       return { success: true }
     }),
 })

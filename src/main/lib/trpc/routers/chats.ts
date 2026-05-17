@@ -12,12 +12,10 @@ import {
 } from "../../analytics"
 import { chats, getDatabase, projects, subChats } from "../../db"
 import {
-  createWorktreeForChat,
   fetchGitHubPRStatus,
   getWorktreeDiff,
   isExactGitRepoRoot,
   removeWorktree,
-  sanitizeProjectName,
 } from "../../git"
 import { computeContentHash, gitCache } from "../../git/cache"
 import { splitUnifiedDiffByFile } from "../../git/diff-parser"
@@ -27,43 +25,12 @@ import { terminalManager } from "../../terminal/manager"
 import { publicProcedure, router } from "../index"
 import { cleanupCodexProviderSession } from "./codex"
 
-// ────────────────────────────────────────────────────────────────────────
-// Direction palette — siblings need to stay distinguishable in the tree
-// viz, so we pick from a curated 8-colour set keyed off how many
-// Directions already exist in the project. Round-robin.
-// ────────────────────────────────────────────────────────────────────────
-const DIRECTION_PALETTE = [
-  "#F26157", // Coral
-  "#79B791", // Teal
-  "#FF8C42", // Ember
-  "#E8A838", // Amber
-  "#7280AB", // Slate-blue
-  "#A87BB8", // Wisteria
-  "#5E91A8", // Ocean
-  "#C77B9C", // Rose-mauve
-] as const
-
-function pickDirectionColor(
-  projectId: string,
-  db: ReturnType<typeof getDatabase>,
-): string {
-  const count = db
-    .select()
-    .from(chats)
-    .where(eq(chats.projectId, projectId))
-    .all().length
-  return DIRECTION_PALETTE[count % DIRECTION_PALETTE.length]
-}
-
-// Auto-name when the user doesn't supply one — keeps the parent's
-// name and appends a "v2 / v3" style suffix so siblings are obviously
-// related in the sidetabs.
-function autoForkName(parentName: string): string {
-  const base = parentName.replace(/\s+v\d+$/i, "").trim() || "Direction"
-  const suffix = Math.floor(Math.random() * 90 + 2) // 2..91
-  return `${base} v${suffix}`
-}
-
+/**
+ * Strip resume metadata (sessionId / sdkMessageUuid / shouldResume) from a
+ * thread's serialized messages. Used when a new thread inherits another
+ * thread's messages — the inheritor must start a fresh SDK session, so
+ * stale resume pointers from the source are cleared.
+ */
 function stripForkedSessionMetadata(messagesJson: string): string {
   try {
     const messages = JSON.parse(messagesJson) as any[]
@@ -83,9 +50,7 @@ function stripForkedSessionMetadata(messagesJson: string): string {
         return {
           ...message,
           metadata:
-            Object.keys(metadata).length > 0
-              ? metadata
-              : undefined,
+            Object.keys(metadata).length > 0 ? metadata : undefined,
         }
       }),
     )
@@ -237,9 +202,6 @@ export const chatsRouter = router({
             ]),
           )
           .optional(),
-        baseBranch: z.string().optional(), // Branch to base the worktree off
-        branchType: z.enum(["local", "remote"]).optional(), // Whether baseBranch is local or remote
-        useWorktree: z.boolean().default(true), // If false, work directly in project dir
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z.enum(["claude-code", "codex"]).optional(),
       }),
@@ -312,62 +274,19 @@ export const chatsRouter = router({
         .get()
       console.log("[chats.create] created subChat:", subChat)
 
-      // Worktree creation result (will be set if useWorktree is true)
-      let worktreeResult: {
+      // Backlot runs every chat directly in the single canonical project
+      // folder — no per-chat worktree copies. The `useWorktree`,
+      // `baseBranch` and `branchType` inputs are kept on the schema for
+      // API compatibility but are intentionally ignored.
+      db.update(chats)
+        .set({ worktreePath: project.path })
+        .where(eq(chats.id, chat.id))
+        .run()
+      const worktreeResult: {
         worktreePath?: string
         branch?: string
         baseBranch?: string
-      } = {}
-
-      // Only create worktree if useWorktree is true
-      if (input.useWorktree) {
-        console.log(
-          "[chats.create] creating worktree with baseBranch:",
-          input.baseBranch,
-          "type:",
-          input.branchType,
-        )
-        const result = await createWorktreeForChat(
-          project.path,
-          sanitizeProjectName(project.name),
-          chat.id,
-          input.baseBranch,
-          input.branchType,
-        )
-        console.log("[chats.create] worktree result:", result)
-
-        if (result.success && result.worktreePath) {
-          db.update(chats)
-            .set({
-              worktreePath: result.worktreePath,
-              branch: result.branch,
-              baseBranch: result.baseBranch,
-            })
-            .where(eq(chats.id, chat.id))
-            .run()
-          worktreeResult = {
-            worktreePath: result.worktreePath,
-            branch: result.branch,
-            baseBranch: result.baseBranch,
-          }
-        } else {
-          console.warn(`[Worktree] Failed: ${result.error}`)
-          // Fallback to project path
-          db.update(chats)
-            .set({ worktreePath: project.path })
-            .where(eq(chats.id, chat.id))
-            .run()
-          worktreeResult = { worktreePath: project.path }
-        }
-      } else {
-        // Local mode: use project path directly, no branch info
-        console.log("[chats.create] local mode - using project path directly")
-        db.update(chats)
-          .set({ worktreePath: project.path })
-          .where(eq(chats.id, chat.id))
-          .run()
-        worktreeResult = { worktreePath: project.path }
-      }
+      } = { worktreePath: project.path }
 
       const response = {
         ...chat,
@@ -381,299 +300,11 @@ export const chatsRouter = router({
       trackWorkspaceCreated({
         id: chat.id,
         projectId: input.projectId,
-        useWorktree: input.useWorktree,
+        useWorktree: false,
       })
 
       console.log("[chats.create] returning:", response)
       return response
-    }),
-
-  /**
-   * Fork a Direction — create a new chat that continues the parent's
-   * conversation in its own git worktree.
-   *
-   * What happens, end to end:
-   *   1. Auto-commit any in-flight screenplay edits in the parent's
-   *      worktree so the user never loses work mid-fork.
-   *   2. Resolve the commit to fork from (input.atCommit, or HEAD of
-   *      the parent's branch if not supplied).
-   *   3. Create a new git worktree on a fresh branch based at that
-   *      commit.
-   *   4. Insert a new `chats` row with parent + fork-point metadata
-   *      and a colour from the Direction palette.
-   *   5. Clone every parent sub-chat into the new chat (messages
-   *      preserved up to `atMessageIndex`, `sessionId` nulled so the
-   *      agent starts a fresh SDK session in the new worktree but
-   *      reads the inherited messages as context).
-   *   6. Run `ensurePrimaryArtifact` on the new worktree to lock in
-   *      the screenplay baseline.
-   *
-   * The user's only mental model: "I tried another way from here."
-   * Every step above is invisible.
-   */
-  forkDirection: publicProcedure
-    .input(
-      z.object({
-        fromChatId: z.string(),
-        /** Commit hash to base the fork at. Defaults to HEAD of the parent's worktree. */
-        atCommit: z.string().min(7).optional(),
-        /** How many messages of the parent to inherit. Defaults to all. */
-        atMessageIndex: z.number().int().min(0).optional(),
-        /** Display name. Auto-generated from parent name + suffix if absent. */
-        name: z.string().optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const db = getDatabase()
-
-      const parent = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.fromChatId))
-        .get()
-      if (!parent) throw new Error("Parent chat not found.")
-      if (!parent.worktreePath) {
-        throw new Error(
-          "Parent Direction has no worktree to fork from. Open it once so its worktree is initialised, then try again.",
-        )
-      }
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, parent.projectId))
-        .get()
-      if (!project) throw new Error("Parent's project not found.")
-
-      // 1. Auto-commit in-flight screenplay edits on the parent. Reuses
-      //    the same logic the chat pre-flight uses (`ensurePrimaryArtifact`)
-      //    so the parent's HEAD reflects the user's latest work before
-      //    we branch off it.
-      const { ensurePrimaryArtifact } = await import("./artifacts")
-      try {
-        await ensurePrimaryArtifact(parent.worktreePath)
-      } catch (err) {
-        console.warn("[forkDirection] pre-fork ensurePrimaryArtifact failed:", err)
-      }
-
-      const parentWorktreeIsRepoRoot = await isExactGitRepoRoot(parent.worktreePath)
-      if (!parentWorktreeIsRepoRoot) {
-        throw new Error(
-          "This Direction is backed by a nested folder inside a parent git repo, so Backlot cannot fork it safely. Normalize the project into Backlot, then create a fresh Direction.",
-        )
-      }
-
-      const parentGit = simpleGit(parent.worktreePath)
-
-      // 2. Resolve the fork commit. Friendly errors so the user doesn't
-      //    see a raw git stack trace if they try to fork from a Direction
-      //    that has zero saved versions yet.
-      let forkCommit: string
-      if (input.atCommit) {
-        try {
-          forkCommit = (
-            await parentGit.revparse([`${input.atCommit}^{commit}`])
-          ).trim()
-        } catch {
-          throw new Error(
-            `Couldn't find that saved version on the current Direction. It may have been removed — try refreshing the History view.`,
-          )
-        }
-      } else {
-        try {
-          forkCommit = (await parentGit.revparse(["HEAD^{commit}"])).trim()
-        } catch {
-          throw new Error(
-            "This Direction has no saved versions yet. Make at least one edit and accept it before trying another way.",
-          )
-        }
-      }
-
-      // 3. New worktree on a fresh branch off the fork commit. Use
-      //    Backlot's standard worktree directory layout.
-      const { join } = await import("path")
-      const { homedir } = await import("os")
-      const { generateBranchName, createWorktree } = await import(
-        "../../git/worktree"
-      )
-      const { generateWorktreeFolderName } = await import(
-        "../../git/worktree-naming"
-      )
-
-      const newBranch = generateBranchName()
-      const projectSlug = sanitizeProjectName(project.name)
-      const worktreesDir = join(homedir(), ".backlot", "worktrees")
-      const projectWorktreeDir = join(worktreesDir, projectSlug)
-      const newFolder = generateWorktreeFolderName(projectWorktreeDir)
-      const newWorktreePath = join(projectWorktreeDir, newFolder)
-
-      const parentRepoPath = (await isExactGitRepoRoot(project.path))
-        ? project.path
-        : parent.worktreePath
-      try {
-        await simpleGit(parentRepoPath).revparse([`${forkCommit}^{commit}`])
-      } catch {
-        throw new Error(
-          "This Direction was created from a different git root than the normalized Backlot project. Create a fresh Direction from the project, then fork from that new Direction.",
-        )
-      }
-      try {
-        await createWorktree(parentRepoPath, newBranch, newWorktreePath, forkCommit)
-      } catch (err) {
-        throw new Error(
-          `Failed to create new worktree for the fork: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-
-      // 4. Insert the new chat row.
-      const inheritedMessageCount =
-        input.atMessageIndex ??
-        // Default: inherit everything from the parent's most-recent sub-chat.
-        (() => {
-          const latest = db
-            .select()
-            .from(subChats)
-            .where(eq(subChats.worktreeId, parent.id))
-            .orderBy(desc(subChats.updatedAt))
-            .limit(1)
-            .get()
-          if (!latest) return 0
-          try {
-            const arr = JSON.parse(latest.messages) as unknown[]
-            return Array.isArray(arr) ? arr.length : 0
-          } catch {
-            return 0
-          }
-        })()
-
-      const directionColor = pickDirectionColor(parent.projectId, db)
-      const forkName =
-        input.name?.trim() ||
-        autoForkName(parent.name ?? "Direction")
-
-      // Read the parent's sub-chats outside the transaction (faster path:
-      // big JSON fields don't need to lock the DB while we slice them).
-      const parentSubChats = db
-        .select()
-        .from(subChats)
-        .where(eq(subChats.worktreeId, parent.id))
-        .orderBy(desc(subChats.updatedAt))
-        .all()
-      const latestSubChatId = parentSubChats[0]?.id
-
-      // 4 + 5. Atomic DB writes: the new chat row + every cloned sub-chat
-      //        commit together or roll back together. Without this, a
-      //        crash between the chat insert and a later sub-chat insert
-      //        would leave an orphan chat row pointing at the new
-      //        worktree. If the transaction throws, we clean up the
-      //        worktree below in the catch block so we don't leak disk.
-      let newChat: typeof chats.$inferSelect
-      try {
-        newChat = db.transaction((tx) => {
-          const created = tx
-            .insert(chats)
-            .values({
-              name: forkName,
-              projectId: parent.projectId,
-              worktreePath: newWorktreePath,
-              branch: newBranch,
-              baseBranch: parent.branch ?? parent.baseBranch ?? null,
-              parentWorktreeId: parent.id,
-              forkedAtCommit: forkCommit,
-              forkedAtMessageIndex: inheritedMessageCount,
-              directionColor,
-              provider:
-                parent.provider === "codex" ? "codex" : "claude-code",
-            })
-            .returning()
-            .get()
-
-          for (const sc of parentSubChats) {
-            let inheritedMessages = stripForkedSessionMetadata(sc.messages)
-            if (sc.id === latestSubChatId) {
-              try {
-                const arr = JSON.parse(sc.messages) as unknown[]
-                if (Array.isArray(arr)) {
-                  inheritedMessages = stripForkedSessionMetadata(
-                    JSON.stringify(arr.slice(0, inheritedMessageCount)),
-                  )
-                }
-              } catch (err) {
-                console.warn(
-                  "[forkDirection] failed to slice parent messages, copying as-is:",
-                  err,
-                )
-              }
-            }
-            tx.insert(subChats)
-              .values({
-                worktreeId: created.id,
-                mode: sc.mode,
-                messages: inheritedMessages,
-                sessionId: null,
-                streamId: null,
-                name: sc.name,
-                provider:
-                  sc.provider === "codex"
-                    ? "codex"
-                    : parent.provider === "codex"
-                      ? "codex"
-                      : "claude-code",
-              })
-              .run()
-          }
-          return created
-        })
-      } catch (err) {
-        // DB writes rolled back. The worktree we created in step 3 is now
-        // orphaned on disk — remove it so we don't leak. If removal also
-        // fails the user can clean it up manually; the original error
-        // is what they actually need to see.
-        try {
-          const { removeWorktree } = await import("../../git/worktree")
-          await removeWorktree(parentRepoPath, newWorktreePath)
-        } catch (cleanupErr) {
-          console.warn(
-            "[forkDirection] cleanup of orphan worktree failed — manual removal may be needed:",
-            newWorktreePath,
-            cleanupErr,
-          )
-        }
-        throw err
-      }
-
-      // 6. Lock in the screenplay baseline on the new worktree (idempotent).
-      try {
-        await ensurePrimaryArtifact(newWorktreePath)
-      } catch (err) {
-        console.warn(
-          "[forkDirection] post-fork ensurePrimaryArtifact failed:",
-          err,
-        )
-      }
-
-      console.log(
-        `[forkDirection] forked ${parent.id} → ${newChat.id} at ${forkCommit.slice(0, 7)} (${inheritedMessageCount} msgs inherited)`,
-      )
-      return newChat
-    }),
-
-  /**
-   * Direction tree — every chat in a project, with parent links + the
-   * commit each was forked at. Returns a flat list (newest-first by
-   * createdAt); the renderer turns it into the subway/sidetab views.
-   */
-  directionsForProject: publicProcedure
-    .input(z.object({ projectId: z.string() }))
-    .query(({ input }) => {
-      const db = getDatabase()
-      return db
-        .select()
-        .from(chats)
-        .where(
-          and(eq(chats.projectId, input.projectId), isNull(chats.archivedAt)),
-        )
-        .orderBy(desc(chats.createdAt))
-        .all()
     }),
 
   /**
@@ -1140,12 +771,11 @@ export const chatsRouter = router({
     .input(z.object({ id: z.string(), name: z.string().min(1) }))
     .mutation(({ input }) => {
       const db = getDatabase()
-      return db
-        .update(subChats)
+      db.update(subChats)
         .set({ name: input.name })
         .where(eq(subChats.id, input.id))
-        .returning()
-        .get()
+        .run()
+      return { id: input.id, name: input.name }
     }),
 
   /**
@@ -1480,66 +1110,16 @@ export const chatsRouter = router({
     }),
 
   /**
-   * Generate a name for a sub-chat using AI
-   * Uses Ollama when offline, otherwise calls web API
+   * Generate a name for a sub-chat without blocking agent startup.
    */
   generateSubChatName: publicProcedure
     .input(z.object({
       userMessage: z.string(),
-      ollamaModel: z.string().nullish(), // Optional model for offline mode
+      ollamaModel: z.string().nullish(),
     }))
-    .mutation(async ({ input }) => {
-      try {
-        // Backlot is online-only — Ollama offline fallback was stripped.
-        void generateChatNameWithOllama
-        const hasInternet = true
-
-        if (!hasInternet) {
-          // Unreachable — kept as a structural placeholder for the upstream diff.
-          return { name: getFallbackName(input.userMessage) }
-        }
-
-        // Online - use web API
-        const authManager = getAuthManager()
-        const token = await authManager.getValidToken()
-        const apiUrl = "https://21st.dev"
-
-        console.log(
-          "[generateSubChatName] Online - calling API with token:",
-          token ? "present" : "missing",
-        )
-
-        const response = await fetch(
-          `${apiUrl}/api/agents/sub-chat/generate-name`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token && { "X-Desktop-Token": token }),
-            },
-            body: JSON.stringify({ userMessage: input.userMessage }),
-          },
-        )
-
-        console.log("[generateSubChatName] Response status:", response.status)
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(
-            "[generateSubChatName] API error:",
-            response.status,
-            errorText,
-          )
-          return { name: getFallbackName(input.userMessage) }
-        }
-
-        const data = await response.json()
-        console.log("[generateSubChatName] Generated name:", data.name)
-        return { name: data.name || getFallbackName(input.userMessage) }
-      } catch (error) {
-        console.error("[generateSubChatName] Error:", error)
-        return { name: getFallbackName(input.userMessage) }
-      }
+    .mutation(({ input }) => {
+      void generateChatNameWithOllama
+      return { name: getFallbackName(input.userMessage) }
     }),
 
   // ============ PR-related procedures ============

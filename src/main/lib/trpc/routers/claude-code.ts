@@ -173,7 +173,7 @@ export const claudeCodeRouter = router({
    * Refresh Claude credentials by opening Terminal.app with `claude /login`
    * pre-typed. Anthropic's CLI does not expose a non-interactive login
    * command (setup-token requires existing valid auth; /login is a REPL
-   * slash command). 1code's workaround is a cloud sandbox emulating a TTY
+   * slash command). The upstream workaround is a cloud sandbox emulating a TTY
    * — Backlot delegates to the user's real Terminal instead.
    *
    * After this kicks off, the Claude binary in the spawned Terminal opens

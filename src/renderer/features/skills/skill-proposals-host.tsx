@@ -60,13 +60,14 @@ export function SkillProposalsHost() {
   }, [head?.id])
 
   const handleResolve = useCallback(
-    async (action: "apply" | "dismiss") => {
+    async (action: "apply" | "dismiss", finalContent?: string) => {
       if (!head || pending) return
       setPending(action)
       try {
         const result = await resolveProposal.mutateAsync({
           proposalId: head.id,
           action,
+          ...(action === "apply" ? { finalContent } : {}),
         })
         if (!result.success) {
           // The proposal was already resolved (probably by another
@@ -94,7 +95,10 @@ export function SkillProposalsHost() {
     [head, pending, resolveProposal],
   )
 
-  const handleApply = useCallback(() => handleResolve("apply"), [handleResolve])
+  const handleApply = useCallback(
+    (finalContent: string) => handleResolve("apply", finalContent),
+    [handleResolve],
+  )
   const handleDismiss = useCallback(() => handleResolve("dismiss"), [handleResolve])
   const handleClose = useCallback(() => handleResolve("dismiss"), [handleResolve])
 

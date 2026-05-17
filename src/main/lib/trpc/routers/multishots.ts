@@ -6,9 +6,9 @@ import simpleGit from "simple-git"
 import { z } from "zod"
 import { chats, getDatabase, projects } from "../../db"
 import {
-  normalizeShotlist,
-  type SceneShotlist,
-} from "../../../../shared/shotlist-types"
+  normalizeMultishot,
+  type SceneMultishot,
+} from "../../../../shared/multishot-types"
 import { publicProcedure, router } from "../index"
 
 type RootInput = {
@@ -47,7 +47,7 @@ function resolveInside(root: string, relPath: string): string {
   const full = resolve(root, relPath)
   const rel = relative(root, full)
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
-    throw new Error("Shotlist path escapes the project root.")
+    throw new Error("Multishot path escapes the project root.")
   }
   return full
 }
@@ -74,9 +74,9 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     const porcelain = await git.raw(["status", "--porcelain", "--", relPath])
     if (!porcelain.trim()) return
     await git.add([relPath])
-    await git.commit(`Backlot: update shotlist (${relPath})`, [relPath])
+    await git.commit(`Backlot: update multishot (${relPath})`, [relPath])
   } catch (err) {
-    console.warn("[shotlists.write] user edit settlement skipped:", err)
+    console.warn("[multishots.write] user edit settlement skipped:", err)
   }
 }
 
@@ -85,40 +85,43 @@ const rootInput = {
   projectId: z.string().optional(),
 }
 
-export const shotlistsRouter = router({
-  /** Read a single scene's shotlist file. `relPath` points at shotlist.backlot.json. */
+export const multishotsRouter = router({
+  /** Read a scene's multishot file. `relPath` points at multishot.backlot.json. */
   read: publicProcedure
     .input(z.object({ ...rootInput, relPath: z.string().min(1) }))
     .query(async ({ input }) => {
       const { root } = resolveRoot(input)
       if (!root) {
-        return { exists: false as const, shotlist: null as SceneShotlist | null }
+        return {
+          exists: false as const,
+          multishot: null as SceneMultishot | null,
+        }
       }
       const fullPath = resolveInside(root, input.relPath)
       if (!existsSync(fullPath)) {
-        return { exists: false as const, shotlist: null }
+        return { exists: false as const, multishot: null }
       }
       try {
         const raw = await readFile(fullPath, "utf-8")
-        // The agent authors this file directly with the Write tool, so
-        // normalize on read — fill missing ids/status/schemaVersion so a
-        // near-miss write still renders. Invalid JSON still fails here.
+        // The agent can author this file directly with the Write tool, so
+        // normalize on read — fill missing versions/status/schemaVersion so
+        // a near-miss write still renders. Invalid JSON still fails here.
         return {
           exists: true as const,
-          shotlist: normalizeShotlist(JSON.parse(raw)),
+          multishot: normalizeMultishot(JSON.parse(raw)),
         }
       } catch {
-        return { exists: false as const, shotlist: null }
+        return { exists: false as const, multishot: null }
       }
     }),
 
-  /** Persist a scene's shotlist after an in-place edit, and checkpoint it. */
+  /** Persist a scene's multishot after an in-place edit, and checkpoint it. */
   write: publicProcedure
     .input(
       z.object({
         ...rootInput,
         relPath: z.string().min(1),
-        shotlist: z.custom<SceneShotlist>(),
+        multishot: z.custom<SceneMultishot>(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -132,7 +135,7 @@ export const shotlistsRouter = router({
       await mkdir(dirname(fullPath), { recursive: true })
       await writeFile(
         fullPath,
-        JSON.stringify(input.shotlist, null, 2) + "\n",
+        JSON.stringify(input.multishot, null, 2) + "\n",
         "utf-8",
       )
       if (shouldSettle) {
@@ -142,9 +145,9 @@ export const shotlistsRouter = router({
     }),
 
   /**
-   * Read a scene's screenplay text for side-by-side reference while
-   * writing shot prompts. `relPath` points at the scene's `.fountain`.
-   * Read-only — the shotlist surface never writes the screenplay.
+   * Read a scene's screenplay text — used to seed the multishot's working
+   * copy and to re-import it. `relPath` points at the scene's `.fountain`.
+   * Read-only — the multishot surface never writes the screenplay file.
    */
   readScript: publicProcedure
     .input(z.object({ ...rootInput, relPath: z.string().min(1) }))

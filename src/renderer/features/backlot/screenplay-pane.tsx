@@ -272,7 +272,7 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
         <div className="flex items-center gap-2 min-w-0">
           <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-xs font-medium text-foreground/85 truncate">
-            {directionName ?? "No direction"}
+            {directionName ?? "Untitled"}
           </span>
           <span className="text-muted-foreground/40 text-xs">/</span>
           <span className="text-xs text-muted-foreground truncate font-mono">

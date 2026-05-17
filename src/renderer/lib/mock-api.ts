@@ -185,7 +185,13 @@ export const api = {
         onMutate?: AnyFn
       }) => {
         const mutation = trpc.chats.renameSubChat.useMutation({
-          onSuccess: (data) => opts?.onSuccess?.(data),
+          // Forward the variables back in the caller's shape ({ subChatId,
+          // name }) — the renderer's onSuccess reads variables.subChatId.
+          onSuccess: (data, variables) =>
+            opts?.onSuccess?.(data, {
+              subChatId: variables.id,
+              name: variables.name,
+            }),
           onError: (err) => opts?.onError?.(err),
         })
         return {

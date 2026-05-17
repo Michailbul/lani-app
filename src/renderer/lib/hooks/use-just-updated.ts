@@ -46,21 +46,9 @@ export function useJustUpdated() {
     setJustUpdatedVersion(null)
   }, [setJustUpdated, setJustUpdatedVersion])
 
-  // Open changelog in browser
-  const openChangelog = useCallback(() => {
-    const api = window.desktopApi
-    if (api) {
-      // Link to changelog with anchor to current version
-      const version = justUpdatedVersion ? `#v${justUpdatedVersion}` : ""
-      api.openExternal(`https://1code.dev/changelog${version}`)
-    }
-    dismissJustUpdated()
-  }, [justUpdatedVersion, dismissJustUpdated])
-
   return {
     justUpdated,
     justUpdatedVersion,
     dismissJustUpdated,
-    openChangelog,
   }
 }

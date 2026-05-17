@@ -2,8 +2,7 @@
  * CLI command support for Backlot
  * Allows users to open Backlot from terminal with: backlot . or backlot /path/to/project
  *
- * Adapted from 1code PR #16 by @caffeinum (Aleksey Bykhun)
- * https://github.com/21st-dev/1code/pull/16
+ * Adapted from the upstream CLI installer.
  */
 
 import { app } from "electron"

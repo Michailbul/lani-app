@@ -94,23 +94,11 @@ export const FountainPreview = memo(function FountainPreview({
   }
 
   return (
-    <div className={cn("flex justify-center px-6 pb-24", className)}>
+    <div className={cn("max-w-[720px] mx-auto px-10 pt-2 pb-24", className)}>
       <article
         className={cn(
-          "screenplay-page",
-          "w-full max-w-[680px]",
-          "bg-background",
-          // Soft "paper" treatment in light mode — a hairline border
-          // and a whisper of shadow so the page reads as a real
-          // screenplay leaf without being fussy. Dark mode drops the
-          // shadow entirely and just leans on the border.
-          "border border-border/50 dark:border-border/40",
-          "shadow-[0_1px_0_0_rgba(0,0,0,0.02),_0_8px_24px_-18px_rgba(0,0,0,0.12)]",
-          "dark:shadow-none",
-          "rounded-[2px]",
-          // Page-feel padding (~1.5" left, 1" top/right/bottom in
-          // Courier-line terms).
-          "px-[64px] py-[56px]",
+          "w-full",
+          "bg-transparent",
           "text-foreground",
         )}
         style={{

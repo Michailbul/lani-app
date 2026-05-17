@@ -21,9 +21,13 @@ export interface ParsedAgent {
 
 // Agent with source/path metadata
 export interface FileAgent extends ParsedAgent {
-  source: "user" | "project" | "plugin"
+  source: "user" | "project" | "plugin" | "builtin"
   pluginName?: string
   path: string
+  /** Built-in agents only: false when disabled in Settings. */
+  enabled?: boolean
+  /** Built-in agents only: true when a user override file exists. */
+  overridden?: boolean
 }
 
 /**

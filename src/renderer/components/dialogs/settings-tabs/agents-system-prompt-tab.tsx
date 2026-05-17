@@ -67,7 +67,7 @@ export function AgentsSystemPromptTab() {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="flex flex-col h-full min-h-0 w-full max-w-5xl mx-auto p-8 gap-5">
       {/* Header */}
       <div className="flex flex-col space-y-1.5">
         <h3 className="text-sm font-semibold text-foreground">System Prompt</h3>
@@ -80,7 +80,7 @@ export function AgentsSystemPromptTab() {
       </div>
 
       {/* Status row */}
-      <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+      <div className="flex items-center justify-between py-1">
         <div className="flex flex-col space-y-0.5">
           <span className="text-sm font-medium text-foreground">
             {isCustomized ? "Customized" : "Using the shipped default"}
@@ -103,9 +103,9 @@ export function AgentsSystemPromptTab() {
         </span>
       </div>
 
-      {/* Editor */}
-      <div className="rounded-lg border border-border bg-background overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40">
+      {/* Editor — boxless, fills the panel */}
+      <div className="flex flex-col flex-1 min-h-0 gap-2">
+        <div className="flex items-center justify-between">
           <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             harness-prompt.md
           </span>
@@ -116,7 +116,7 @@ export function AgentsSystemPromptTab() {
           )}
         </div>
         {harness.isPending || draft === null ? (
-          <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+          <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
             Loading…
           </div>
         ) : (
@@ -125,8 +125,8 @@ export function AgentsSystemPromptTab() {
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
             className={cn(
-              "w-full h-[440px] resize-y px-4 py-3 bg-transparent",
-              "font-mono text-[12.5px] leading-[1.6] text-foreground/90",
+              "w-full flex-1 min-h-0 resize-none p-0 bg-transparent",
+              "font-mono text-[13.5px] leading-[1.65] text-foreground/90",
               "outline-none border-0",
               "selection:bg-primary/25 caret-primary",
             )}

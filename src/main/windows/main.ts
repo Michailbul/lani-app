@@ -29,6 +29,8 @@ function getWindowFromEvent(
 // Register IPC handlers for window operations (only once)
 let ipcHandlersRegistered = false
 
+const DEFAULT_TRAFFIC_LIGHT_POSITION = { x: 19, y: 20 }
+
 function registerIpcHandlers(): void {
   if (ipcHandlersRegistered) return
   ipcHandlersRegistered = true
@@ -74,9 +76,9 @@ function registerIpcHandlers(): void {
     } else if (process.platform === "win32" && win) {
       // Windows: Update title with count as fallback
       if (count !== null && count > 0) {
-        win.setTitle(`1Code (${count})`)
+        win.setTitle(`Backlot (${count})`)
       } else {
-        win.setTitle("1Code")
+        win.setTitle("Backlot")
         win.setOverlayIcon(null, "")
       }
     }
@@ -171,6 +173,15 @@ function registerIpcHandlers(): void {
       }
     },
   )
+  ipcMain.handle(
+    "window:set-traffic-light-position",
+    (event, position: { x: number; y: number } | null) => {
+      const win = getWindowFromEvent(event)
+      if (win && process.platform === "darwin") {
+        win.setTrafficLightPosition(position ?? DEFAULT_TRAFFIC_LIGHT_POSITION)
+      }
+    },
+  )
 
   // Zoom controls
   ipcMain.handle("window:zoom-in", (event) => {
@@ -204,7 +215,7 @@ function registerIpcHandlers(): void {
     const win = getWindowFromEvent(event)
     if (win) {
       // Show just the title, or default app name if empty
-      win.setTitle(title || "1Code")
+      win.setTitle(title || "Backlot")
     }
   })
 
@@ -542,13 +553,15 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     minWidth: 500, // Allow narrow mobile-like mode
     minHeight: 600,
     show: false,
-    title: "1Code",
+    title: "Backlot",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff",
     // hiddenInset shows native traffic lights inset in the window
     // hiddenInset hides the native title bar but keeps traffic lights visible
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition:
-      process.platform === "darwin" ? { x: 15, y: 12 } : undefined,
+      process.platform === "darwin"
+        ? DEFAULT_TRAFFIC_LIGHT_POSITION
+        : undefined,
     // Windows: Use native frame or frameless based on user preference
     ...(process.platform === "win32" && {
       frame: useNativeFrame,

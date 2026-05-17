@@ -296,6 +296,52 @@
 }
 
 /* ═══════════════════════════════════════════════════════
+   Liquid-glass button — a raised, refractive control
+   surface. Layered inset shadows carve the bevel; the
+   caller supplies the base fill (a brand colour or a
+   tint). Shared by the mode dock's sliding thumb and the
+   assistant rail's active thread tab so both read as the
+   same physical glass switch.
+   ═══════════════════════════════════════════════════════ */
+.bl-glass-button {
+  box-shadow:
+    0 0 6px rgba(0, 0, 0, 0.03),
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    inset 3px 3px 0.5px -3px rgba(0, 0, 0, 0.9),
+    inset -3px -3px 0.5px -3px rgba(0, 0, 0, 0.85),
+    inset 1px 1px 1px -0.5px rgba(0, 0, 0, 0.6),
+    inset -1px -1px 1px -0.5px rgba(0, 0, 0, 0.6),
+    inset 0 0 6px 6px rgba(0, 0, 0, 0.12),
+    inset 0 0 2px 2px rgba(0, 0, 0, 0.06),
+    0 0 12px rgba(255, 255, 255, 0.15);
+}
+.dark .bl-glass-button {
+  box-shadow:
+    0 0 8px rgba(0, 0, 0, 0.03),
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    inset 3px 3px 0.5px -3.5px rgba(255, 255, 255, 0.09),
+    inset -3px -3px 0.5px -3.5px rgba(255, 255, 255, 0.85),
+    inset 1px 1px 1px -0.5px rgba(255, 255, 255, 0.6),
+    inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.6),
+    inset 0 0 6px 6px rgba(255, 255, 255, 0.12),
+    inset 0 0 2px 2px rgba(255, 255, 255, 0.06),
+    0 0 12px rgba(0, 0, 0, 0.15);
+}
+.dark .bl-glass-button.bl-glass-accent {
+  box-shadow:
+    0 0 8px rgba(0, 0, 0, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.16),
+    inset 3px 3px 0.5px -3px rgba(0, 0, 0, 0.86),
+    inset -3px -3px 0.5px -3px rgba(0, 0, 0, 0.68),
+    inset 1px 1px 1px -0.5px rgba(0, 0, 0, 0.48),
+    inset -1px -1px 1px -0.5px rgba(0, 0, 0, 0.42),
+    inset 0 0 6px 6px rgba(0, 0, 0, 0.11),
+    inset 0 0 2px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 0 14px rgba(255, 255, 255, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════════
    Keyframes — sparingly used. Most motion lives in CSS
    transitions (interruptible). Keyframes are for one-shot
    entrances where retargeting isn't needed.
@@ -842,15 +888,6 @@
  * Class is applied by fountain-decorations.ts via classifyFountainLines.
  * ──────────────────────────────────────────────────────────────────── */
 
-.cm-fountain-host .cm-content {
-  box-shadow:
-    0 1px 0 0 rgba(0, 0, 0, 0.02),
-    0 8px 24px -18px rgba(0, 0, 0, 0.12);
-}
-.dark .cm-fountain-host .cm-content {
-  box-shadow: none;
-}
-
 /* Scene heading — INT./EXT. line, bold caps. */
 .cm-fountain-scene {
   font-weight: 700;
@@ -919,4 +956,90 @@
 /* Title-page key/value lines. */
 .cm-fountain-title {
   color: hsl(var(--foreground) / 0.9);
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ * Shotlist screenplay — dividers + the active-region wash.
+ *
+ * The Shotlist surface renders the scene screenplay as one continuous
+ * Fountain leaf cut into Parts by dividers. A divider is a block widget
+ * on the seam between two Parts; the active region (the Part bound to
+ * the visible prompt) gets a faint wash — no border, no box.
+ * ──────────────────────────────────────────────────────────────────── */
+
+.cm-shotlist-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  /* Padding, not margin: CodeMirror measures a block widget's border box
+   * to build its height map. Vertical margins collapse outside that box,
+   * so every line below the divider lands a row off — selection included. */
+  padding: 0.55em 0;
+  box-sizing: border-box;
+  user-select: none;
+}
+.cm-shotlist-divider-rule {
+  flex: 1;
+  height: 1px;
+  background: hsl(var(--primary) / 0.3);
+}
+.cm-shotlist-divider-center {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.cm-shotlist-divider-chip {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.cm-shotlist-divider-merge {
+  position: absolute;
+  left: calc(100% + 0.55em);
+  white-space: nowrap;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / 0.7);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+}
+.cm-shotlist-divider:hover .cm-shotlist-divider-merge {
+  opacity: 1;
+}
+.cm-shotlist-divider-merge:hover {
+  color: hsl(var(--destructive));
+}
+
+/* The Part bound to the Prompt column — highlighted like selected text:
+ * a flat wash over the region's characters, no border, no margin bar. */
+.cm-shotlist-region {
+  background: hsl(var(--primary) / 0.16);
+}
+
+/* The Isolate popup — floats above a screenplay selection. Scales in
+ * from its bottom edge, toward the selection it points at. */
+.shotlist-selection-popup {
+  transform-origin: bottom center;
+  transition:
+    opacity 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@starting-style {
+  .shotlist-selection-popup {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
 }

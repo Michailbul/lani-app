@@ -11,7 +11,8 @@ import {
   type FileAgent,
 } from "./agent-utils"
 import { discoverInstalledPlugins, getPluginComponentPaths } from "../../plugins"
-import { getEnabledPlugins } from "./claude-settings"
+import { getEnabledPlugins, getDisabledBuiltinAgents } from "./claude-settings"
+import { BUILTIN_AGENTS, readBuiltinOverride } from "../../claude/builtin-agents"
 
 // Shared procedure for listing agents
 const listAgentsProcedure = publicProcedure
@@ -51,15 +52,49 @@ const listAgentsProcedure = publicProcedure
     })
 
     // Scan all directories in parallel
-    const [userAgents, projectAgents, ...pluginAgentsArrays] =
+    const [userAgents, projectAgents, disabledBuiltins, ...pluginAgentsArrays] =
       await Promise.all([
         userAgentsPromise,
         projectAgentsPromise,
+        getDisabledBuiltinAgents(),
         ...pluginAgentsPromises,
       ])
     const pluginAgents = pluginAgentsArrays.flat()
 
-    return [...projectAgents, ...userAgents, ...pluginAgents]
+    // Built-in agents ship in code. Each is shown with its shipped
+    // definition, or its on-disk override if the user has edited it.
+    const builtinAgents: FileAgent[] = await Promise.all(
+      Object.entries(BUILTIN_AGENTS).map(async ([name, shipped]) => {
+        const override = await readBuiltinOverride(name)
+        const effective = override ?? shipped
+        return {
+          name,
+          description: effective.description,
+          prompt: effective.prompt,
+          tools: effective.tools,
+          model: effective.model,
+          source: "builtin" as const,
+          path: override
+            ? `~/.claude/agents/${name}.md`
+            : "Built-in (ships with Backlot)",
+          enabled: !disabledBuiltins.includes(name),
+          overridden: !!override,
+        }
+      }),
+    )
+
+    // A built-in's override file also lands in ~/.claude/agents/, so the
+    // user scan would double-list it — drop those collisions; the
+    // built-in entry already reflects the override.
+    const builtinNames = new Set(Object.keys(BUILTIN_AGENTS))
+    const userAgentsDeduped = userAgents.filter((a) => !builtinNames.has(a.name))
+
+    return [
+      ...builtinAgents,
+      ...projectAgents,
+      ...userAgentsDeduped,
+      ...pluginAgents,
+    ]
   })
 
 export const agentsRouter = router({

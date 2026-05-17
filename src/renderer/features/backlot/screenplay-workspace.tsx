@@ -41,8 +41,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { ProjectTreeRail } from "./project-tree-rail"
-import { ScreenplayPane } from "./screenplay-pane"
-import { PromptsModeView } from "./prompts-mode-view"
+import { MultishotSurface } from "./multishot-surface"
 import { CanvasModeView } from "./canvas-mode-view"
 import { EntityEditor } from "./entity-editor"
 import { ShotlistSurface } from "./shotlist-surface"
@@ -95,7 +94,7 @@ export function ScreenplayWorkspace({
           the bare canvas with the workflow mode dock at its bottom edge.
           The assistant rail is hoisted to AgentsLayout so it can span the
           full window height; it is no longer a child here. */}
-      <div className="relative z-10 flex h-full w-full gap-2.5 p-2.5">
+      <div className="relative z-10 flex h-full w-full gap-2 p-2">
         {/* Left rail — project tree navigator. */}
         <ProjectTreeRail />
 
@@ -105,7 +104,6 @@ export function ScreenplayWorkspace({
         <div className="relative flex-1 min-w-0 flex flex-col">
           <AppTopBar workspace />
           <div className="relative flex-1 min-h-0 flex flex-col">
-            <LineageBreadcrumb />
             <div className="flex-1 min-h-0">
               <ModeAwareCenter chatId={chatId} directionName={directionName} />
             </div>
@@ -149,7 +147,7 @@ function AmbientCanvas() {
 
 const WORKFLOW_MODES = [
   { id: "screenwriting", label: "Screenwriting", Icon: PenLine },
-  { id: "prompts", label: "Prompts", Icon: Sparkles },
+  { id: "multishot", label: "Multishot", Icon: Sparkles },
   { id: "shotlist", label: "Shotlist", Icon: Clapperboard },
   { id: "canvas", label: "Canvas", Icon: LayoutGrid },
 ] as const
@@ -175,14 +173,12 @@ function ModeDock() {
           WebkitBackdropFilter: "url(#bl-glass-displace) blur(3px) saturate(150%)",
         }}
       >
-        {/* Sliding glass-button thumb — the raised liquid-glass switch
-            from the reference component. */}
+        {/* Sliding glass-button thumb — the raised liquid-glass switch.
+            Shares the .bl-glass-button surface with the active thread tab. */}
         <span
           aria-hidden
           className={cn(
-            "absolute inset-y-1 left-1 rounded-xl bg-primary",
-            "shadow-[0_0_6px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3px_rgba(0,0,0,0.9),inset_-3px_-3px_0.5px_-3px_rgba(0,0,0,0.85),inset_1px_1px_1px_-0.5px_rgba(0,0,0,0.6),inset_-1px_-1px_1px_-0.5px_rgba(0,0,0,0.6),inset_0_0_6px_6px_rgba(0,0,0,0.12),inset_0_0_2px_2px_rgba(0,0,0,0.06),0_0_12px_rgba(255,255,255,0.15)]",
-            "dark:shadow-[0_0_8px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3.5px_rgba(255,255,255,0.09),inset_-3px_-3px_0.5px_-3.5px_rgba(255,255,255,0.85),inset_1px_1px_1px_-0.5px_rgba(255,255,255,0.6),inset_-1px_-1px_1px_-0.5px_rgba(255,255,255,0.6),inset_0_0_6px_6px_rgba(255,255,255,0.12),inset_0_0_2px_2px_rgba(255,255,255,0.06),0_0_12px_rgba(0,0,0,0.15)]",
+            "absolute inset-y-1 left-1 rounded-xl bg-primary bl-glass-button bl-glass-accent",
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
@@ -202,7 +198,7 @@ function ModeDock() {
                 "transition-colors duration-200 [transition-timing-function:var(--ease-natural)]",
                 active
                   ? "text-primary-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground",
+                  : "text-muted-foreground hover:text-foreground dark:text-primary-foreground/75 dark:hover:text-primary-foreground",
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -226,7 +222,7 @@ interface ModeAwareCenterProps {
   directionName?: string | null
 }
 
-function ModeAwareCenter({ chatId, directionName }: ModeAwareCenterProps) {
+function ModeAwareCenter({ chatId }: ModeAwareCenterProps) {
   const mode = useAtomValue(viewModeAtom)
   const active = useAtomValue(activeEntityAtom)
 
@@ -237,10 +233,10 @@ function ModeAwareCenter({ chatId, directionName }: ModeAwareCenterProps) {
   //                         for any markdown/fountain entity. The writer's
   //                         default. Lands here.
   //
-  //   Prompts mode        → PromptsModeView for scenes/shots (script +
-  //                         prompt + refs split). For other entities,
-  //                         falls back to EntityEditor since they don't
-  //                         have a dedicated prompt surface.
+  //   Multishot mode      → MultishotSurface for scenes/shots (the scene
+  //                         screenplay paired with one multi-shot prompt).
+  //                         For other entities, falls back to EntityEditor
+  //                         since they have no dedicated prompt surface.
   //
   //   Shotlist mode       → ShotlistSurface, the imported shotlist and
   //                         Runway submission tracking surface.
@@ -249,15 +245,19 @@ function ModeAwareCenter({ chatId, directionName }: ModeAwareCenterProps) {
   //                         board for prompts, references, and generation.
   //
   // Atomic markdown entities (brief/world/main-script/character/location/
-  // act) always land in the editor regardless of mode — the prompts UI
+  // act) always land in the editor regardless of mode — the multishot UI
   // only makes sense for scenes/shots.
 
   if (mode === "canvas") {
     return <CanvasModeView worktreeId={chatId} />
   }
 
-  if (mode === "shotlist") {
+  if (mode === "shotlist" || active?.kind === "shotlist") {
     return <ShotlistSurface />
+  }
+
+  if (active?.kind === "multishot") {
+    return <MultishotSurface />
   }
 
   // Atomic entities — always the file editor. Includes the generic
@@ -282,8 +282,8 @@ function ModeAwareCenter({ chatId, directionName }: ModeAwareCenterProps) {
 
   // Scene / shot — mode decides the surface.
   if (active && (active.kind === "scene" || active.kind === "shot")) {
-    if (mode === "prompts") {
-      return <PromptsModeView />
+    if (mode === "multishot") {
+      return <MultishotSurface />
     }
     return (
       <div className="h-full">
@@ -292,13 +292,16 @@ function ModeAwareCenter({ chatId, directionName }: ModeAwareCenterProps) {
     )
   }
 
-  // Nothing selected → fall back to the legacy mode toggle.
-  if (mode === "prompts") {
-    return <PromptsModeView />
+  // Nothing selected — keep the center on the file editor's neutral
+  // placeholder. Do not mount the old single-artifact ScreenplayPane:
+  // it looks for `screenplay.fountain` and brings back the legacy
+  // Editor / Preview / Split / History toolbar.
+  if (mode === "multishot") {
+    return <MultishotSurface />
   }
   return (
     <div className="h-full">
-      <ScreenplayPane chatId={chatId} directionName={directionName} />
+      <EntityEditor />
     </div>
   )
 }
@@ -590,150 +593,6 @@ function formatThreadRelative(input: string | Date | null | undefined): string {
   if (day === 1) return "1d"
   if (day < 7) return `${day}d`
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// ForkActiveButton — sits in the chat rail header (next to "Hide").
-//
-// The user said "forking lives in the main chat", so this is the
-// canonical place to trigger a fork. The new chat appears in the
-// existing workspaces sidebar on the left automatically (since
-// chats.list returns every chat in the project), and we also flip the
-// active chat to it so the screenplay + assistant immediately reflect
-// the new Direction.
-// ────────────────────────────────────────────────────────────────────────
-function ForkActiveButton() {
-  const activeChatId = useAtomValue(selectedAgentChatIdAtom)
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
-  const utils = trpc.useUtils()
-
-  const fork = trpc.chats.forkDirection.useMutation({
-    onSuccess: (newChat) => {
-      if (newChat.projectId) {
-        utils.chats.list.invalidate({ projectId: newChat.projectId })
-        utils.chats.directionsForProject.invalidate({
-          projectId: newChat.projectId,
-        })
-      }
-      utils.chats.get.invalidate({ id: newChat.id })
-      setSelectedChatId(newChat.id)
-      toast.success(`Forked into "${newChat.name ?? "Untitled"}"`)
-    },
-    onError: (err) => {
-      toast.error(err.message || "Couldn't fork. Try again.")
-    },
-  })
-
-  const onClick = () => {
-    if (!activeChatId) return
-    fork.mutate({ fromChatId: activeChatId })
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!activeChatId || fork.isPending}
-      className={cn(
-        "press flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider",
-        "text-muted-foreground hover:text-primary hover:bg-primary/10",
-        "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-        "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-      )}
-      title="Try another way — fork this Direction at its latest saved version"
-      aria-label="Try another way"
-    >
-      {fork.isPending ? (
-        <Sparkles className="h-3 w-3 animate-pulse" />
-      ) : (
-        <Plus className="h-3 w-3" />
-      )}
-      Fork
-    </button>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Lineage breadcrumb — Layer 2.
-//
-// Shows the chain from root → current Direction:
-//   "main draft  ›  alex rewrite  ›  alex flashback try"
-//
-// Each segment is clickable and switches the active chat to that
-// ancestor. Hidden entirely when the active Direction has no parent
-// (root case) — no point dedicating a row of vertical space to a
-// single label.
-// ────────────────────────────────────────────────────────────────────────
-
-function LineageBreadcrumb() {
-  const project = useAtomValue(selectedProjectAtom)
-  const [activeChatId, setActiveChatId] = useAtom(selectedAgentChatIdAtom)
-
-  const directions = trpc.chats.directionsForProject.useQuery(
-    { projectId: project?.id ?? "" },
-    { enabled: !!project?.id, refetchInterval: 5000 },
-  )
-
-  const chain = (() => {
-    const list = directions.data ?? []
-    if (!activeChatId) return [] as typeof list
-    const byId = new Map(list.map((d) => [d.id, d]))
-    const out: typeof list = []
-    let cursor = byId.get(activeChatId)
-    let safety = 32 // guard against unexpected cycles in the parentWorktreeId chain
-    while (cursor && safety-- > 0) {
-      out.unshift(cursor)
-      cursor = cursor.parentWorktreeId ? byId.get(cursor.parentWorktreeId) : undefined
-    }
-    return out
-  })()
-
-  // Hide when there's nothing meaningful to show — root Direction or
-  // pre-mount (active chat not yet in the directions list).
-  if (chain.length <= 1) return null
-
-  return (
-    <div className="flex items-center gap-1.5 h-8 px-1 pb-1.5 select-none shrink-0 overflow-hidden">
-      <GitBranch className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-      <div className="flex items-center gap-1 text-[11px] font-mono tabular-nums truncate">
-        {chain.map((d, idx) => {
-          const isCurrent = d.id === activeChatId
-          const color = d.directionColor || fallbackColor(d.id)
-          return (
-            <div key={d.id} className="flex items-center gap-1 min-w-0">
-              {idx > 0 && (
-                <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-              )}
-              <button
-                type="button"
-                onClick={() => setActiveChatId(d.id)}
-                className={cn(
-                  "press flex items-center gap-1.5 px-1.5 py-0.5 rounded truncate",
-                  "transition-[color,background-color] duration-150 [transition-timing-function:var(--ease-natural)]",
-                  isCurrent
-                    ? "text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
-                )}
-                title={
-                  d.forkedAtCommit
-                    ? `${d.name ?? "Untitled"} — forked at ${d.forkedAtCommit.slice(0, 7)}`
-                    : d.name ?? "Untitled"
-                }
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="truncate max-w-[200px]">
-                  {d.name ?? "Untitled"}
-                </span>
-              </button>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 // ────────────────────────────────────────────────────────────────────────

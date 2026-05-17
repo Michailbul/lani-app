@@ -43,11 +43,12 @@ interface FountainSourceEditorProps {
   className?: string
 }
 
-// The "paper page" treatment — centred Courier leaf with a hairline
-// border and a whisper of shadow, matching FountainPreview so the
-// writer feels no jolt between the typeset preview and this editor.
+// Styled source keeps Fountain's screenplay typography, but it should
+// sit on the same open canvas as markdown entities. No paper-card
+// background, border, or shadow here.
 const fountainTheme = EditorView.theme({
   "&": {
+    height: "100%",
     fontSize: "13px",
     color: "hsl(var(--foreground))",
     backgroundColor: "transparent",
@@ -57,18 +58,15 @@ const fountainTheme = EditorView.theme({
     fontFamily:
       '"Courier Prime", "Courier New", Courier, ui-monospace, monospace',
     lineHeight: "1.55",
-    justifyContent: "center",
-    paddingTop: "12px",
-    paddingBottom: "96px",
   },
   ".cm-content": {
     width: "100%",
-    maxWidth: "680px",
-    padding: "56px 64px",
+    maxWidth: "720px",
+    margin: "0 auto",
+    padding: "8px 40px 96px",
+    boxSizing: "border-box",
     caretColor: "hsl(var(--primary))",
-    backgroundColor: "hsl(var(--background))",
-    border: "1px solid hsl(var(--border) / 0.5)",
-    borderRadius: "2px",
+    backgroundColor: "transparent",
   },
   ".cm-line": { padding: "0" },
   ".cm-selectionBackground": {

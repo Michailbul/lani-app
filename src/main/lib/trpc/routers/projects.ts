@@ -365,6 +365,79 @@ export const projectsRouter = router({
     }),
 
   /**
+   * Read a project's CLAUDE.md — the project's persistent agent memory.
+   * Exposed so the settings UI can edit it directly.
+   */
+  readClaudeMd: publicProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ input }) => {
+      const db = getDatabase()
+      const project = db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .get()
+      if (!project) return { exists: false as const, content: "" }
+      const claudeMdPath = join(project.path, "CLAUDE.md")
+      if (!existsSync(claudeMdPath)) return { exists: false as const, content: "" }
+      try {
+        const { readFile } = await import("node:fs/promises")
+        return {
+          exists: true as const,
+          content: await readFile(claudeMdPath, "utf-8"),
+        }
+      } catch {
+        return { exists: false as const, content: "" }
+      }
+    }),
+
+  /**
+   * Write a project's CLAUDE.md. If the file was clean beforehand the
+   * write is checkpointed as a focused git commit, so a settings edit
+   * does not leave the project dirty.
+   */
+  writeClaudeMd: publicProcedure
+    .input(z.object({ projectId: z.string(), content: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = getDatabase()
+      const project = db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .get()
+      if (!project) throw new Error("Project not found")
+      const claudeMdPath = join(project.path, "CLAUDE.md")
+      const { writeFile } = await import("node:fs/promises")
+
+      let wasClean = false
+      try {
+        const git = simpleGit(project.path)
+        if (await git.checkIsRepo()) {
+          const before = await git.raw(["status", "--porcelain", "--", "CLAUDE.md"])
+          wasClean = !before.trim()
+        }
+      } catch {
+        wasClean = false
+      }
+
+      await mkdir(dirname(claudeMdPath), { recursive: true })
+      await writeFile(claudeMdPath, input.content, "utf-8")
+
+      if (wasClean) {
+        try {
+          const git = simpleGit(project.path)
+          await git.add(["CLAUDE.md"])
+          await git.commit("Backlot: update project memory (CLAUDE.md)", [
+            "CLAUDE.md",
+          ])
+        } catch (err) {
+          console.warn("[projects.writeClaudeMd] checkpoint skipped:", err)
+        }
+      }
+      return { written: true as const }
+    }),
+
+  /**
    * Import a source folder into Backlot.
    *
    * Copies <sourcePath> to ~/.backlot/projects/<slug>/, excluding noise
@@ -785,9 +858,9 @@ export const projectsRouter = router({
         throw new Error("Invalid GitHub URL or repo format")
       }
 
-      // Clone to ~/.21st/repos/{owner}/{repo}
+      // Clone to ~/.backlot/repos/{owner}/{repo}
       const homePath = app.getPath("home")
-      const reposDir = join(homePath, ".21st", "repos", owner)
+      const reposDir = join(homePath, ".backlot", "repos", owner)
       const clonePath = join(reposDir, repo)
 
       // Check if already cloned
@@ -974,9 +1047,9 @@ export const projectsRouter = router({
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
-      // Default to ~/.21st/repos/
+      // Default to ~/.backlot/repos/
       const homePath = app.getPath("home")
-      const defaultPath = join(homePath, ".21st", "repos")
+      const defaultPath = join(homePath, ".backlot", "repos")
       await mkdir(defaultPath, { recursive: true })
 
       const result = await dialog.showOpenDialog(window, {

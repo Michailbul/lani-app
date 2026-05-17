@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backlot — How it works right now</title>
+<style>
+  :root {
+    --bg: #0d0b09;
+    --panel: #161310;
+    --panel-2: #1c1814;
+    --line: rgba(255,244,234,0.09);
+    --line-strong: rgba(255,244,234,0.16);
+    --ink: #ece6da;
+    --muted: #97907f;
+    --faint: #6a6457;
+    --coral: #f26157;
+    --teal: #79b791;
+    --ember: #ff8c42;
+    --linen: #fff4ea;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 6rem;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 3.5rem 0 2rem;
+    margin-bottom: 2.5rem;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 0.55rem;
+  }
+  .kicker::before {
+    content: ""; width: 16px; height: 1px; background: var(--coral);
+    display: inline-block;
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 2.9rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 1rem 0 0.6rem;
+    font-weight: 650;
+  }
+  h1 em { color: var(--coral); font-style: normal; }
+  .sub { color: var(--muted); font-size: 0.98rem; max-width: 60ch; }
+
+  /* Legend */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem;
+    margin-top: 1.6rem; padding-top: 1.4rem;
+    border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--muted);
+  }
+  .legend .pill { transform: translateY(-1px); }
+
+  /* Status pills */
+  .pill {
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px; font-weight: 600;
+    display: inline-block; white-space: nowrap;
+  }
+  .pill.works  { background: rgba(121,183,145,0.16); color: var(--teal);  border: 1px solid rgba(121,183,145,0.3); }
+  .pill.broken { background: rgba(242,97,87,0.15);   color: var(--coral); border: 1px solid rgba(242,97,87,0.32); }
+  .pill.partial{ background: rgba(255,140,66,0.14);  color: var(--ember); border: 1px solid rgba(255,140,66,0.3); }
+  .pill.none   { background: rgba(255,244,234,0.06); color: var(--muted); border: 1px solid var(--line-strong); }
+
+  /* Sections */
+  section { margin-bottom: 2.2rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.6rem 1.7rem;
+  }
+  .card-head {
+    display: flex; align-items: baseline; gap: 0.8rem;
+    margin-bottom: 1rem; flex-wrap: wrap;
+  }
+  .num {
+    font-family: var(--mono); font-size: 12px; color: var(--coral);
+    font-weight: 600;
+  }
+  h2 {
+    font-size: 1.32rem; letter-spacing: -0.012em; font-weight: 620;
+    flex: 1; min-width: 50%;
+  }
+  h3 {
+    font-size: 0.82rem; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.13em; color: var(--muted); font-weight: 600;
+    margin: 1.3rem 0 0.6rem;
+  }
+  p { margin-bottom: 0.7rem; }
+  p:last-child { margin-bottom: 0; }
+  strong { color: var(--linen); font-weight: 620; }
+  .lead { color: var(--ink); }
+  .muted { color: var(--muted); }
+
+  code {
+    font-family: var(--mono); font-size: 0.86em;
+    background: rgba(255,244,234,0.06);
+    border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 5px;
+    color: var(--linen);
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+    background: #080706;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.95rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.5rem 0 0.2rem;
+    color: #c9c3b4;
+  }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--ember); }
+  pre .s { color: var(--teal); }
+
+  ul { margin: 0.4rem 0 0.7rem; padding-left: 1.1rem; }
+  li { margin-bottom: 0.35rem; }
+  li::marker { color: var(--coral); }
+
+  /* Flow diagram */
+  .flow {
+    display: flex; align-items: stretch; gap: 0; flex-wrap: wrap;
+    margin: 0.6rem 0 0.2rem;
+  }
+  .flow .step {
+    flex: 1; min-width: 130px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 0.7rem 0.8rem;
+    display: flex; flex-direction: column; gap: 0.2rem;
+  }
+  .flow .arrow {
+    align-self: center; color: var(--coral); font-size: 1.1rem;
+    padding: 0 0.45rem; flex: 0 0 auto;
+  }
+  .flow .step .t {
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted);
+  }
+  .flow .step .v { font-size: 13px; color: var(--linen); }
+
+  /* Callout */
+  .callout {
+    margin-top: 1rem; border-radius: 10px; padding: 0.75rem 1rem;
+    font-size: 0.9rem; border: 1px solid;
+  }
+  .callout.fix    { background: rgba(121,183,145,0.07); border-color: rgba(121,183,145,0.28); }
+  .callout.warn   { background: rgba(242,97,87,0.06);   border-color: rgba(242,97,87,0.26); }
+  .callout .lbl {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; font-weight: 700; margin-right: 0.5rem;
+  }
+  .callout.fix  .lbl { color: var(--teal); }
+  .callout.warn .lbl { color: var(--coral); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
+  th, td {
+    text-align: left; padding: 0.6rem 0.7rem;
+    border-bottom: 1px solid var(--line); vertical-align: top;
+  }
+  th {
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted); font-weight: 600;
+  }
+  th:first-child { width: 30%; }
+  td.c-claude { color: var(--ink); }
+  td.c-codex  { color: var(--muted); }
+
+  /* Summary grid */
+  .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-top: 0.6rem; }
+  .summary .row {
+    display: flex; gap: 0.6rem; align-items: flex-start;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 9px; padding: 0.6rem 0.75rem; font-size: 0.86rem;
+  }
+  @media (max-width: 620px) { .summary { grid-template-columns: 1fr; } }
+
+  footer {
+    margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+  }
+  .path { font-family: var(--mono); color: var(--teal); font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Backlot · architecture snapshot</div>
+    <h1>How Backlot works <em>right now</em></h1>
+    <p class="sub">Current state of project setup, working directory, skills, memory, and
+      subagents — for both the Claude and Codex backends. Verified against the codebase, not the spec.</p>
+    <div class="legend">
+      <span><span class="pill works">works</span> &nbsp;behaves as intended</span>
+      <span><span class="pill broken">broken</span> &nbsp;wired but does not work</span>
+      <span><span class="pill partial">partial</span> &nbsp;works with caveats</span>
+      <span><span class="pill none">none</span> &nbsp;not implemented</span>
+    </div>
+  </header>
+
+  <!-- 1 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">01</span>
+        <h2>Starting a project — copy, not worktree</h2>
+        <span class="pill works">works</span>
+      </div>
+      <p class="lead">When you import a folder or create a project, Backlot <strong>copies</strong> the
+        source into its own space. It never works against your original folder in place.</p>
+      <div class="flow">
+        <div class="step"><span class="t">you pick</span><span class="v">any source folder</span></div>
+        <span class="arrow">→</span>
+        <div class="step"><span class="t">copy</span><span class="v">excludes .git, node_modules, build caches</span></div>
+        <span class="arrow">→</span>
+        <div class="step"><span class="t">lands at</span><span class="v">~/.backlot/projects/&lt;slug&gt;/</span></div>
+        <span class="arrow">→</span>
+        <div class="step"><span class="t">then</span><span class="v">git init · baseline commit · starter CLAUDE.md</span></div>
+      </div>
+      <h3>Where projects live</h3>
+      <p>Every project is a folder under <span class="path">~/.backlot/projects/&lt;slug&gt;/</span> with its
+        own fresh git repo. The copy is deliberate: Backlot's git history stays independent and the
+        original is never touched.</p>
+      <h3>Worktrees / forking — removed</h3>
+      <p>The old <strong>Directions</strong> feature forked a project into extra git worktrees under
+        <code>~/.backlot/worktrees/</code>. That is gone. <strong>One project = one folder.</strong>
+        No new worktrees are created; <code>~/.backlot/worktrees/</code> only holds stale leftovers
+        from before the removal.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">02</span>
+        <h2>The working directory (cwd)</h2>
+        <span class="pill works">works</span>
+      </div>
+      <p class="lead">The agent — Claude or Codex — runs with its <code>cwd</code> set to the
+        project folder itself.</p>
+      <pre><span class="c">// chats.ts — createChat</span>
+db.update(chats).set({ worktreePath: project.path })
+<span class="c">// → the agent process spawns with:</span>
+cwd = ~/.backlot/projects/&lt;slug&gt;/</pre>
+      <p class="muted">The DB column is still called <code>worktreePath</code> for legacy reasons, but it
+        now always equals the project path. Every chat in a project shares the same cwd — there is no
+        per-chat isolation anymore.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">03</span>
+        <h2>Skills — what Claude actually has</h2>
+        <span class="pill broken">broken</span>
+      </div>
+      <p class="lead">Claude is given <strong>almost no skills</strong> today. Not because they aren't
+        installed — because of one option.</p>
+      <pre><span class="c">// claude.ts — query() options</span>
+settingSources: [<span class="s">"project"</span>]   <span class="c">← "user" is missing</span></pre>
+      <p>The SDK only discovers skills for the setting sources you enable. With just
+        <code>["project"]</code>:</p>
+      <ul>
+        <li><strong>User skills</strong> — <code>~/.claude/skills/</code> (~234 of them) → <strong>not loaded.</strong>
+          <code>"user"</code> is not an enabled source.</li>
+        <li><strong>Project skills</strong> — <code>&lt;project&gt;/.claude/skills/</code> → loaded, but most
+          projects have no <code>.claude/</code> folder at all.</li>
+        <li><strong>Plugin / CLI-bundled skills</strong> → loaded. This is the lone <code>keybindings-help</code>
+          the agent reported having.</li>
+      </ul>
+      <p>So in practice Claude sees a handful of built-in skills and nothing of yours. Asking it for
+        <code>screenwriter</code> or <code>nano-banana-pro</code> returns "no such skill."</p>
+      <div class="callout fix">
+        <span class="lbl">the fix</span>Restore <code>settingSources: ["project", "user"]</code> — exactly
+        what 1code uses. One line.
+      </div>
+      <h3>The Skills settings tab</h3>
+      <p>The tab writes a filter to <span class="path">~/.backlot/skills-filter.json</span> — but
+        <code>resolveActiveSkillNames()</code>, the function meant to apply it, <strong>has zero callers.</strong>
+        Nothing reads the filter when a session starts. The tab currently controls nothing.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">04</span>
+        <h2>Skills — what Codex has</h2>
+        <span class="pill none">none</span>
+      </div>
+      <p class="lead"><code>codex.ts</code> has <strong>no skill wiring whatsoever</strong> — no skill
+        discovery, no <code>SKILL.md</code> scan, no <code>settingSources</code>, no symlink.</p>
+      <p>Agent Skills are an Anthropic feature of the Claude Agent SDK. Codex has no equivalent
+        primitive. A Codex session in Backlot runs on the harness alone. (1code is the same — its
+        Codex path also has zero skills.)</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">05</span>
+        <h2>How Claude is <em>supposed</em> to see skills</h2>
+        <span class="pill broken">broken</span>
+      </div>
+      <p class="lead">Backlot builds an isolated config dir per session and symlinks your skills into
+        it. The plumbing is there — but it is bypassed by the <code>settingSources</code> bug above.</p>
+      <pre><span class="c">// per session, claude.ts:</span>
+CLAUDE_CONFIG_DIR = ~/Library/Application Support/backlot/
+                    claude-sessions/&lt;subChatId&gt;/
+
+symlink  ~/.claude/skills  →  $CLAUDE_CONFIG_DIR/skills
+symlink  ~/.claude/agents  →  $CLAUDE_CONFIG_DIR/agents</pre>
+      <div class="flow">
+        <div class="step"><span class="t">step 1</span><span class="v">symlink skills into CLAUDE_CONFIG_DIR</span></div>
+        <span class="arrow">→</span>
+        <div class="step"><span class="t">step 2</span><span class="v">SDK reads "user" skills from CLAUDE_CONFIG_DIR/skills</span></div>
+        <span class="arrow">✗</span>
+        <div class="step"><span class="t">but</span><span class="v">"user" not in settingSources → never scanned</span></div>
+      </div>
+      <div class="callout warn">
+        <span class="lbl">dead code</span>The symlink points the user-skill location at your real
+        skills — but the SDK is told (via <code>settingSources</code>) not to look there. The symlink
+        does nothing today. It comes alive the moment <code>"user"</code> is added back.
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">06</span>
+        <h2>CLAUDE.md — where memory comes from</h2>
+        <span class="pill partial">partial</span>
+      </div>
+      <h3>Project memory</h3>
+      <p>Because <code>settingSources</code> includes <code>"project"</code>, the SDK loads the
+        <strong>project's</strong> <code>CLAUDE.md</code> — <span class="path">~/.backlot/projects/&lt;slug&gt;/CLAUDE.md</span>.
+        That is the per-project memory the agent reads every turn.</p>
+      <h3>Your global CLAUDE.md</h3>
+      <p>Your personal <span class="path">~/.claude/CLAUDE.md</span> (the Laniameda studio doc) is
+        <strong>not loaded</strong> — <code>"user"</code> is off, and Backlot deliberately never
+        symlinks <code>CLAUDE.md</code> into the config dir. That isolation is intentional and should
+        survive the skills fix: when <code>"user"</code> is restored for skills, <code>CLAUDE.md</code>
+        still must not be symlinked, so user skills load without the studio doc bleeding in.</p>
+      <h3>The harness</h3>
+      <p>The Backlot harness (<code>harness-prompt.ts</code>) is separate from any <code>CLAUDE.md</code>.
+        It is appended to the system prompt via <code>systemPrompt.append</code> for Claude, and passed
+        as <code>system</code> for Codex. Same text for every project.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">07</span>
+        <h2>Codex vs Claude — skill ingestion</h2>
+        <span class="pill broken">broken</span>
+      </div>
+      <table>
+        <thead><tr><th></th><th>Claude</th><th>Codex</th></tr></thead>
+        <tbody>
+          <tr><td>Mechanism</td>
+            <td class="c-claude">Native SDK discovery via <code>settingSources</code></td>
+            <td class="c-codex">None</td></tr>
+          <tr><td>User skills <span class="muted">(~/.claude/skills)</span></td>
+            <td class="c-claude">Wired but broken — needs <code>"user"</code></td>
+            <td class="c-codex">Never</td></tr>
+          <tr><td>Project skills <span class="muted">(&lt;cwd&gt;/.claude/skills)</span></td>
+            <td class="c-claude">Loaded</td>
+            <td class="c-codex">Never</td></tr>
+          <tr><td>Skills tab filter</td>
+            <td class="c-claude">Not read at session start</td>
+            <td class="c-codex">Not read</td></tr>
+          <tr><td>Harness</td>
+            <td class="c-claude"><code>systemPrompt.append</code></td>
+            <td class="c-codex"><code>system</code> — yes, Codex gets it</td></tr>
+          <tr><td>Project CLAUDE.md</td>
+            <td class="c-claude">Loaded via <code>settingSources: ["project"]</code></td>
+            <td class="c-codex">Codex CLI reads <code>AGENTS.md</code> by its own convention — project
+              CLAUDE.md not guaranteed</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="margin-top:0.9rem">There is no shared skills path. Claude and Codex only
+        have one channel in common — MCP servers — and beyond that, nothing about skills is symmetric.</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">08</span>
+        <h2>Subagents / agents</h2>
+        <span class="pill partial">partial</span>
+      </div>
+      <h3>Claude</h3>
+      <p>Subagents are passed explicitly to the SDK through <code>options.agents</code>:</p>
+      <pre><span class="c">// claude.ts</span>
+agentsOption = { ...builtinAgents, ...mentionedAgents }
+<span class="c">// builtinAgents  — Backlot's own subagents (e.g. director-verifier),</span>
+<span class="c">//                  minus any disabled in Settings</span>
+<span class="c">// mentionedAgents — agents the user @-mentions in the prompt</span>
+options.agents = agentsOption   <span class="c">// only when non-empty</span></pre>
+      <ul>
+        <li><strong>Built-in subagents</strong> — always registered (unless disabled in Settings).</li>
+        <li><strong>@-mentioned agents</strong> — resolved on demand from the mention.</li>
+        <li><strong>Project agents</strong> <span class="muted">(&lt;cwd&gt;/.claude/agents)</span> — load via
+          <code>settingSources: ["project"]</code>.</li>
+        <li><strong>User agents</strong> <span class="muted">(~/.claude/agents)</span> — symlinked into the
+          config dir, but <strong>dead for the same reason as skills</strong>: <code>"user"</code> is off.</li>
+      </ul>
+      <p class="muted">The SDK's per-subagent definition also has a <code>skills: string[]</code> field —
+        a subagent can preload specific skills. Backlot does not use it yet.</p>
+      <h3>Codex</h3>
+      <p>No subagents. Codex has no equivalent.</p>
+    </div>
+  </section>
+
+  <!-- summary -->
+  <section>
+    <div class="card">
+      <div class="card-head">
+        <span class="num">∑</span>
+        <h2>The state in one glance</h2>
+      </div>
+      <div class="summary">
+        <div class="row"><span class="pill works">works</span><span>Project = a copied folder at <code>~/.backlot/projects/&lt;slug&gt;</code></span></div>
+        <div class="row"><span class="pill works">works</span><span>cwd = the project folder; no worktrees</span></div>
+        <div class="row"><span class="pill works">works</span><span>Project <code>CLAUDE.md</code> + harness reach the agent</span></div>
+        <div class="row"><span class="pill works">works</span><span>Claude built-in subagents register</span></div>
+        <div class="row"><span class="pill broken">broken</span><span>Claude user skills — blocked by <code>settingSources</code></span></div>
+        <div class="row"><span class="pill broken">broken</span><span>Skills tab filter — written, never read</span></div>
+        <div class="row"><span class="pill broken">broken</span><span>The skills/agents symlink — bypassed, dead</span></div>
+        <div class="row"><span class="pill none">none</span><span>Codex skills — no wiring at all</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Backlot · current-state snapshot</span>
+    <span>generated 2026-05-16 · verified against source</span>
+  </footer>
+
+</div>
+</body>
+</html>

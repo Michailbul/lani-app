@@ -11,9 +11,10 @@
  *   3. Import an existing folder from disk (copied into ~/.backlot)
  *
  * Cloning from GitHub stays accessible as a quiet tertiary link so the
- * 1Code-era flow doesn't disappear. Visual register: editorial - the
- * page reads like the inside cover of a director's journal, not a SaaS
- * dashboard. Dark-mode-first (Obsidian + Ember), light-mode polished.
+ * the legacy flow doesn't disappear. Visual register: editorial — the
+ * page reads like the inside cover of a director's journal. Light-mode
+ * first on the warm paper canvas, Lime accent, frosted liquid-glass
+ * islands floating over a soft ambient halo. Dark mode kept in sync.
  */
 
 import { useState, useMemo, useEffect, useCallback } from "react"
@@ -106,6 +107,55 @@ function toSelectedProject(p: ProjectRow) {
     gitOwner: p.gitOwner ?? null,
     gitRepo: p.gitRepo ?? null,
   }
+}
+
+// ─── ambient background ──────────────────────────────────────────────
+
+/**
+ * The atmosphere the frosted islands sit on: a warm paper canvas, a soft
+ * Lime halo pooled behind the wordmark, a fainter teal wash low-left,
+ * and a barely-there grain. All low-opacity — it gives the glass panels
+ * colour to refract without the page reading as "decorated".
+ */
+const GRAIN_URI =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
+
+function AmbientBackdrop() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 overflow-hidden"
+    >
+      <div
+        className="absolute left-1/2 top-[-16%] h-[520px] w-[860px] -translate-x-1/2 rounded-full"
+        style={{
+          background:
+            "radial-gradient(closest-side, hsl(70 73% 59% / 0.22), transparent)",
+          filter: "blur(40px)",
+        }}
+      />
+      <div
+        className="absolute -left-[8%] bottom-[-18%] h-[460px] w-[560px] rounded-full"
+        style={{
+          background:
+            "radial-gradient(closest-side, hsl(139 28% 60% / 0.16), transparent)",
+          filter: "blur(56px)",
+        }}
+      />
+      <div
+        className="absolute -right-[10%] top-[26%] h-[360px] w-[420px] rounded-full"
+        style={{
+          background:
+            "radial-gradient(closest-side, hsl(21 100% 63% / 0.07), transparent)",
+          filter: "blur(56px)",
+        }}
+      />
+      <div
+        className="absolute inset-0 opacity-[0.045] mix-blend-overlay dark:opacity-[0.06]"
+        style={{ backgroundImage: GRAIN_URI }}
+      />
+    </div>
+  )
 }
 
 // ─── page ────────────────────────────────────────────────────────────
@@ -243,40 +293,54 @@ export function SelectRepoPage() {
       setGithubUrl("")
     }
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-background select-none">
+      <div className="relative h-screen w-screen flex flex-col items-center justify-center bg-background select-none overflow-hidden">
+        <AmbientBackdrop />
         <div
-          className="fixed top-0 left-0 right-0 h-10"
+          className="fixed top-0 left-0 right-0 h-10 z-20"
           style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         />
         <button
           onClick={handleBack}
           disabled={cloneFromGitHub.isPending}
-          className="fixed top-12 left-4 flex items-center justify-center h-8 w-8 rounded-full hover:bg-foreground/5 transition-colors disabled:opacity-50"
+          className={cn(
+            "press fixed top-12 left-4 z-20 flex items-center justify-center h-8 w-8 rounded-full",
+            "border border-white/55 bg-card/55 backdrop-blur-xl",
+            "text-muted-foreground hover:text-foreground hover:bg-card/85",
+            "transition-colors disabled:opacity-50",
+            "dark:border-white/10 dark:bg-white/[0.05]",
+          )}
         >
-          <ChevronLeft className="h-5 w-5" />
+          <ChevronLeft className="h-4 w-4" />
         </button>
 
-        <div className="w-full max-w-[440px] space-y-8 px-4">
-          <div className="text-center space-y-4">
-            <div className="flex items-center justify-center gap-2 p-2 mx-auto w-max rounded-full border border-border">
-              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
-                <Logo className="w-5 h-5" fill="white" />
+        <div className="relative z-10 w-full max-w-[440px] space-y-9 px-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-500 fill-mode-both">
+          <div className="text-center space-y-5">
+            <div
+              className={cn(
+                "mx-auto w-max flex items-center gap-2 p-2 rounded-full",
+                "border border-white/55 bg-card/50 backdrop-blur-xl backdrop-saturate-[1.6]",
+                "shadow-[inset_0_1px_0_hsl(0_0%_100%/0.55),0_12px_30px_-18px_rgba(20,22,14,0.3)]",
+                "dark:border-white/10 dark:bg-white/[0.04]",
+              )}
+            >
+              <div className="h-10 w-10 rounded-full bg-primary bl-glass-button flex items-center justify-center">
+                <Logo className="w-[18px] h-[18px]" fill="hsl(71 51% 8%)" />
               </div>
-              <div className="w-10 h-10 rounded-full bg-foreground flex items-center justify-center">
+              <div className="h-10 w-10 rounded-full bg-foreground flex items-center justify-center">
                 <GitHubIcon className="w-5 h-5 text-background" />
               </div>
             </div>
-            <div className="space-y-1">
-              <h1 className="font-display text-xl font-semibold tracking-tight">
+            <div className="space-y-1.5">
+              <h1 className="font-display text-2xl font-bold tracking-[-0.02em]">
                 Clone from GitHub
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[13px] text-muted-foreground/85">
                 Enter a repository URL or owner/repo
               </p>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="relative">
               <Input
                 value={githubUrl}
@@ -287,7 +351,7 @@ export function SelectRepoPage() {
                   }
                 }}
                 placeholder="owner/repo"
-                className="text-center pr-10 font-mono"
+                className="h-11 text-center pr-10 font-mono bg-card/70 backdrop-blur-md"
                 autoFocus
                 disabled={cloneFromGitHub.isPending}
               />
@@ -297,7 +361,7 @@ export function SelectRepoPage() {
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground/80 text-center font-mono">
+            <p className="text-[11px] text-muted-foreground/70 text-center font-mono">
               facebook/react · https://github.com/owner/repo
             </p>
           </div>
@@ -308,33 +372,35 @@ export function SelectRepoPage() {
 
   // ─── main landing ─────────────────────────────────────────────────
   return (
-    <div className="h-screen w-screen flex flex-col bg-background select-none overflow-hidden">
+    <div className="relative h-screen w-screen flex flex-col bg-background select-none overflow-hidden">
+      <AmbientBackdrop />
+
       {/* Draggable title bar — empty so the macOS traffic-lights have room. */}
       <div
-        className="h-10 flex-shrink-0"
+        className="h-10 flex-shrink-0 relative z-10"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       />
 
       {/* Scrolling middle column */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="w-full max-w-[640px] mx-auto px-6 pb-16 pt-6 space-y-10">
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto">
+        <div className="w-full max-w-[600px] mx-auto px-6 pb-20 pt-8 space-y-9">
           {/* ── Wordmark block ── */}
-          <header className="flex flex-col items-center text-center gap-3">
-            <div className="w-11 h-11 rounded-[10px] bg-primary flex items-center justify-center shadow-[0_1px_0_0_rgba(255,255,255,0.18)_inset,0_4px_16px_-6px_rgba(242,97,87,0.45)]">
-              <Logo className="w-5 h-5" fill="white" />
+          <header className="flex flex-col items-center text-center gap-3.5 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 fill-mode-both">
+            <div className="h-12 w-12 rounded-[14px] bg-primary bl-glass-button flex items-center justify-center">
+              <Logo className="w-[22px] h-[22px]" fill="hsl(71 51% 8%)" />
             </div>
             <div className="space-y-1.5">
-              <h1 className="font-display text-3xl font-bold tracking-[-0.02em] leading-none">
+              <h1 className="font-display text-[2.65rem] font-bold tracking-[-0.03em] leading-[0.95]">
                 Backlot
               </h1>
-              <p className="text-[13px] text-muted-foreground/85 font-light tracking-wide">
-                Where the screenplay meets the generative shot.
+              <p className="text-[12.5px] text-muted-foreground font-mono uppercase tracking-[0.2em]">
+                The screenplay meets the shot
               </p>
             </div>
           </header>
 
           {/* ── Two primary action cards ── */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 fill-mode-both [animation-delay:90ms]">
             <ActionCard
               tone="primary"
               icon={<Sparkles className="h-4 w-4" />}
@@ -358,10 +424,10 @@ export function SelectRepoPage() {
           </section>
 
           {/* ── Recent projects ── */}
-          <section className="space-y-3">
-            <div className="flex items-baseline justify-between gap-3">
-              <div className="flex items-baseline gap-2.5">
-                <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70">
+          <section className="space-y-2.5 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 fill-mode-both [animation-delay:170ms]">
+            <div className="flex items-baseline justify-between gap-3 px-1">
+              <div className="flex items-baseline gap-2.5 flex-1">
+                <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground/70">
                   Recent projects
                 </span>
                 <span className="h-px flex-1 bg-border/70 self-center" />
@@ -374,13 +440,13 @@ export function SelectRepoPage() {
             </div>
 
             {isLoadingProjects ? (
-              <div className="space-y-1">
+              <div className="rounded-2xl border border-white/55 bg-card/45 backdrop-blur-xl p-1.5 dark:border-white/10 dark:bg-white/[0.03]">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-3 rounded-md px-2.5 py-2"
+                    className="flex items-center gap-3 rounded-xl px-2.5 py-2.5"
                   >
-                    <Skeleton className="h-7 w-7 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-lg" />
                     <div className="flex-1 space-y-1.5">
                       <Skeleton className="h-3 w-32" />
                       <Skeleton className="h-2.5 w-48" />
@@ -392,7 +458,15 @@ export function SelectRepoPage() {
             ) : recentProjects.length === 0 ? (
               <EmptyState onCreate={() => setCreateOpen(true)} />
             ) : (
-              <ul className="space-y-0.5">
+              <ul
+                className={cn(
+                  "rounded-2xl p-1.5 space-y-0.5",
+                  "border border-white/60 bg-card/45",
+                  "backdrop-blur-xl backdrop-saturate-[1.6]",
+                  "shadow-[inset_0_1px_0_hsl(0_0%_100%/0.5),0_1px_2px_rgba(20,22,14,0.04),0_18px_40px_-22px_rgba(20,22,14,0.24)]",
+                  "dark:border-white/10 dark:bg-white/[0.03]",
+                )}
+              >
                 {recentProjects.map((project) => (
                   <li key={project.id}>
                     <RecentRow
@@ -414,11 +488,18 @@ export function SelectRepoPage() {
           </section>
 
           {/* ── Tertiary: clone from GitHub ── */}
-          <section className="pt-2 flex items-center justify-center">
+          <section className="pt-1 flex items-center justify-center animate-in fade-in-0 duration-500 fill-mode-both [animation-delay:260ms]">
             <button
               onClick={() => setShowClonePage(true)}
               disabled={isBusy}
-              className="group inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-mono uppercase tracking-[0.16em] text-muted-foreground/65 hover:text-foreground transition-colors disabled:opacity-50"
+              className={cn(
+                "group inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
+                "text-[11px] font-mono uppercase tracking-[0.16em]",
+                "text-muted-foreground/70 hover:text-foreground",
+                "border border-transparent hover:border-white/55 hover:bg-card/50 hover:backdrop-blur-md",
+                "transition-[color,background-color,border-color] duration-150",
+                "disabled:opacity-50 dark:hover:border-white/10 dark:hover:bg-white/[0.04]",
+              )}
             >
               <GitHubIcon className="h-3 w-3" />
               <span>Clone from GitHub</span>
@@ -434,7 +515,12 @@ export function SelectRepoPage() {
         onOpenChange={(v) => !isCreating && setCreateOpen(v)}
       >
         <DialogContent
-          className="max-w-[440px] p-0 gap-0 overflow-hidden"
+          className={cn(
+            "max-w-[440px] p-0 gap-0 overflow-hidden rounded-2xl",
+            "border-white/60 bg-card/85 backdrop-blur-2xl backdrop-saturate-[1.7]",
+            "shadow-[inset_0_1px_0_hsl(0_0%_100%/0.6),0_24px_60px_-20px_rgba(20,22,14,0.4)]",
+            "dark:border-white/12 dark:bg-[hsl(0_0%_9%/0.9)]",
+          )}
           showCloseButton={false}
         >
           <form
@@ -447,12 +533,12 @@ export function SelectRepoPage() {
               })
             }}
           >
-            <div className="px-5 pt-5 pb-3 flex items-start gap-3 border-b border-border/60">
-              <div className="w-8 h-8 rounded-md bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Sparkles className="h-4 w-4" />
+            <div className="px-5 pt-5 pb-3.5 flex items-start gap-3 border-b border-border/50">
+              <div className="h-9 w-9 rounded-[11px] bg-primary bl-glass-button flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Sparkles className="h-4 w-4 text-primary-foreground" />
               </div>
               <div className="flex-1 min-w-0 space-y-0.5">
-                <DialogTitle className="font-display text-base font-semibold tracking-tight leading-snug">
+                <DialogTitle className="font-display text-lg font-bold tracking-tight leading-snug">
                   Start a new project
                 </DialogTitle>
                 <DialogDescription className="text-[12px] text-muted-foreground/85 leading-snug">
@@ -502,7 +588,7 @@ export function SelectRepoPage() {
               </div>
             </div>
 
-            <div className="px-5 py-3 bg-muted/30 border-t border-border/60 flex items-center justify-between gap-3">
+            <div className="px-5 py-3 bg-muted/25 border-t border-border/50 flex items-center justify-between gap-3">
               <span className="text-[10px] font-mono text-muted-foreground/55 tracking-wide">
                 ↵ create
               </span>
@@ -519,11 +605,10 @@ export function SelectRepoPage() {
                   type="submit"
                   disabled={!newName.trim() || isCreating}
                   className={cn(
-                    "h-8 px-4 rounded-md text-[13px] font-medium",
-                    "bg-primary text-primary-foreground",
-                    "shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)]",
+                    "press h-8 px-4 rounded-md text-[13px] font-medium",
+                    "bg-primary text-primary-foreground bl-glass-button",
                     "transition-[background-color,transform] duration-150 ease-out",
-                    "hover:bg-primary/90 active:scale-[0.97]",
+                    "hover:bg-primary/90",
                     "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
                     "flex items-center justify-center gap-1.5 min-w-[88px]",
                   )}
@@ -569,42 +654,46 @@ function ActionCard({
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(
-        "group relative text-left rounded-xl p-4 overflow-hidden",
-        "border transition-[background-color,border-color,transform] duration-150 ease-out",
-        "active:scale-[0.99]",
-        "disabled:opacity-60 disabled:cursor-not-allowed",
+        "group relative text-left rounded-2xl p-[18px] overflow-hidden border",
+        "backdrop-blur-xl backdrop-saturate-[1.6]",
+        "transition-[background-color,border-color,box-shadow,transform] duration-200",
+        "[transition-timing-function:var(--ease-out)]",
+        "hover:-translate-y-[2px] active:translate-y-0 active:scale-[0.99]",
+        "disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:translate-y-0",
         tone === "primary"
           ? [
-              "bg-primary/[0.06] border-primary/30",
-              "hover:bg-primary/[0.1] hover:border-primary/50",
-              "dark:bg-primary/[0.08] dark:border-primary/35 dark:hover:bg-primary/[0.14]",
+              "bg-primary/[0.16] border-primary/40",
+              "hover:bg-primary/[0.22] hover:border-primary/60",
+              "shadow-[inset_0_1px_0_hsl(0_0%_100%/0.5),0_1px_2px_rgba(20,22,14,0.05),0_14px_30px_-16px_hsl(70_55%_28%/0.4)]",
+              "hover:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.6),0_2px_6px_rgba(20,22,14,0.07),0_22px_46px_-18px_hsl(70_55%_28%/0.55)]",
+              "dark:bg-primary/[0.13] dark:border-primary/35 dark:hover:bg-primary/[0.19]",
             ]
           : [
-              "bg-muted/40 border-border/70",
-              "hover:bg-muted/70 hover:border-border",
+              "bg-card/55 border-white/65",
+              "hover:bg-card/85 hover:border-white/90",
+              "shadow-[inset_0_1px_0_hsl(0_0%_100%/0.55),0_1px_2px_rgba(20,22,14,0.05),0_14px_30px_-18px_rgba(20,22,14,0.22)]",
+              "hover:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.65),0_2px_6px_rgba(20,22,14,0.07),0_22px_46px_-18px_rgba(20,22,14,0.32)]",
+              "dark:bg-white/[0.04] dark:border-white/10 dark:hover:bg-white/[0.07]",
             ],
       )}
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start justify-between gap-3 mb-3.5">
         <div
           className={cn(
-            "w-7 h-7 rounded-md flex items-center justify-center",
+            "h-8 w-8 rounded-[10px] flex items-center justify-center",
+            "transition-transform duration-200 group-hover:scale-105",
             tone === "primary"
-              ? "bg-primary/15 text-primary"
-              : "bg-foreground/5 text-foreground/70",
+              ? "bg-primary text-primary-foreground bl-glass-button"
+              : "bg-foreground/[0.06] text-foreground/75 border border-border/60",
           )}
         >
-          {loading ? (
-            <IconSpinner className="h-3.5 w-3.5" />
-          ) : (
-            icon
-          )}
+          {loading ? <IconSpinner className="h-3.5 w-3.5" /> : icon}
         </div>
         <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/55 tabular-nums">
           {shortcut.map((k, i) => (
             <kbd
               key={i}
-              className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded border border-border/70 bg-background/60 text-[10px] leading-none"
+              className="inline-flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded-[5px] border border-border/70 bg-background/70 text-[10px] leading-none"
             >
               {k}
             </kbd>
@@ -612,12 +701,7 @@ function ActionCard({
         </span>
       </div>
       <div className="space-y-1">
-        <div
-          className={cn(
-            "font-display text-[15px] font-semibold tracking-tight leading-tight",
-            tone === "primary" ? "text-foreground" : "text-foreground",
-          )}
-        >
+        <div className="font-display text-[17px] font-bold tracking-[-0.01em] leading-tight text-foreground">
           {title}
         </div>
         <div className="text-[12px] text-muted-foreground leading-snug">
@@ -644,18 +728,18 @@ function RecentRow({
       onClick={onSelect}
       disabled={disabled || isOpening}
       className={cn(
-        "group w-full flex items-center gap-3 rounded-md px-2.5 py-2 text-left",
+        "group w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left",
         "transition-colors duration-100",
-        "hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+        "hover:bg-primary/[0.07] dark:hover:bg-primary/[0.1]",
         "disabled:opacity-60 disabled:cursor-not-allowed",
       )}
     >
-      <div className="w-7 h-7 rounded-md bg-muted/70 border border-border/60 flex items-center justify-center flex-shrink-0 overflow-hidden">
+      <div className="h-8 w-8 rounded-lg bg-background/70 border border-border/60 flex items-center justify-center flex-shrink-0 overflow-hidden transition-colors group-hover:border-primary/40">
         <ProjectIcon project={project} className="h-4 w-4" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span className="font-display text-[14px] font-semibold tracking-tight text-foreground truncate">
+          <span className="font-display text-[15px] font-bold tracking-[-0.01em] text-foreground truncate">
             {project.name}
           </span>
           <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/55 flex-shrink-0">
@@ -671,7 +755,7 @@ function RecentRow({
       ) : (
         <ChevronRight
           className={cn(
-            "h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0",
+            "h-3.5 w-3.5 text-primary/70 flex-shrink-0",
             "transition-[opacity,transform] duration-150",
             "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0",
           )}
@@ -683,14 +767,20 @@ function RecentRow({
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-8 px-4 rounded-lg border border-dashed border-border/60 bg-muted/20">
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center text-center py-9 px-4 rounded-2xl",
+        "border border-dashed border-border/70 bg-card/35 backdrop-blur-xl",
+        "dark:bg-white/[0.02]",
+      )}
+    >
       <div className="text-[12px] text-muted-foreground/85 leading-relaxed max-w-[300px]">
         No projects yet. Start with a fresh one above, or import an existing
         folder.
       </div>
       <button
         onClick={onCreate}
-        className="mt-3 text-[11px] font-mono uppercase tracking-[0.16em] text-primary hover:text-primary/80 transition-colors"
+        className="mt-3 text-[11px] font-mono uppercase tracking-[0.16em] text-[hsl(var(--accent-deep))] hover:opacity-70 transition-opacity"
       >
         + Start your first project
       </button>

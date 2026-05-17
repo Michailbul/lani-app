@@ -3,19 +3,23 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAtomValue } from "jotai"
 import {
+  Braces,
   Check,
-  ChevronDown,
-  ChevronUp,
+  Copy,
+  FileDown,
+  Languages,
   Loader2,
   MessageSquarePlus,
   Plus,
-  Search,
-  Trash2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
-import type { SceneShotlist, ShotPrompt, ShotStatus } from "../../../shared/shotlist-types"
-import { selectedAgentChatIdAtom } from "../agents/atoms"
+import type {
+  SceneShotlist,
+  ShotPrompt,
+  ShotStatus,
+} from "../../../shared/shotlist-types"
+import { selectedAgentChatIdAtom, selectedProjectAtom } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import {
@@ -31,13 +35,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "../../components/ui/dialog"
-import { Table, TableBody, TableHeader } from "../../components/ui/table"
 import { activeEntityAtom } from "./atoms"
+import { ShotlistScreenplay } from "./shotlist-screenplay"
 
 const AUTOSAVE_MS = 600
 const LIVE_POLL_MS = 1500
@@ -58,137 +57,95 @@ const STATUS_DOT: Record<ShotStatus, string> = {
   approved: "bg-emerald-400",
 }
 
-// ── Long-prompt handling — three switchable variants ──────────────────────
+// The raised liquid-glass thumb — lifted straight from the workflow
+// ModeDock so the Shotlist's lime controls speak the same glass
+// language: a kiwi switch that catches the light from every edge.
+const GLASS_THUMB =
+  "shadow-[0_0_6px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3px_rgba(0,0,0,0.9),inset_-3px_-3px_0.5px_-3px_rgba(0,0,0,0.85),inset_1px_1px_1px_-0.5px_rgba(0,0,0,0.6),inset_-1px_-1px_1px_-0.5px_rgba(0,0,0,0.6),inset_0_0_6px_6px_rgba(0,0,0,0.12),inset_0_0_2px_2px_rgba(0,0,0,0.06),0_0_12px_rgba(255,255,255,0.15)] " +
+  "dark:shadow-[0_0_8px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.08),inset_3px_3px_0.5px_-3.5px_rgba(255,255,255,0.09),inset_-3px_-3px_0.5px_-3.5px_rgba(255,255,255,0.85),inset_1px_1px_1px_-0.5px_rgba(255,255,255,0.6),inset_-1px_-1px_1px_-0.5px_rgba(255,255,255,0.6),inset_0_0_6px_6px_rgba(255,255,255,0.12),inset_0_0_2px_2px_rgba(255,255,255,0.06),0_0_12px_rgba(0,0,0,0.15)]"
 
-type PromptMode = "1" | "2" | "3"
+// ── Prompt / screenplay split — a single persisted fraction ───────────────
 
-const PROMPT_MODES: {
-  id: PromptMode
-  label: string
-  hint: string
-}[] = [
-  {
-    id: "1",
-    label: "Side panel",
-    hint: "Open the full prompt in a panel pinned beside the table.",
-  },
-  {
-    id: "2",
-    label: "Expand inline",
-    hint: "Expand the prompt cell to full height, in place.",
-  },
-  {
-    id: "3",
-    label: "Dialog",
-    hint: "Open the full prompt in a centered dialog.",
-  },
-]
+const PROMPT_FRACTION_KEY = "backlot:shotlist:prompt-fraction:v1"
+const PROMPT_MIN = 0.4
+const PROMPT_MAX = 0.72
+const PROMPT_DEFAULT = 0.54
 
-const PROMPT_MODE_STORAGE_KEY = "backlot:shotlist:promptmode:v1"
+/** Hard pixel floors — neither column may be dragged below these widths. */
+const PROMPT_COL_MIN_PX = 470
+const SCREENPLAY_COL_MIN_PX = 340
 
-function usePromptMode() {
-  const [mode, setModeState] = useState<PromptMode>(() => {
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+/** The prompt column's width as a fraction of the work area, drag-resizable. */
+function usePromptFraction() {
+  const [fraction, setFractionState] = useState<number>(() => {
     try {
-      const raw = localStorage.getItem(PROMPT_MODE_STORAGE_KEY)
-      if (raw === "1" || raw === "2" || raw === "3") return raw
+      const raw = localStorage.getItem(PROMPT_FRACTION_KEY)
+      if (raw) {
+        const n = Number(raw)
+        if (Number.isFinite(n)) return clamp(n, PROMPT_MIN, PROMPT_MAX)
+      }
     } catch {
       /* fall through */
     }
-    return "1"
-  })
-  const setMode = (next: PromptMode) => {
-    setModeState(next)
-    try {
-      localStorage.setItem(PROMPT_MODE_STORAGE_KEY, next)
-    } catch {
-      /* ignore */
-    }
-  }
-  return [mode, setMode] as const
-}
-
-// ── Resizable columns ─────────────────────────────────────────────────────
-
-type ColKey =
-  | "num"
-  | "plan"
-  | "camera"
-  | "action"
-  | "script"
-  | "prompt"
-  | "tag"
-  | "status"
-
-const COLUMNS: { key: ColKey; label: string; min: number; initial: number }[] = [
-  { key: "num", label: "#", min: 44, initial: 54 },
-  { key: "plan", label: "Plan", min: 56, initial: 80 },
-  { key: "camera", label: "Camera", min: 96, initial: 158 },
-  { key: "action", label: "Action", min: 120, initial: 214 },
-  { key: "script", label: "Script", min: 110, initial: 188 },
-  { key: "prompt", label: "Prompt", min: 200, initial: 380 },
-  { key: "tag", label: "Tag", min: 64, initial: 106 },
-  { key: "status", label: "Status", min: 96, initial: 124 },
-]
-
-const ACTIONS_COL_WIDTH = 56
-const COL_STORAGE_KEY = "backlot:shotlist:colwidths:v1"
-
-/** Column widths with drag-to-resize, persisted across sessions. */
-function useColumnWidths() {
-  const [widths, setWidths] = useState<number[]>(() => {
-    try {
-      const raw = localStorage.getItem(COL_STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed) && parsed.length === COLUMNS.length) {
-          return parsed as number[]
-        }
-      }
-    } catch {
-      /* fall through to defaults */
-    }
-    return COLUMNS.map((c) => c.initial)
+    return PROMPT_DEFAULT
   })
 
-  const widthsRef = useRef(widths)
-  widthsRef.current = widths
+  const ref = useRef(fraction)
+  ref.current = fraction
 
-  const beginResize = (index: number) => (e: React.PointerEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const startX = e.clientX
-    const startW = widthsRef.current[index]!
-    const min = COLUMNS[index]!.min
-
-    const onMove = (ev: PointerEvent) => {
-      const next = [...widthsRef.current]
-      next[index] = Math.max(min, Math.round(startW + ev.clientX - startX))
-      setWidths(next)
-    }
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove)
-      window.removeEventListener("pointerup", onUp)
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
+  return {
+    fraction,
+    setFraction: (f: number) =>
+      setFractionState(clamp(f, PROMPT_MIN, PROMPT_MAX)),
+    persist: () => {
       try {
-        localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(widthsRef.current))
+        localStorage.setItem(PROMPT_FRACTION_KEY, String(ref.current))
       } catch {
         /* ignore persistence failures */
       }
-    }
-
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    window.addEventListener("pointermove", onMove)
-    window.addEventListener("pointerup", onUp)
+    },
   }
+}
 
-  return { widths, beginResize }
+// ── Prompt versions ───────────────────────────────────────────────────────
+
+/** Normalise a Part into its version list — legacy parts have one. */
+function readVersions(shot: ShotPrompt): { versions: string[]; active: number } {
+  const versions =
+    shot.promptVersions && shot.promptVersions.length > 0
+      ? shot.promptVersions
+      : [shot.text ?? ""]
+  let active = shot.activeVersion ?? 0
+  if (!Number.isInteger(active) || active < 0 || active >= versions.length) {
+    active = 0
+  }
+  return { versions, active }
+}
+
+/** A Part patch that writes a versions array and keeps `text` in sync. */
+function versionPatch(versions: string[], active: number): Partial<ShotPrompt> {
+  const safe = versions.length > 0 ? versions : [""]
+  const idx = clamp(active, 0, safe.length - 1)
+  return {
+    promptVersions: safe,
+    activeVersion: idx,
+    text: safe[idx] ?? "",
+  }
 }
 
 /** A scene's shotlist file sits next to its scene.fountain. */
 function shotlistPathForScene(scriptPath: string): string {
   return scriptPath.replace(/[^/]+$/, "shotlist.backlot.json")
+}
+
+function scriptPathForShotlist(path: string): string {
+  return path
+    .replace(/\/shotlist\/shotlist\.backlot\.json$/i, "/scene.fountain")
+    .replace(/[^/]+$/, "scene.fountain")
 }
 
 function randomId(): string {
@@ -197,36 +154,106 @@ function randomId(): string {
     .slice(2, 7)}`
 }
 
+/** Keep `number` aligned with screenplay order after a structural change. */
+function renumber(shots: ShotPrompt[]): ShotPrompt[] {
+  return shots.map((shot, i) =>
+    shot.number === String(i + 1) ? shot : { ...shot, number: String(i + 1) },
+  )
+}
+
+/** A fresh, empty Part — its screenplay slice may be seeded by the caller. */
+function emptyPart(scriptRef: string): ShotPrompt {
+  return {
+    id: randomId(),
+    number: "",
+    plan: "",
+    camera: "",
+    action: "",
+    summary: "",
+    scriptRef,
+    text: "",
+    promptVersions: [""],
+    activeVersion: 0,
+    tag: "",
+    status: "draft",
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+type EntityRoot =
+  | { chatId: string; projectId?: undefined }
+  | { chatId?: undefined; projectId: string }
+
+// ──────────────────────────────────────────────────────────────────────────
+
 export function ShotlistSurface() {
   const chatId = useAtomValue(selectedAgentChatIdAtom)
-  if (!chatId) {
+  const selectedProject = useAtomValue(selectedProjectAtom)
+  const entityRoot: EntityRoot | null = chatId
+    ? { chatId }
+    : selectedProject?.id
+      ? { projectId: selectedProject.id }
+      : null
+  const entityRootKey = chatId
+    ? `chat:${chatId}`
+    : selectedProject?.id
+      ? `project:${selectedProject.id}`
+      : null
+
+  if (!entityRoot || !entityRootKey) {
     return (
       <ShotlistEmpty
-        title="No scene context"
-        message="Open a chat to work on a scene's shotlist."
+        title="No project"
+        message="Pick a project to work on a scene's shotlist."
       />
     )
   }
-  return <ShotlistWorkspace chatId={chatId} />
+  return (
+    <ShotlistWorkspace entityRoot={entityRoot} entityRootKey={entityRootKey} />
+  )
 }
 
-function ShotlistWorkspace({ chatId }: { chatId: string }) {
-  const hierarchy = trpc.entities.list.useQuery({ chatId })
+function ShotlistWorkspace({
+  entityRoot,
+  entityRootKey,
+}: {
+  entityRoot: EntityRoot
+  entityRootKey: string
+}) {
+  const hierarchy = trpc.entities.list.useQuery(entityRoot)
   const active = useAtomValue(activeEntityAtom)
   const scenes = hierarchy.data?.scenes ?? []
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
+  const activeShotlistPath = active?.kind === "shotlist" ? active.path : null
 
   useEffect(() => {
     if (scenes.length === 0) return
+    const fromActive = (() => {
+      if (active?.kind === "scene") return scenes.find((s) => s.id === active.id)
+      if (active?.kind === "shotlist") {
+        const activeScriptPath = scriptPathForShotlist(active.path)
+        return scenes.find(
+          (s) =>
+            s.scriptPath === activeScriptPath ||
+            shotlistPathForScene(s.scriptPath) === active.path,
+        )
+      }
+      return undefined
+    })()
+    if (fromActive) {
+      if (selectedSceneId !== fromActive.id) setSelectedSceneId(fromActive.id)
+      return
+    }
     if (selectedSceneId && scenes.some((s) => s.id === selectedSceneId)) return
-    const fromActive =
-      active?.kind === "scene"
-        ? scenes.find((s) => s.id === active.id)
-        : undefined
     setSelectedSceneId((fromActive ?? scenes[0]!).id)
   }, [scenes, active, selectedSceneId])
 
   const scene = scenes.find((s) => s.id === selectedSceneId) ?? null
+  const sceneOwnsActiveShotlist =
+    !!scene &&
+    !!activeShotlistPath &&
+    (shotlistPathForScene(scene.scriptPath) === activeShotlistPath ||
+      scriptPathForShotlist(activeShotlistPath) === scene.scriptPath)
 
   if (hierarchy.isPending) {
     return (
@@ -247,64 +274,64 @@ function ShotlistWorkspace({ chatId }: { chatId: string }) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      <header className="no-drag flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="h-3.5 w-[3px] rounded-full bg-primary" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            Shotlist
-          </span>
-        </div>
-        <Select
-          value={scene?.id ?? ""}
-          onValueChange={(value) => setSelectedSceneId(value)}
-        >
-          <SelectTrigger className="h-8 w-auto min-w-[260px] rounded-lg shadow-none">
-            <SelectValue placeholder="Select a scene" />
-          </SelectTrigger>
-          <SelectContent>
-            {scenes.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {s.order != null ? String(s.order).padStart(2, "0") : "—"}
-                </span>
-                <span className="ml-2">{s.label}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </header>
+    <div className="flex h-full flex-col overflow-hidden">
       {scene && (
         <SceneShotlistView
-          key={scene.id}
-          chatId={chatId}
+          key={`${entityRootKey}:${scene.id}`}
+          entityRoot={entityRoot}
           sceneId={scene.id}
           sceneLabel={scene.label}
           sceneOrder={scene.order}
           scriptPath={scene.scriptPath}
+          shotlistPath={sceneOwnsActiveShotlist ? activeShotlistPath : null}
+          scenes={scenes.map((s) => ({
+            id: s.id,
+            label: s.label,
+            order: s.order,
+          }))}
+          onSelectScene={setSelectedSceneId}
         />
       )}
     </div>
   )
 }
 
+interface SceneOption {
+  id: string
+  label: string
+  order: number | null
+}
+
 function SceneShotlistView({
-  chatId,
+  entityRoot,
   sceneId,
   sceneLabel,
   sceneOrder,
   scriptPath,
+  shotlistPath,
+  scenes,
+  onSelectScene,
 }: {
-  chatId: string
+  entityRoot: EntityRoot
   sceneId: string
   sceneLabel: string
   sceneOrder: number | null
   scriptPath: string
+  shotlistPath: string | null
+  scenes: SceneOption[]
+  onSelectScene: (id: string) => void
 }) {
-  const relPath = useMemo(() => shotlistPathForScene(scriptPath), [scriptPath])
+  const relPath = useMemo(
+    () => shotlistPath ?? shotlistPathForScene(scriptPath),
+    [scriptPath, shotlistPath],
+  )
   const read = trpc.shotlists.read.useQuery(
-    { chatId, relPath },
+    { ...entityRoot, relPath },
     { refetchOnWindowFocus: true, refetchInterval: LIVE_POLL_MS },
+  )
+  const script = trpc.shotlists.readScript.useQuery(
+    { ...entityRoot, relPath: scriptPath },
+    { refetchOnWindowFocus: true },
   )
   const write = trpc.shotlists.write.useMutation({
     onError: (err) => toast.error(err.message || "Couldn't save shotlist"),
@@ -312,12 +339,20 @@ function SceneShotlistView({
 
   const [doc, setDoc] = useState<SceneShotlist | null>(null)
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
-  const [dialogShotId, setDialogShotId] = useState<string | null>(null)
-  const [query, setQuery] = useState("")
-  const [promptMode, setPromptMode] = usePromptMode()
+  const [showRaw, setShowRaw] = useState(false)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle")
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localEditAtRef = useRef(0)
+  const { fraction, setFraction, persist } = usePromptFraction()
+
+  // Undo stack for structural edits only (split / merge / carve). Cmd+Z
+  // reverts the last one as long as nothing else happened since.
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const undoStackRef = useRef<
+    { snapshot: SceneShotlist; prevWasStructural: boolean }[]
+  >([])
+  const lastWasStructuralRef = useRef(false)
+  const undoStructuralRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     const incoming = read.data?.shotlist ?? null
@@ -332,6 +367,12 @@ function SceneShotlistView({
     }
   }, [])
 
+  useEffect(() => {
+    if (!doc || doc.shots.length === 0) return
+    if (selectedShotId && doc.shots.some((s) => s.id === selectedShotId)) return
+    setSelectedShotId(doc.shots[0]!.id)
+  }, [doc, selectedShotId])
+
   const queueSave = (next: SceneShotlist) => {
     setDoc(next)
     localEditAtRef.current = Date.now()
@@ -339,7 +380,7 @@ function SceneShotlistView({
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       write.mutate(
-        { chatId, relPath, shotlist: next },
+        { ...entityRoot, relPath, shotlist: next },
         {
           onSuccess: () => {
             setSaveState("saved")
@@ -349,6 +390,50 @@ function SceneShotlistView({
       )
     }, AUTOSAVE_MS)
   }
+
+  /** Snapshot the doc before a structural edit so Cmd+Z can revert it. */
+  const pushStructuralUndo = () => {
+    if (!doc) return
+    undoStackRef.current.push({
+      snapshot: doc,
+      prevWasStructural: lastWasStructuralRef.current,
+    })
+    if (undoStackRef.current.length > 30) undoStackRef.current.shift()
+    lastWasStructuralRef.current = true
+  }
+
+  /** Mark that the last edit was ordinary (text/prompt) — not structural. */
+  const markTextEdit = () => {
+    lastWasStructuralRef.current = false
+  }
+
+  const undoStructural = () => {
+    const entry = undoStackRef.current.pop()
+    if (!entry) return
+    queueSave(entry.snapshot)
+    lastWasStructuralRef.current = entry.prevWasStructural
+    toast.success("Reverted")
+  }
+  undoStructuralRef.current = undoStructural
+
+  // Cmd/Ctrl+Z reverts the last split/merge — but only while a structural
+  // edit is the most recent thing and focus is inside the Shotlist surface,
+  // so it never steals undo from screenplay or prompt text editing.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.key !== "z" && e.key !== "Z") || e.shiftKey || e.altKey) return
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (!lastWasStructuralRef.current) return
+      if (undoStackRef.current.length === 0) return
+      const root = rootRef.current
+      if (!root || !root.contains(document.activeElement)) return
+      e.preventDefault()
+      e.stopPropagation()
+      undoStructuralRef.current()
+    }
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
+  }, [])
 
   const startShotlist = () => {
     queueSave({
@@ -362,13 +447,9 @@ function SceneShotlistView({
     })
   }
 
-  const updateScene = (patch: Partial<SceneShotlist>) => {
-    if (!doc) return
-    queueSave({ ...doc, ...patch })
-  }
-
   const updateShot = (shotId: string, patch: Partial<ShotPrompt>) => {
     if (!doc) return
+    markTextEdit()
     queueSave({
       ...doc,
       shots: doc.shots.map((shot) =>
@@ -379,847 +460,737 @@ function SceneShotlistView({
     })
   }
 
-  const addShot = () => {
+  /** Seed the shotlist with one Part holding the whole scene screenplay. */
+  const importScreenplay = () => {
     if (!doc) return
-    const maxNumber = doc.shots.reduce((max, shot) => {
-      const n = Number.parseInt(shot.number, 10)
-      return Number.isFinite(n) && n > max ? n : max
-    }, 0)
-    const shot: ShotPrompt = {
-      id: randomId(),
-      number: String(maxNumber + 1),
-      plan: "",
-      camera: "",
-      action: "",
-      scriptRef: "",
-      text: "",
-      tag: "",
-      status: "draft",
+    markTextEdit()
+    const part = renumber([emptyPart(script.data?.text ?? "")])[0]!
+    queueSave({ ...doc, shots: [part] })
+    setSelectedShotId(part.id)
+  }
+
+  /** Append an empty Part — a prompt with no screenplay slice yet. */
+  const addRegion = () => {
+    if (!doc) return
+    markTextEdit()
+    const part = emptyPart("")
+    queueSave({ ...doc, shots: renumber([...doc.shots, part]) })
+    setSelectedShotId(part.id)
+  }
+
+  /** Place a divider: cut a Part's screenplay slice at `caret` into two. */
+  const splitPart = (shotId: string, caret: number) => {
+    if (!doc) return
+    const i = doc.shots.findIndex((s) => s.id === shotId)
+    if (i < 0) return
+    const part = doc.shots[i]!
+    const text = part.scriptRef ?? ""
+    if (caret <= 0 || caret >= text.length) return
+    pushStructuralUndo()
+    const head: ShotPrompt = {
+      ...part,
+      scriptRef: text.slice(0, caret),
       updatedAt: new Date().toISOString(),
     }
-    queueSave({ ...doc, shots: [...doc.shots, shot] })
-    setSelectedShotId(shot.id)
-    if (promptMode === "3") setDialogShotId(shot.id)
+    const tail = emptyPart(text.slice(caret))
+    queueSave({
+      ...doc,
+      shots: renumber([
+        ...doc.shots.slice(0, i),
+        head,
+        tail,
+        ...doc.shots.slice(i + 1),
+      ]),
+    })
+    setSelectedShotId(tail.id)
   }
 
-  const deleteShot = (shotId: string) => {
+  /**
+   * Carve a selected stretch of a Part's screenplay into its own Part.
+   * `start`/`end` are offsets within the Part's `scriptRef`. The leading
+   * piece keeps the original prompt; the carved Part and any trailing
+   * piece start blank. The carved Part becomes the selection.
+   */
+  const carvePart = (shotId: string, start: number, end: number) => {
     if (!doc) return
-    queueSave({ ...doc, shots: doc.shots.filter((s) => s.id !== shotId) })
-    if (selectedShotId === shotId) setSelectedShotId(null)
-    if (dialogShotId === shotId) setDialogShotId(null)
+    const i = doc.shots.findIndex((s) => s.id === shotId)
+    if (i < 0) return
+    const part = doc.shots[i]!
+    const text = part.scriptRef ?? ""
+    const a = clamp(start, 0, text.length)
+    const b = clamp(end, 0, text.length)
+    if (b <= a) return
+    const segments: string[] = []
+    if (a > 0) segments.push(text.slice(0, a))
+    segments.push(text.slice(a, b))
+    if (b < text.length) segments.push(text.slice(b))
+    if (segments.length < 2) return
+    pushStructuralUndo()
+    const carvedIndex = a > 0 ? 1 : 0
+    const newParts = segments.map((seg, idx) =>
+      idx === 0
+        ? { ...part, scriptRef: seg, updatedAt: new Date().toISOString() }
+        : emptyPart(seg),
+    )
+    queueSave({
+      ...doc,
+      shots: renumber([
+        ...doc.shots.slice(0, i),
+        ...newParts,
+        ...doc.shots.slice(i + 1),
+      ]),
+    })
+    setSelectedShotId(newParts[carvedIndex]!.id)
   }
 
-  const addToContext = (shot: ShotPrompt) => {
+  /** Remove the divider after Part `index`: merge the next Part up into it. */
+  const mergeAt = (index: number) => {
+    if (!doc) return
+    if (index < 0 || index >= doc.shots.length - 1) return
+    pushStructuralUndo()
+    const head = doc.shots[index]!
+    const tail = doc.shots[index + 1]!
+    const merged: ShotPrompt = {
+      ...head,
+      scriptRef: (head.scriptRef ?? "") + (tail.scriptRef ?? ""),
+      updatedAt: new Date().toISOString(),
+    }
+    queueSave({
+      ...doc,
+      shots: renumber([
+        ...doc.shots.slice(0, index),
+        merged,
+        ...doc.shots.slice(index + 2),
+      ]),
+    })
+    if (selectedShotId === tail.id) setSelectedShotId(merged.id)
+  }
+
+  /** Persist a screenplay edit — slices align 1:1 with the current Parts. */
+  const applyScriptSlices = (slices: string[]) => {
+    if (!doc) return
+    if (slices.length !== doc.shots.length) return
+    markTextEdit()
+    let changed = false
+    const shots = doc.shots.map((shot, i) => {
+      if ((shot.scriptRef ?? "") === slices[i]) return shot
+      changed = true
+      return {
+        ...shot,
+        scriptRef: slices[i]!,
+        updatedAt: new Date().toISOString(),
+      }
+    })
+    if (changed) queueSave({ ...doc, shots })
+  }
+
+  const addToContext = (shot: ShotPrompt, index: number) => {
     if (!doc) return
     const block = [
-      `Scene ${doc.sceneNumber || sceneOrder || "?"} · Shot ${shot.number}` +
-        (shot.plan ? ` (${shot.plan})` : ""),
-      shot.action ? `Action: ${shot.action}` : "",
+      `Scene ${doc.sceneNumber || sceneOrder || "?"} · Part ${index + 1}` +
+        (shot.action ? ` — ${shot.action}` : ""),
+      shot.scriptRef ? `Screenplay:\n${shot.scriptRef}` : "",
       shot.text ? `Prompt:\n${shot.text}` : "",
     ]
       .filter(Boolean)
-      .join("\n")
+      .join("\n\n")
     window.dispatchEvent(
       new CustomEvent("file-viewer-add-to-context", {
-        detail: { text: block, source: { type: "file-viewer", filePath: relPath } },
+        detail: {
+          text: block,
+          source: { type: "file-viewer", filePath: relPath },
+        },
       }),
     )
-    toast.success(`Shot ${shot.number} added to chat context`)
+    toast.success(`Part ${index + 1} added to chat context`)
   }
 
-  /** What happens when the prompt of a shot is opened, per variant. */
-  const openPrompt = (shotId: string) => {
-    setSelectedShotId(shotId)
-    if (promptMode === "3") setDialogShotId(shotId)
-  }
-
-  const filteredShots = useMemo(() => {
-    if (!doc) return []
-    const q = query.trim().toLowerCase()
-    if (!q) return doc.shots
-    return doc.shots.filter((shot) =>
-      [
-        shot.number,
-        shot.plan,
-        shot.camera,
-        shot.action,
-        shot.scriptRef,
-        shot.text,
-        shot.tag,
-        shot.status,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+  /** Hand the English prompt to the chat thread for a ZH translation. */
+  const sendToTranslate = (shot: ShotPrompt, index: number) => {
+    const english = (shot.text ?? "").trim()
+    if (!english) {
+      toast.error("Write the English prompt first.")
+      return
+    }
+    const message = [
+      "Translate this generation prompt into Chinese (ZH) and save it as the Part's ZH prompt.",
+      "",
+      "Use the `shotlist_update_shot` MCP tool with:",
+      `  scriptPath: ${scriptPath}`,
+      `  shotId: ${shot.id}`,
+      "  zh: <your Chinese translation>",
+      "",
+      `English prompt — Part ${index + 1}${
+        shot.action ? ` (${shot.action})` : ""
+      }:`,
+      english,
+    ].join("\n")
+    window.dispatchEvent(
+      new CustomEvent("backlot-chat-compose", { detail: { text: message } }),
     )
-  }, [doc, query])
+    toast.success("Translation request added to chat — review and send")
+  }
 
-  if (read.isPending && !doc) {
+  const selectedIndex = doc
+    ? doc.shots.findIndex((s) => s.id === selectedShotId)
+    : -1
+  const selectedShot =
+    selectedIndex >= 0 ? doc!.shots[selectedIndex]! : doc?.shots[0] ?? null
+  const resolvedIndex =
+    selectedIndex >= 0 ? selectedIndex : doc && doc.shots.length > 0 ? 0 : -1
+
+  return (
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
+      {/* ── Scene bar — fixed, the surface's masthead. ───────────────── */}
+      <header className="no-drag flex h-11 shrink-0 items-center gap-3 border-b border-border/70 px-4">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="h-3.5 w-[3px] rounded-full bg-primary" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+            Shotlist
+          </span>
+        </div>
+        <Select value={sceneId} onValueChange={onSelectScene}>
+          <SelectTrigger className="h-7 w-auto min-w-[230px] rounded-lg border-none bg-transparent px-1.5 shadow-none hover:bg-accent/60">
+            <SelectValue placeholder="Select a scene" />
+          </SelectTrigger>
+          <SelectContent>
+            {scenes.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {s.order != null ? String(s.order).padStart(2, "0") : "—"}
+                </span>
+                <span className="ml-2">{s.label}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <SaveState state={saveState} />
+          {doc && (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/80">
+              {doc.shots.length} {doc.shots.length === 1 ? "part" : "parts"}
+            </span>
+          )}
+          {doc && (
+            <button
+              type="button"
+              onClick={() => setShowRaw((v) => !v)}
+              aria-pressed={showRaw}
+              title={showRaw ? "Back to shotlist view" : "View the raw JSON file"}
+              className={cn(
+                "press inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5",
+                "font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                showRaw
+                  ? "bg-foreground/[0.1] text-foreground"
+                  : "bg-foreground/[0.06] text-muted-foreground/70 hover:text-foreground",
+              )}
+            >
+              <Braces className="h-3.5 w-3.5" />
+              Raw
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── Body ──────────────────────────────────────────────────────── */}
+      {showRaw && doc ? (
+        <RawJsonView doc={doc} />
+      ) : read.isPending && !doc ? (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Loading shotlist
+        </div>
+      ) : !doc ? (
+        <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
+          <p className="text-sm font-medium text-foreground">
+            No shotlist for this scene
+          </p>
+          <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+            Ask the agent in chat to break this scene into parts — or start one
+            yourself and write the prompts.
+          </p>
+          <button
+            type="button"
+            onClick={startShotlist}
+            className={cn(
+              "press mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2",
+              "text-xs font-medium text-primary-foreground",
+              GLASS_THUMB,
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Start a shotlist
+          </button>
+        </div>
+      ) : doc.shots.length === 0 || resolvedIndex < 0 || !selectedShot ? (
+        <ScreenplaySeed
+          loading={script.isPending}
+          hasScript={(script.data?.text ?? "").trim().length > 0}
+          onImport={importScreenplay}
+          onAddRegion={addRegion}
+        />
+      ) : (
+        <WorkArea
+          shots={doc.shots}
+          selectedShot={selectedShot}
+          selectedIndex={resolvedIndex}
+          promptFraction={fraction}
+          onPromptFraction={setFraction}
+          onPersist={persist}
+          onSelect={setSelectedShotId}
+          onChangeSelected={(patch) => updateShot(selectedShot.id, patch)}
+          onEditSlices={applyScriptSlices}
+          onSplit={splitPart}
+          onCarve={carvePart}
+          onMerge={mergeAt}
+          onAddToContext={() => addToContext(selectedShot, resolvedIndex)}
+          onSendToTranslate={() => sendToTranslate(selectedShot, resolvedIndex)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Raw JSON view — the shotlist file, plain ──────────────────────────────
+
+/** Read-only dump of the shotlist's underlying `.backlot.json` file. */
+function RawJsonView({ doc }: { doc: SceneShotlist }) {
+  const json = useMemo(() => JSON.stringify(doc, null, 2), [doc])
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    }
+  }, [])
+
+  const copy = () => {
+    navigator.clipboard.writeText(json)
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1600)
+    toast.success("Shotlist JSON copied")
+  }
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3">
+      <button
+        type="button"
+        onClick={copy}
+        title="Copy the JSON"
+        className="press absolute right-9 top-6 z-10 inline-flex h-7 items-center gap-1.5 rounded-lg bg-foreground/[0.06] px-2.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-foreground/[0.1] hover:text-foreground"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <pre className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-foreground/[0.02] p-4 font-mono text-[12px] leading-[1.7] text-foreground">
+        {json}
+      </pre>
+    </div>
+  )
+}
+
+// ── Screenplay seed — the empty shotlist state ────────────────────────────
+
+function ScreenplaySeed({
+  loading,
+  hasScript,
+  onImport,
+  onAddRegion,
+}: {
+  loading: boolean
+  hasScript: boolean
+  onImport: () => void
+  onAddRegion: () => void
+}) {
+  if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading shotlist
+        Loading screenplay
       </div>
     )
   }
-
-  if (!doc) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
-        <p className="text-sm font-medium text-foreground">
-          No shotlist for this scene
-        </p>
-        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          Ask the agent in chat to break this scene into shots — or start one
-          yourself and fill it in.
-        </p>
-        <button
-          type="button"
-          onClick={startShotlist}
-          className={cn(
-            "press mt-6 inline-flex items-center gap-2 rounded-lg px-3.5 py-2",
-            "border border-border bg-card text-xs font-medium text-foreground/85",
-            "hover:border-primary/40 hover:text-foreground",
-          )}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Start a shotlist
-        </button>
-      </div>
-    )
-  }
-
-  const selectedShot =
-    promptMode === "1" && selectedShotId
-      ? doc.shots.find((s) => s.id === selectedShotId) ?? null
-      : null
-  const dialogShot =
-    promptMode === "3" && dialogShotId
-      ? doc.shots.find((s) => s.id === dialogShotId) ?? null
-      : null
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Scene title block. */}
-      <div className="flex shrink-0 items-start justify-between gap-6 px-6 pb-4 pt-5">
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70">
-            Scene {doc.sceneNumber || (sceneOrder != null ? sceneOrder : "—")}
-          </div>
-          <h1 className="font-display mt-0.5 text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
-            {doc.heading || sceneLabel}
-          </h1>
-          <input
-            value={doc.synopsis ?? ""}
-            onChange={(e) =>
-              updateScene({ synopsis: e.target.value || undefined })
-            }
-            placeholder="Add a one-line synopsis for this scene"
-            className="mt-1.5 w-full bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground/40"
-          />
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
-          <SaveState state={saveState} />
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">
-            {doc.shots.length} {doc.shots.length === 1 ? "shot" : "shots"}
-          </span>
-        </div>
-      </div>
-
-      {/* Toolbar — search, prompt-view switcher, add shot. */}
-      <div className="flex shrink-0 items-center gap-3 border-y border-border bg-card/40 px-6 py-2">
-        <div className="relative w-full max-w-[240px]">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/55" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search shots…"
-            className={cn(
-              "h-8 w-full rounded-lg border border-border bg-background pl-8 pr-2.5 text-sm outline-none",
-              "placeholder:text-muted-foreground/45 focus:border-primary/45",
-            )}
-          />
-        </div>
-        {query.trim() && (
-          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/70">
-            {filteredShots.length} / {doc.shots.length}
-          </span>
-        )}
-
-        <button
-          type="button"
-          onClick={addShot}
-          className={cn(
-            "press ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5",
-            "border border-border bg-background text-xs font-medium text-foreground/85",
-            "hover:border-primary/40 hover:text-foreground",
-          )}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add shot
-        </button>
-      </div>
-
-      {/* The three explorable long-prompt modes — /1 /2 /3. */}
-      <PromptModeBar mode={promptMode} onChange={setPromptMode} />
-
-      {/* Body — table, plus the side panel in variant 1. */}
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {doc.shots.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
-              <p className="text-sm text-muted-foreground">No shots yet.</p>
-              <p className="mt-1 text-sm text-muted-foreground/65">
-                Add one above, or ask the agent to break down the scene.
-              </p>
-            </div>
-          ) : (
-            <ShotlistTable
-              shots={filteredShots}
-              totalCount={doc.shots.length}
-              promptMode={promptMode}
-              selectedShotId={selectedShotId}
-              onSelect={setSelectedShotId}
-              onOpenPrompt={openPrompt}
-              onChange={updateShot}
-              onAddToContext={addToContext}
-              onDelete={deleteShot}
-            />
-          )}
-        </div>
-
-        {selectedShot && (
-          <ShotDetailPanel
-            shot={selectedShot}
-            onClose={() => setSelectedShotId(null)}
-            onChange={(patch) => updateShot(selectedShot.id, patch)}
-            onAddToContext={() => addToContext(selectedShot)}
-            onDelete={() => deleteShot(selectedShot.id)}
-          />
-        )}
-      </div>
-
-      {/* Variant 3 — the prompt opens in a dialog. */}
-      <Dialog
-        open={!!dialogShot}
-        onOpenChange={(open) => {
-          if (!open) setDialogShotId(null)
-        }}
-      >
-        <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-          <DialogTitle className="sr-only">
-            Shot {dialogShot?.number ?? ""} prompt
-          </DialogTitle>
-          {dialogShot && (
-            <ShotEditor
-              shot={dialogShot}
-              variant="dialog"
-              onChange={(patch) => updateShot(dialogShot.id, patch)}
-              onAddToContext={() => addToContext(dialogShot)}
-              onDelete={() => deleteShot(dialogShot.id)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-/**
- * The long-prompt mode bar. Three explorable modes — /1 side panel,
- * /2 expand inline, /3 dialog — each a different way to read and edit a
- * full prompt while the table keeps a clamped preview.
- */
-function PromptModeBar({
-  mode,
-  onChange,
-}: {
-  mode: PromptMode
-  onChange: (mode: PromptMode) => void
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background px-6 py-1.5">
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60">
-        Long prompt
-      </span>
-      <div className="flex items-center gap-1">
-        {PROMPT_MODES.map(({ id, label, hint }) => (
+    <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
+      <p className="text-sm font-medium text-foreground">
+        {hasScript ? "Bring the screenplay in" : "This scene has no screenplay yet"}
+      </p>
+      <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+        {hasScript
+          ? "Import the scene's screenplay, then drop dividers to cut it into parts — each part gets its own generation prompt."
+          : "Write the scene first. You can still start an empty part and write a prompt by hand."}
+      </p>
+      <div className="mt-6 flex items-center gap-2">
+        {hasScript && (
           <button
-            key={id}
             type="button"
-            onClick={() => onChange(id)}
-            title={hint}
-            aria-pressed={mode === id}
+            onClick={onImport}
             className={cn(
-              "press inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors",
-              mode === id
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              "press inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2",
+              "text-xs font-medium text-primary-foreground",
+              GLASS_THUMB,
             )}
           >
-            <span
-              className={cn(
-                "font-mono font-semibold",
-                mode === id ? "opacity-100" : "opacity-60",
-              )}
-            >
-              /{id}
-            </span>
-            <span className="font-medium">{label}</span>
+            <FileDown className="h-3.5 w-3.5" />
+            Import screenplay
           </button>
-        ))}
+        )}
+        <button
+          type="button"
+          onClick={onAddRegion}
+          className="press inline-flex items-center gap-2 rounded-lg border border-border/70 px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:bg-foreground/[0.03] hover:text-foreground"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Empty part
+        </button>
       </div>
-      <span className="ml-auto hidden text-[11px] text-muted-foreground/60 lg:inline">
-        {PROMPT_MODES.find((m) => m.id === mode)?.hint}
-      </span>
     </div>
   )
 }
 
-function ShotlistTable({
+// ── Work area — prompt | screenplay ───────────────────────────────────────
+
+function WorkArea({
   shots,
-  totalCount,
-  promptMode,
-  selectedShotId,
+  selectedShot,
+  selectedIndex,
+  promptFraction,
+  onPromptFraction,
+  onPersist,
   onSelect,
-  onOpenPrompt,
-  onChange,
+  onChangeSelected,
+  onEditSlices,
+  onSplit,
+  onCarve,
+  onMerge,
   onAddToContext,
-  onDelete,
+  onSendToTranslate,
 }: {
   shots: ShotPrompt[]
-  totalCount: number
-  promptMode: PromptMode
-  selectedShotId: string | null
+  selectedShot: ShotPrompt
+  selectedIndex: number
+  promptFraction: number
+  onPromptFraction: (fraction: number) => void
+  onPersist: () => void
   onSelect: (id: string) => void
-  onOpenPrompt: (id: string) => void
-  onChange: (shotId: string, patch: Partial<ShotPrompt>) => void
-  onAddToContext: (shot: ShotPrompt) => void
-  onDelete: (shotId: string) => void
+  onChangeSelected: (patch: Partial<ShotPrompt>) => void
+  onEditSlices: (slices: string[]) => void
+  onSplit: (shotId: string, caret: number) => void
+  onCarve: (shotId: string, start: number, end: number) => void
+  onMerge: (index: number) => void
+  onAddToContext: () => void
+  onSendToTranslate: () => void
 }) {
-  const { widths, beginResize } = useColumnWidths()
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const tableWidth = widths.reduce((sum, w) => sum + w, 0) + ACTIONS_COL_WIDTH
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const beginColResize = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const el = containerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const onMove = (ev: PointerEvent) => {
+      const width = rect.width
+      if (width <= 0) return
+      const raw = (ev.clientX - rect.left) / width
+      const lo = PROMPT_COL_MIN_PX / width
+      const hi = 1 - SCREENPLAY_COL_MIN_PX / width
+      onPromptFraction(lo <= hi ? clamp(raw, lo, hi) : (lo + hi) / 2)
+    }
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      onPersist()
+    }
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
   }
 
   return (
-    <Table
-      containerClassName="flex-1 min-h-0"
-      className="table-fixed border-separate border-spacing-0"
-      style={{ minWidth: tableWidth }}
-    >
-      <colgroup>
-        {COLUMNS.map((col, i) => (
-          <col key={col.key} style={{ width: widths[i] }} />
-        ))}
-        <col style={{ width: ACTIONS_COL_WIDTH }} />
-      </colgroup>
-
-      <TableHeader className="[&_tr]:border-0">
-        <tr>
-          {COLUMNS.map((col, i) => (
-            <th
-              key={col.key}
-              className={cn(
-                "sticky top-0 z-20 select-none border-b border-border bg-background",
-                "relative h-9 px-2.5 text-left align-middle",
-                "font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80",
-                col.key === "num" && "text-center",
-              )}
-            >
-              {col.label}
-              <span
-                onPointerDown={beginResize(i)}
-                className="group/resize absolute -right-1 top-0 z-10 flex h-full w-2.5 cursor-col-resize items-center justify-center"
-              >
-                <span className="h-4 w-px bg-border transition-colors group-hover/resize:bg-primary" />
-              </span>
-            </th>
-          ))}
-          <th className="sticky top-0 z-20 border-b border-border bg-background" />
-        </tr>
-      </TableHeader>
-
-      <TableBody>
-        {shots.length === 0 ? (
-          <tr>
-            <td
-              colSpan={COLUMNS.length + 1}
-              className="px-6 py-14 text-center text-sm text-muted-foreground"
-            >
-              No shots match your search.
-            </td>
-          </tr>
-        ) : (
-          shots.map((shot) => (
-            <ShotRow
-              key={shot.id}
-              shot={shot}
-              promptMode={promptMode}
-              expanded={expandedIds.has(shot.id)}
-              selected={shot.id === selectedShotId}
-              onSelect={() => onSelect(shot.id)}
-              onOpenPrompt={() => onOpenPrompt(shot.id)}
-              onToggleExpand={() => toggleExpand(shot.id)}
-              onChange={(patch) => onChange(shot.id, patch)}
-              onAddToContext={() => onAddToContext(shot)}
-              onDelete={() => onDelete(shot.id)}
-            />
-          ))
-        )}
-      </TableBody>
-
-      {shots.length > 0 && (
-        <tfoot>
-          <tr>
-            <td
-              colSpan={COLUMNS.length + 1}
-              className="px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/45"
-            >
-              {shots.length === totalCount
-                ? `${totalCount} ${totalCount === 1 ? "shot" : "shots"}`
-                : `${shots.length} of ${totalCount} shots`}
-            </td>
-          </tr>
-        </tfoot>
-      )}
-    </Table>
-  )
-}
-
-const CELL_BASE = "border-b border-border/55 px-2.5 py-3 align-top"
-
-function ShotRow({
-  shot,
-  promptMode,
-  expanded,
-  selected,
-  onSelect,
-  onOpenPrompt,
-  onToggleExpand,
-  onChange,
-  onAddToContext,
-  onDelete,
-}: {
-  shot: ShotPrompt
-  promptMode: PromptMode
-  expanded: boolean
-  selected: boolean
-  onSelect: () => void
-  onOpenPrompt: () => void
-  onToggleExpand: () => void
-  onChange: (patch: Partial<ShotPrompt>) => void
-  onAddToContext: () => void
-  onDelete: () => void
-}) {
-  return (
-    <tr
-      onClick={onSelect}
-      data-state={selected ? "selected" : undefined}
-      className="group"
-    >
-      {/* # — carries the selection indicator. */}
-      <td
-        className={cn(
-          CELL_BASE,
-          "border-l-2 pl-2 pr-1.5",
-          selected ? "border-l-primary" : "border-l-transparent",
-        )}
+    <div ref={containerRef} className="flex min-h-0 flex-1 px-6 pb-5 pt-3">
+      <div
+        className="flex min-w-0 shrink-0 flex-col"
+        style={{ width: `calc(${promptFraction * 100}% - 7px)` }}
       >
-        <input
-          value={shot.number}
-          onChange={(e) => onChange({ number: e.target.value })}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Shot number"
-          className={cn(
-            "w-full bg-transparent text-center font-mono text-base font-semibold tabular-nums outline-none",
-            selected ? "text-primary" : "text-foreground/80",
-          )}
-        />
-      </td>
-
-      {/* Plan. */}
-      <td className={CELL_BASE}>
-        <input
-          value={shot.plan}
-          onChange={(e) => onChange({ plan: e.target.value })}
-          onClick={(e) => e.stopPropagation()}
-          placeholder="—"
-          className="w-full bg-transparent font-mono text-[11px] font-medium uppercase tracking-wide text-foreground/85 outline-none placeholder:text-muted-foreground/35"
-        />
-      </td>
-
-      {/* Camera. */}
-      <td className={CELL_BASE}>
-        <AutoGrowTextarea
-          value={shot.camera}
-          onChange={(value) => onChange({ camera: value })}
-          placeholder="lens, movement"
-          className="text-xs leading-5 text-muted-foreground placeholder:text-muted-foreground/35"
-        />
-      </td>
-
-      {/* Action — the headline of the shot. */}
-      <td className={CELL_BASE}>
-        <AutoGrowTextarea
-          value={shot.action}
-          onChange={(value) => onChange({ action: value })}
-          placeholder="What happens in this shot"
-          className="text-[13px] font-medium leading-6 text-foreground placeholder:font-normal placeholder:text-muted-foreground/40"
-        />
-      </td>
-
-      {/* Script beat. */}
-      <td className={CELL_BASE}>
-        <AutoGrowTextarea
-          value={shot.scriptRef}
-          onChange={(value) => onChange({ scriptRef: value })}
-          placeholder="Script beat"
-          className="text-xs italic leading-5 text-muted-foreground/80 placeholder:not-italic placeholder:text-muted-foreground/35"
-        />
-      </td>
-
-      {/* Prompt — the cell adapts to the chosen variant. */}
-      <td className={CELL_BASE}>
-        <PromptCell
-          shot={shot}
-          promptMode={promptMode}
-          expanded={expanded}
-          onChange={onChange}
-          onOpenPrompt={onOpenPrompt}
-          onToggleExpand={onToggleExpand}
-        />
-      </td>
-
-      {/* Tag. */}
-      <td className={CELL_BASE}>
-        <input
-          value={shot.tag}
-          onChange={(e) => onChange({ tag: e.target.value })}
-          onClick={(e) => e.stopPropagation()}
-          placeholder="15s · 21:9"
-          className="w-full bg-transparent font-mono text-[11px] text-muted-foreground/75 outline-none placeholder:text-muted-foreground/30"
-        />
-      </td>
-
-      {/* Status. */}
-      <td className={CELL_BASE}>
-        <StatusPicker
-          value={shot.status}
-          onChange={(status) => onChange({ status })}
-        />
-      </td>
-
-      {/* Row actions. */}
-      <td className={cn(CELL_BASE, "px-1")}>
-        <div className="flex flex-col items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            type="button"
-            title="Add to chat context"
-            onClick={(e) => {
-              e.stopPropagation()
-              onAddToContext()
-            }}
-            className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-accent hover:text-foreground"
-          >
-            <MessageSquarePlus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            title="Delete shot"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-            className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </td>
-    </tr>
-  )
-}
-
-/**
- * The Prompt cell. Always a clamped 3-line preview, except variant 2 when
- * the row is expanded — then the full editable textarea takes over.
- */
-function PromptCell({
-  shot,
-  promptMode,
-  expanded,
-  onChange,
-  onOpenPrompt,
-  onToggleExpand,
-}: {
-  shot: ShotPrompt
-  promptMode: PromptMode
-  expanded: boolean
-  onChange: (patch: Partial<ShotPrompt>) => void
-  onOpenPrompt: () => void
-  onToggleExpand: () => void
-}) {
-  const empty = !shot.text.trim()
-
-  if (promptMode === "2" && expanded) {
-    return (
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
-            Prompt
-          </span>
-          <button
-            type="button"
-            title="Collapse"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleExpand()
-            }}
-            className="press flex h-5 w-5 items-center justify-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground"
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <AutoGrowTextarea
-          value={shot.text}
-          onChange={(value) => onChange({ text: value })}
-          placeholder="Generation prompt…"
-          className="text-[13px] leading-6 text-foreground/90 placeholder:text-muted-foreground/40"
+        <PromptColumn
+          shot={selectedShot}
+          index={selectedIndex}
+          onChange={onChangeSelected}
+          onAddToContext={onAddToContext}
+          onSendToTranslate={onSendToTranslate}
         />
       </div>
-    )
-  }
-
-  const openable = promptMode === "1" || promptMode === "3"
-
-  return (
-    <div className="flex items-start gap-1">
-      <p
-        onClick={
-          openable
-            ? (e) => {
-                e.stopPropagation()
-                onOpenPrompt()
-              }
-            : undefined
-        }
-        className={cn(
-          "line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-6",
-          empty ? "text-muted-foreground/40" : "text-foreground/85",
-          openable && "cursor-pointer",
-        )}
-      >
-        {empty ? "Generation prompt…" : shot.text}
-      </p>
-      {promptMode === "2" ? (
-        <button
-          type="button"
-          title="Expand prompt"
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleExpand()
-          }}
-          className="press flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent hover:text-foreground"
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-        </button>
-      ) : (
-        <span className="mt-0.5 shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/50">
-          Open
-        </span>
-      )}
+      <PanelResizer onResize={beginColResize} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ShotlistScreenplay
+          parts={shots}
+          activeIndex={selectedIndex}
+          onSelect={onSelect}
+          onEditSlices={onEditSlices}
+          onSplit={onSplit}
+          onCarve={onCarve}
+          onMerge={onMerge}
+        />
+      </div>
     </div>
   )
 }
 
-/** Variant 1 — a side panel pinned to the right of the table. */
-function ShotDetailPanel({
-  shot,
-  onClose,
-  onChange,
-  onAddToContext,
-  onDelete,
+function PanelResizer({
+  onResize,
 }: {
-  shot: ShotPrompt
-  onClose: () => void
-  onChange: (patch: Partial<ShotPrompt>) => void
-  onAddToContext: () => void
-  onDelete: () => void
+  onResize: (e: React.PointerEvent) => void
 }) {
   return (
-    <aside className="flex w-[400px] shrink-0 flex-col border-l border-border bg-background">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
-          Shot detail
-        </span>
-        <button
-          type="button"
-          title="Close"
-          onClick={onClose}
-          className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-accent hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <ShotEditor
-        shot={shot}
-        variant="panel"
-        onChange={onChange}
-        onAddToContext={onAddToContext}
-        onDelete={onDelete}
-      />
-    </aside>
+    <div
+      onPointerDown={onResize}
+      role="separator"
+      aria-orientation="vertical"
+      className="group/resizer relative z-10 flex w-3.5 shrink-0 cursor-col-resize items-center justify-center self-stretch"
+    >
+      <span className="h-12 w-[3px] rounded-full bg-border transition-colors duration-150 group-hover/resizer:bg-primary group-active/resizer:bg-primary" />
+    </div>
   )
 }
 
-/**
- * The full single-shot editor — shared by the variant-1 side panel and the
- * variant-3 dialog. The prompt is the reading surface: a wide, borderless,
- * auto-growing block of text.
- */
-function ShotEditor({
+// ── Prompt column — the hero, boxless ─────────────────────────────────────
+
+type PromptLang = "en" | "zh"
+
+function PromptColumn({
   shot,
-  variant,
+  index,
   onChange,
   onAddToContext,
-  onDelete,
+  onSendToTranslate,
 }: {
   shot: ShotPrompt
-  variant: "panel" | "dialog"
+  index: number
   onChange: (patch: Partial<ShotPrompt>) => void
   onAddToContext: () => void
-  onDelete: () => void
+  onSendToTranslate: () => void
 }) {
+  const { versions, active } = readVersions(shot)
+  const activeText = versions[active] ?? ""
+  const zhText = shot.zh ?? ""
+  const [lang, setLang] = useState<PromptLang>("en")
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    }
+  }, [])
+
+  const isZh = lang === "zh"
+  const bodyText = isZh ? zhText : activeText
+
+  const editActive = (value: string) => {
+    const next = [...versions]
+    next[active] = value
+    onChange(versionPatch(next, active))
+  }
+  const editBody = (value: string) => {
+    if (isZh) onChange({ zh: value })
+    else editActive(value)
+  }
+  const selectVersion = (i: number) => {
+    onChange(versionPatch(versions, i))
+  }
+  const addVersion = () => {
+    onChange(versionPatch([...versions, ""], versions.length))
+  }
+  const deleteActiveVersion = () => {
+    if (versions.length <= 1) return
+    const next = versions.filter((_, i) => i !== active)
+    onChange(versionPatch(next, active > 0 ? active - 1 : 0))
+  }
+
+  const copyPrompt = () => {
+    if (!bodyText.trim()) return
+    navigator.clipboard.writeText(bodyText)
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1600)
+    toast.success(isZh ? "ZH prompt copied" : "Prompt copied")
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Header — number + status + actions. */}
-      <div
-        className={cn(
-          "flex shrink-0 items-center gap-3 pl-5",
-          variant === "dialog" ? "pb-3 pr-12 pt-5" : "pb-3 pr-5 pt-4",
-        )}
-      >
-        <span className="flex items-baseline font-mono text-[28px] font-semibold leading-none tabular-nums text-foreground">
-          <span className="text-muted-foreground/35">#</span>
-          <input
-            value={shot.number}
-            onChange={(e) => onChange({ number: e.target.value })}
-            aria-label="Shot number"
-            className="w-[2.5ch] bg-transparent outline-none"
-          />
-        </span>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pr-5">
+      {/* ── Identity — status, the Part's title, its number. ──────── */}
+      <div className="flex shrink-0 items-center gap-2.5 pb-2">
         <StatusPicker
           value={shot.status}
           onChange={(status) => onChange({ status })}
         />
-        <div className="ml-auto flex items-center gap-1">
+        <input
+          value={shot.action}
+          onChange={(e) => onChange({ action: e.target.value })}
+          placeholder="Untitled part"
+          aria-label="Part title"
+          className="min-w-0 flex-1 truncate bg-transparent text-[13.5px] font-semibold text-foreground outline-none placeholder:text-muted-foreground/40"
+        />
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+          Part {String(index + 1).padStart(2, "0")}
+        </span>
+      </div>
+
+      {/* ── Toolbar — language · version · actions. Wraps when cramped. ─── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 pb-2.5">
+        {/* Language */}
+        <div className="flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-foreground/[0.06] p-0.5">
+          {(["en", "zh"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setLang(option)}
+              aria-pressed={lang === option}
+              className={cn(
+                "press inline-flex h-6 min-w-[30px] items-center justify-center rounded-md px-1.5",
+                "font-mono text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors",
+                lang === option
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground/55 hover:text-foreground",
+              )}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+
+        {/* Versions — English only; the ZH prompt is a single field. */}
+        {!isZh && (
+          <div className="flex min-w-0 shrink items-center gap-1">
+            <div className="flex h-7 items-center gap-0.5 overflow-hidden rounded-lg bg-foreground/[0.06] p-0.5">
+              {versions.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => selectVersion(i)}
+                  aria-pressed={i === active}
+                  className={cn(
+                    "press inline-flex h-6 min-w-[28px] shrink-0 items-center justify-center rounded-md px-1.5",
+                    "font-mono text-[10px] font-semibold transition-colors",
+                    i === active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground/55 hover:text-foreground",
+                  )}
+                >
+                  v{i + 1}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={addVersion}
+                title="New prompt version"
+                className="press inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-background/70 hover:text-foreground"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {versions.length > 1 && (
+              <button
+                type="button"
+                onClick={deleteActiveVersion}
+                title="Delete this version"
+                className="press flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground/45 transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <span
+            title="Prompt length"
+            className="mr-1.5 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/55"
+          >
+            {bodyText.length.toLocaleString()} chars
+          </span>
+          {!isZh && (
+            <button
+              type="button"
+              onClick={onSendToTranslate}
+              title="Send the English prompt to chat for a ZH translation"
+              className="press flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/65 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+            >
+              <Languages className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
-            title="Add to chat context"
             onClick={onAddToContext}
-            className="press flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+            title="Add this part to chat context"
+            className="press flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/65 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
           >
             <MessageSquarePlus className="h-4 w-4" />
           </button>
           <button
             type="button"
-            title="Delete shot"
-            onClick={onDelete}
-            className="press flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+            onClick={copyPrompt}
+            title={isZh ? "Copy ZH prompt" : "Copy prompt"}
+            className={cn(
+              "press inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-2.5",
+              "text-[11px] font-semibold text-primary-foreground",
+              GLASS_THUMB,
+            )}
           >
-            <Trash2 className="h-4 w-4" />
+            {copied ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? "Copied" : "Copy"}
           </button>
         </div>
       </div>
 
-      {/* Scrollable body. */}
-      <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
-        {/* Technical metadata. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/60 pb-3">
-          <EditorField label="Plan">
-            <input
-              value={shot.plan}
-              onChange={(e) => onChange({ plan: e.target.value })}
-              placeholder="WS"
-              className="w-16 bg-transparent font-mono text-xs font-medium uppercase tracking-wide text-foreground/85 outline-none placeholder:text-muted-foreground/35"
-            />
-          </EditorField>
-          <EditorField label="Camera">
-            <input
-              value={shot.camera}
-              onChange={(e) => onChange({ camera: e.target.value })}
-              placeholder="lens, movement"
-              className="w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/35"
-            />
-          </EditorField>
-          <EditorField label="Tag">
-            <input
-              value={shot.tag}
-              onChange={(e) => onChange({ tag: e.target.value })}
-              placeholder="15s · 21:9"
-              className="w-24 bg-transparent font-mono text-[11px] text-muted-foreground/80 outline-none placeholder:text-muted-foreground/30"
-            />
-          </EditorField>
-        </div>
-
-        {/* Action. */}
-        <input
-          value={shot.action}
-          onChange={(e) => onChange({ action: e.target.value })}
-          placeholder="What happens in this shot"
-          className="mt-3 w-full bg-transparent text-[15px] font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/40"
+      {/* Body — the prompt, capped to a readable measure. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <textarea
+          value={bodyText}
+          onChange={(e) => editBody(e.target.value)}
+          spellCheck={!isZh}
+          placeholder={
+            isZh
+              ? "Chinese (ZH) prompt — write it here, or use Translate to ask the agent…"
+              : "Write the generation prompt for this part…"
+          }
+          className={cn(
+            "mx-auto block h-full w-full max-w-[64ch] resize-none bg-transparent py-3 outline-none caret-primary",
+            "text-[15px] leading-[1.8] text-foreground placeholder:text-muted-foreground/40",
+          )}
         />
+      </div>
 
-        {/* Script beat. */}
-        <input
-          value={shot.scriptRef}
-          onChange={(e) => onChange({ scriptRef: e.target.value })}
-          placeholder="Script beat — the screenplay line this shot covers"
-          className="mt-1 w-full bg-transparent text-xs italic text-muted-foreground/80 outline-none placeholder:not-italic placeholder:text-muted-foreground/35"
-        />
-
-        {/* Prompt — the reading surface. */}
-        <div className="mt-4">
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
-            Prompt
-          </span>
-          <AutoGrowTextarea
-            value={shot.text}
-            onChange={(value) => onChange({ text: value })}
-            placeholder="Generation prompt…"
-            className="mt-1.5 max-w-[64ch] text-[14px] leading-7 text-foreground/90 placeholder:text-muted-foreground/40"
-          />
-        </div>
+      {/* Footer — quiet, mono. */}
+      <div className="flex shrink-0 items-center justify-between border-t border-border/50 pt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+        <span>
+          {isZh
+            ? "ZH prompt"
+            : `Version ${active + 1} of ${versions.length}`}
+        </span>
+        <span className="tabular-nums">
+          {bodyText.length.toLocaleString()} chars
+        </span>
       </div>
     </div>
   )
 }
 
-function EditorField({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="flex min-w-0 flex-1 items-baseline gap-2">
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
-        {label}
-      </span>
-      {children}
-    </label>
-  )
-}
+// ── Shared bits ───────────────────────────────────────────────────────────
 
 function StatusPicker({
   value,
@@ -1231,27 +1202,28 @@ function StatusPicker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        onClick={(e) => e.stopPropagation()}
+        title={`Status: ${value}`}
         className={cn(
-          "press inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 outline-none",
-          "hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40",
+          "press flex h-5 w-5 items-center justify-center rounded-md outline-none",
+          "hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/40",
         )}
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[value])} />
-        <span className="truncate font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-          {value}
-        </span>
+        <span
+          className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT[value])}
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[150px]">
         {STATUS_OPTIONS.map((status) => (
           <DropdownMenuItem
             key={status}
-            onClick={(e) => e.stopPropagation()}
             onSelect={() => onChange(status)}
             className="gap-2"
           >
             <span
-              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])}
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                STATUS_DOT[status],
+              )}
             />
             <span className="font-mono text-[11px] uppercase tracking-wide">
               {status}
@@ -1263,58 +1235,6 @@ function StatusPicker({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-}
-
-/**
- * A borderless textarea that grows with its content. Inside a resizable
- * table cell it also re-measures when the column width changes, so the
- * row height always matches the wrapped text.
- */
-function AutoGrowTextarea({
-  value,
-  onChange,
-  placeholder,
-  className,
-}: {
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  className?: string
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  const resize = () => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${el.scrollHeight}px`
-  }
-
-  useEffect(resize, [value])
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(resize)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  return (
-    <textarea
-      ref={ref}
-      value={value}
-      placeholder={placeholder}
-      spellCheck
-      rows={1}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn(
-        "block w-full resize-none overflow-hidden bg-transparent outline-none",
-        className,
-      )}
-    />
   )
 }
 
@@ -1335,11 +1255,7 @@ function SaveState({ state }: { state: "idle" | "saving" | "saved" }) {
       </span>
     )
   }
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/45">
-      Autosaves
-    </span>
-  )
+  return null
 }
 
 function ShotlistEmpty({

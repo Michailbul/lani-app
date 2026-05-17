@@ -30,6 +30,7 @@ import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStat
 import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
 import { publicProcedure, router } from "../index"
 import { buildAgentsOption } from "./agent-utils"
+import { resolveBuiltinAgents } from "../../claude/builtin-agents"
 
 function getBuiltinCanvasMcpServer(input: {
   worktreeId: string
@@ -59,29 +60,6 @@ function getBuiltinCanvasMcpServer(input: {
         ...(process.env.BACKLOT_CANVAS_IMAGE_MODEL
           ? { BACKLOT_CANVAS_IMAGE_MODEL: process.env.BACKLOT_CANVAS_IMAGE_MODEL }
           : {}),
-      },
-    },
-  }
-}
-
-function getBuiltinShotlistMcpServer(input: {
-  cwd: string
-}): Record<string, McpServerConfig> {
-  const serverPath = app.isPackaged
-    ? path.join(process.resourcesPath, "mcp", "shotlist", "index.mjs")
-    : path.join(__dirname, "../../mcp/shotlist/index.mjs")
-
-  return {
-    "backlot-shotlist": {
-      type: "stdio",
-      command: process.env.BACKLOT_NODE_PATH || process.execPath,
-      args: [serverPath],
-      env: {
-        ELECTRON_RUN_AS_NODE: "1",
-        ...(app.isPackaged
-          ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
-          : {}),
-        BACKLOT_WORKTREE_PATH: input.cwd,
       },
     },
   }
@@ -254,7 +232,7 @@ function decryptToken(encrypted: string): string {
  * writes credentials to the OS keychain (macOS Keychain / Windows
  * Credential Manager / libsecret) when the user runs `claude /login`. We
  * read straight from there. Falls back to the legacy claudeCodeCredentials
- * SQLite table for compatibility with imported 1code databases.
+ * SQLite table for compatibility with imported legacy databases.
  *
  * If the keychain token is expired (or close to it) we refresh against
  * Anthropic's token endpoint using the keychain's refreshToken. The
@@ -301,7 +279,7 @@ async function getClaudeCodeToken(): Promise<string | null> {
     console.warn("[claude] Keychain read failed, falling back to local DB:", error)
   }
 
-  // Fallback: legacy SQLite credential (upstream 1code's 21st.dev path).
+  // Fallback: legacy SQLite credential (upstream's legacy path).
   try {
     const db = getDatabase()
     const cred = db
@@ -346,9 +324,6 @@ const GLOBAL_SCOPE = "__global__"
 function mcpCacheKey(scope: string | null, serverName: string): string {
   return `${scope ?? GLOBAL_SCOPE}::${serverName}`
 }
-
-// Cache for symlinks (track which subChatIds have already set up symlinks)
-const symlinksCreated = new Set<string>()
 
 // Cache for MCP config (avoid re-reading ~/.claude.json on every message)
 const mcpConfigCache = new Map<string, {
@@ -395,7 +370,6 @@ export type ImageAttachment = z.infer<typeof imageAttachmentSchema>
  */
 export function clearClaudeCaches() {
   cachedClaudeQuery = null
-  symlinksCreated.clear()
   mcpConfigCache.clear()
   console.log("[claude] All caches cleared")
 }
@@ -924,8 +898,16 @@ export const claudeRouter = router({
             // Parse mentions from prompt (agents, skills, files, folders)
             const { cleanedPrompt, agentMentions, skillMentions } = parseMentions(input.prompt)
 
-            // Build agents option for SDK (proper registration via options.agents)
-            const agentsOption = await buildAgentsOption(agentMentions, input.cwd)
+            // Build agents option for SDK (proper registration via options.agents).
+            // Backlot's built-in subagents (e.g. director-verifier) are
+            // registered automatically — minus any the user disabled in
+            // Settings, plus any on-disk override. @-mentioned agents are
+            // spread last so a user agent of the same name still wins.
+            const [builtinAgents, mentionedAgents] = await Promise.all([
+              resolveBuiltinAgents(),
+              buildAgentsOption(agentMentions, input.cwd),
+            ])
+            const agentsOption = { ...builtinAgents, ...mentionedAgents }
 
             // Log if agents were mentioned
             if (agentMentions.length > 0) {
@@ -1035,44 +1017,31 @@ export const claudeRouter = router({
             // MCP servers to pass to SDK (read from ~/.claude.json)
             let mcpServersForSdk: Record<string, any> | undefined
 
-            // Ensure isolated config dir exists and symlink skills/agents from ~/.claude/
-            // This is needed because SDK looks for skills at $CLAUDE_CONFIG_DIR/skills/
-            // OPTIMIZATION: Only create symlinks once per subChatId (cached)
+            // Ensure the isolated config dir exists, then build the
+            // session skills directory — one symlink per preset skill,
+            // which the SDK discovers as the "user" skill source. The
+            // agent sees exactly the curated preset (see
+            // src/main/lib/skills/filter.ts), never the user's full
+            // ~/.claude/skills. CLAUDE.md is never linked in, so the
+            // user's global memory file does not bleed into sessions.
             try {
               await fs.mkdir(isolatedConfigDir, { recursive: true })
 
-              // Only create symlinks if not already created for this config dir
-              const cacheKey = isUsingOllama ? input.chatId : input.subChatId
-              if (!symlinksCreated.has(cacheKey)) {
-                const homeClaudeDir = path.join(os.homedir(), ".claude")
-                const skillsSource = path.join(homeClaudeDir, "skills")
-                const skillsTarget = path.join(isolatedConfigDir, "skills")
-                const agentsSource = path.join(homeClaudeDir, "agents")
-                const agentsTarget = path.join(isolatedConfigDir, "agents")
-
-                // Symlink skills directory if source exists and target doesn't
+              if (!isUsingOllama) {
                 try {
-                  const skillsSourceExists = await fs.stat(skillsSource).then(() => true).catch(() => false)
-                  const skillsTargetExists = await fs.lstat(skillsTarget).then(() => true).catch(() => false)
-                  if (skillsSourceExists && !skillsTargetExists) {
-                    await fs.symlink(skillsSource, skillsTarget, "dir")
-                  }
-                } catch (symlinkErr) {
-                  // Ignore symlink errors (might already exist or permission issues)
+                  const { buildSessionSkillsDir } = await import(
+                    "../../skills/filter"
+                  )
+                  const linked = await buildSessionSkillsDir(isolatedConfigDir)
+                  console.log(
+                    `[claude] Session skills (${linked.length}): ${linked.join(", ") || "(none)"}`,
+                  )
+                } catch (skillErr) {
+                  console.warn(
+                    "[claude] Failed to build session skills dir:",
+                    skillErr,
+                  )
                 }
-
-                // Symlink agents directory if source exists and target doesn't
-                try {
-                  const agentsSourceExists = await fs.stat(agentsSource).then(() => true).catch(() => false)
-                  const agentsTargetExists = await fs.lstat(agentsTarget).then(() => true).catch(() => false)
-                  if (agentsSourceExists && !agentsTargetExists) {
-                    await fs.symlink(agentsSource, agentsTarget, "dir")
-                  }
-                } catch (symlinkErr) {
-                  // Ignore symlink errors (might already exist or permission issues)
-                }
-
-                symlinksCreated.add(cacheKey)
               }
 
               // Read MCP servers from ~/.claude.json for the original project path
@@ -1166,17 +1135,15 @@ export const claudeRouter = router({
             // Backlot ships one trusted built-in MCP server: the canvas
             // controller. It is present even when the user has no
             // ~/.claude.json, and user/project MCP config can still
-            // override the same server name intentionally.
+            // override the same server name intentionally. The shotlist
+            // is a plain JSON file the agent edits with Read/Write — no
+            // MCP needed; the Shotlist surface polls the file directly.
             const builtinCanvasServer = getBuiltinCanvasMcpServer({
               worktreeId: input.chatId,
               cwd: input.cwd,
             })
-            const builtinShotlistServer = getBuiltinShotlistMcpServer({
-              cwd: input.cwd,
-            })
             mcpServersForSdk = {
               ...builtinCanvasServer,
-              ...builtinShotlistServer,
               ...(mcpServersForSdk ?? {}),
             }
 
@@ -1186,7 +1153,7 @@ export const claudeRouter = router({
             //   - ANTHROPIC_BASE_URL pointing somewhere OTHER than api.anthropic.com
             //     (a real custom proxy, e.g. an internal LiteLLM gateway)
             //
-            // Upstream 1code treated ANY ANTHROPIC_BASE_URL as "custom" and skipped
+            // Upstream code treated ANY ANTHROPIC_BASE_URL as "custom" and skipped
             // injecting CLAUDE_CODE_OAUTH_TOKEN — but the macOS Claude.app and
             // various tools export ANTHROPIC_BASE_URL=https://api.anthropic.com
             // (the default), which silently disabled OAuth and made the SDK run
@@ -1557,15 +1524,17 @@ ${prompt}
                   allowDangerouslySkipPermissions: true,
                 }),
                 includePartialMessages: true,
-                // Load skills from project and user directories (skip for Ollama - not supported)
-                // Backlot owns the user-level prompt surface via its
-                // own Settings → Agent preferences pane (composed at
-                // runtime alongside the harness block in `append`). We
-                // intentionally DO NOT load `~/.claude/CLAUDE.md` so that
-                // a user's other Claude tooling doesn't bleed prompts
-                // into Backlot sessions. Project-level CLAUDE.md inside
-                // the worktree IS loaded — that's the per-project memory.
-                ...(!isUsingOllama && { settingSources: ["project" as const] }),
+                // Skills + memory sources. "project" loads the project
+                // CLAUDE.md and project skills; "user" loads skills from
+                // $CLAUDE_CONFIG_DIR/skills. Because CLAUDE_CONFIG_DIR is
+                // redirected to the isolated per-session dir, "user" only
+                // picks up what Backlot puts there — the curated skill
+                // preset built by buildSessionSkillsDir(). The user's
+                // global ~/.claude/CLAUDE.md is NOT linked in, so it does
+                // not bleed into Backlot sessions. (Ollama: not supported.)
+                ...(!isUsingOllama && {
+                  settingSources: ["project" as const, "user" as const],
+                }),
                 canUseTool: async (
                   toolName: string,
                   toolInput: Record<string, unknown>,

@@ -8,10 +8,10 @@ import matter from "gray-matter"
 import { discoverInstalledPlugins, getPluginComponentPaths } from "../../plugins"
 import { getEnabledPlugins } from "./claude-settings"
 import {
-  BACKLOT_SKILL_REGISTRY,
-  getAllRegistrySkillNames,
-} from "../../skills/registry"
-import { readSkillFilter, writeSkillFilter } from "../../skills/filter"
+  getFactorySkillNames,
+  readSkillPreset,
+  writeSkillPreset,
+} from "../../skills/filter"
 import {
   listPendingProposals,
   resolveProposal,
@@ -276,65 +276,32 @@ export const skillsRouter = router({
   listEnabled: listSkillsProcedure,
 
   /**
-   * The Backlot curated registry — the AI-creatorship skills the
-   * settings UI surfaces, grouped by category. The agent's actual
-   * inclusion / exclusion preference is in `getFilter` below.
+   * Factory default skill set — the curated list that ships in code.
+   * The settings UI uses it to mark default skills and to power
+   * "reset to factory".
    */
-  registry: publicProcedure.query(async () => {
-    const userSkillsDir = path.join(os.homedir(), ".claude", "skills")
-    const allOnDisk = await scanSkillsDirectory(userSkillsDir, "user")
-    const byName = new Map(allOnDisk.map((s) => [s.name, s]))
-
-    return BACKLOT_SKILL_REGISTRY.map((cat) => ({
-      label: cat.label,
-      blurb: cat.blurb,
-      skills: cat.skills.map((skill) => {
-        const found = byName.get(skill.name)
-        return {
-          name: skill.name,
-          description: found?.description ?? null,
-          installed: !!found,
-          path: found?.path ?? null,
-        }
-      }),
-    }))
+  factory: publicProcedure.query(() => {
+    return getFactorySkillNames()
   }),
 
   /**
-   * Read the user's current filter (mode + selection).
+   * The active skill preset — the explicit list of skill names the
+   * Claude agent loads. No saved file yet → the factory defaults.
    */
-  getFilter: publicProcedure.query(async () => {
-    return await readSkillFilter()
+  getPreset: publicProcedure.query(async () => {
+    return await readSkillPreset()
   }),
 
   /**
-   * Persist a new filter. Returns the normalised value the file ended
-   * up holding (selections intersected with the registry, mode coerced).
+   * Persist the skill preset. Returns the normalised stored value.
+   * Takes effect on the next agent turn — the per-session skills
+   * directory is rebuilt from this list.
    */
-  setFilter: publicProcedure
-    .input(
-      z.object({
-        mode: z.enum(["allow", "deny"]),
-        selected: z.array(z.string()),
-      }),
-    )
+  setPreset: publicProcedure
+    .input(z.object({ skills: z.array(z.string()) }))
     .mutation(async ({ input }) => {
-      await writeSkillFilter(input)
-      return await readSkillFilter()
+      return await writeSkillPreset(input.skills)
     }),
-
-  /**
-   * Active set — the resolved list of skill names that pass the filter.
-   * Used by injection (Phase 2) and surfaced in the UI as a counter.
-   */
-  active: publicProcedure.query(async () => {
-    const filter = await readSkillFilter()
-    const all = getAllRegistrySkillNames()
-    const sel = new Set(filter.selected)
-    return filter.mode === "allow"
-      ? all.filter((n) => sel.has(n))
-      : all.filter((n) => !sel.has(n))
-  }),
 
   /**
    * Create a new skill
@@ -465,10 +432,21 @@ export const skillsRouter = router({
       z.object({
         proposalId: z.string().min(1),
         action: z.enum(["apply", "dismiss"]),
+        /**
+         * The applied content. The diff drawer is editable — when the
+         * user tweaks the agent's proposal before applying, the edited
+         * buffer is sent here and written instead of the agent's
+         * original `newContent`.
+         */
+        finalContent: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const ok = resolveProposal(input.proposalId, { action: input.action })
+      const resolution =
+        input.action === "apply"
+          ? { action: "apply" as const, finalContent: input.finalContent }
+          : { action: "dismiss" as const }
+      const ok = resolveProposal(input.proposalId, resolution)
       if (!ok) {
         return { success: false, reason: "unknown-or-already-resolved" as const }
       }

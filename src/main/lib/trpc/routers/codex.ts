@@ -3,9 +3,9 @@ import { observable } from "@trpc/server/observable"
 import { streamText } from "ai"
 import { eq } from "drizzle-orm"
 import { app } from "electron"
-import { spawn, type ChildProcess } from "node:child_process"
+import { execFileSync, spawn, type ChildProcess } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync } from "node:fs"
+import { accessSync, constants, existsSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, join, sep } from "node:path"
@@ -22,6 +22,7 @@ import {
   loadStoredCodexApiKey,
   saveStoredCodexApiKey,
 } from "../../codex/credentials"
+import { buildBacklotHarnessBlock } from "../../claude/harness-prompt"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, getDatabasePath, projects as projectsTable, subChats } from "../../db"
 import { createRollbackStash } from "../../git/stash"
@@ -144,33 +145,6 @@ function getBuiltinCanvasMcpServerForCodex(input: {
   }
 }
 
-function getBuiltinShotlistMcpServerForCodex(input: {
-  cwd: string
-}): CodexMcpServerForSession {
-  const serverPath = app.isPackaged
-    ? join(process.resourcesPath, "mcp", "shotlist", "index.mjs")
-    : join(__dirname, "../../mcp/shotlist/index.mjs")
-
-  return {
-    name: "backlot-shotlist",
-    type: "stdio",
-    command: process.env.BACKLOT_NODE_PATH || process.execPath,
-    args: [serverPath],
-    env: [
-      { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-      ...(app.isPackaged
-        ? [
-            {
-              name: "NODE_PATH",
-              value: join(process.resourcesPath, "app.asar", "node_modules"),
-            },
-          ]
-        : []),
-      { name: "BACKLOT_WORKTREE_PATH", value: input.cwd },
-    ],
-  }
-}
-
 const providerSessions = new Map<string, CodexProviderSession>()
 type ActiveCodexStream = {
   runId: string
@@ -217,6 +191,17 @@ const DEFAULT_CODEX_MODEL = "gpt-5.5/high"
 const CODEX_MCP_TOOLS_FETCH_TIMEOUT_MS = 40_000
 const CODEX_USAGE_POLL_ATTEMPTS = 3
 const CODEX_USAGE_POLL_INTERVAL_MS = 200
+const CODEX_ENV_KEYS = [
+  "CODEX_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_ORGANIZATION",
+  "OPENAI_PROJECT",
+  "CODEX_HOME",
+] as const
+
+let cachedCodexCliPath: string | null = null
+let didResolveCodexCliPath = false
+let cachedCodexShellEnv: Record<string, string> | null = null
 
 type CodexTokenUsage = {
   input_tokens?: number
@@ -311,7 +296,180 @@ function resolveCodexAcpBinaryPath(): string {
   return toUnpackedAsarPath(resolvedPath)
 }
 
+function isExecutableFile(filePath: string | null | undefined): filePath is string {
+  if (!filePath) return false
+  try {
+    accessSync(filePath, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function readCodexShellEnv(): Record<string, string> {
+  if (cachedCodexShellEnv) {
+    return { ...cachedCodexShellEnv }
+  }
+
+  const shellEnv: Record<string, string> = {}
+  cachedCodexShellEnv = shellEnv
+
+  if (process.platform === "win32") {
+    return shellEnv
+  }
+
+  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/sh")
+  const script = `
+for key in ${CODEX_ENV_KEYS.join(" ")}; do
+  value="$(printenv "$key" 2>/dev/null || true)"
+  if [ -n "$value" ]; then
+    printf '%s=%s\\n' "$key" "$value"
+  fi
+done
+`
+
+  try {
+    const output = execFileSync(shell, ["-ilc", script], {
+      encoding: "utf8",
+      env: {
+        HOME: homedir(),
+        USER: process.env.USER || "",
+        SHELL: shell,
+        DISABLE_AUTO_UPDATE: "true",
+      },
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+    })
+
+    for (const line of output.split("\n")) {
+      const separatorIndex = line.indexOf("=")
+      if (separatorIndex <= 0) continue
+      const key = line.slice(0, separatorIndex)
+      const value = line.slice(separatorIndex + 1)
+      if (
+        (CODEX_ENV_KEYS as readonly string[]).includes(key) &&
+        value.length > 0
+      ) {
+        shellEnv[key] = value
+      }
+    }
+  } catch {
+    // Finder-launched apps often have sparse env. Best effort is enough here.
+  }
+
+  cachedCodexShellEnv = shellEnv
+  return { ...shellEnv }
+}
+
+function buildCodexBaseEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") {
+      env[key] = value
+    }
+  }
+
+  // Prefer login-shell values for PATH and MCP command lookup parity.
+  for (const [key, value] of Object.entries(getClaudeShellEnvironment())) {
+    if (typeof value === "string") {
+      env[key] = value
+    }
+  }
+
+  // Claude env deliberately strips OPENAI_API_KEY. Restore Codex-specific
+  // credentials from the login shell without logging their values.
+  for (const [key, value] of Object.entries(readCodexShellEnv())) {
+    if (typeof value === "string" && value.length > 0) {
+      env[key] = value
+    }
+  }
+
+  // Explicit process env still wins over shell discovery.
+  for (const key of CODEX_ENV_KEYS) {
+    const value = process.env[key]?.trim()
+    if (value) {
+      env[key] = value
+    }
+  }
+
+  return env
+}
+
+function findCodexOnPath(env: Record<string, string>): string | null {
+  try {
+    if (process.platform === "win32") {
+      const output = execFileSync("where.exe", ["codex"], {
+        encoding: "utf8",
+        env,
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 2_000,
+      })
+      return output.split(/\r?\n/).find((line) => isExecutableFile(line.trim())) || null
+    }
+
+    const output = execFileSync("/bin/sh", ["-lc", "command -v codex"], {
+      encoding: "utf8",
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+    })
+    return output.split("\n").find((line) => isExecutableFile(line.trim())) || null
+  } catch {
+    return null
+  }
+}
+
+function resolveInstalledCodexCliPath(): string | null {
+  const env = buildCodexBaseEnv()
+  const explicitCandidates = [
+    process.env.BACKLOT_CODEX_EXECUTABLE,
+    process.env.CODEX_EXECUTABLE,
+    process.env.CODEX_CLI_PATH,
+    env.BACKLOT_CODEX_EXECUTABLE,
+    env.CODEX_EXECUTABLE,
+    env.CODEX_CLI_PATH,
+  ]
+
+  for (const candidate of explicitCandidates) {
+    if (isExecutableFile(candidate?.trim())) {
+      return candidate!.trim()
+    }
+  }
+
+  const pathCandidate = findCodexOnPath(env)
+  if (pathCandidate) {
+    return pathCandidate.trim()
+  }
+
+  const binaryName = process.platform === "win32" ? "codex.exe" : "codex"
+  const appLocalData = process.env.LOCALAPPDATA || ""
+  const fallbackCandidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Codex.app/Contents/Resources/codex",
+          "/opt/homebrew/bin/codex",
+          "/usr/local/bin/codex",
+          join(homedir(), ".local", "bin", "codex"),
+        ]
+      : process.platform === "win32"
+        ? [
+            appLocalData ? join(appLocalData, "Programs", "Codex", binaryName) : "",
+          ]
+        : [
+            "/usr/local/bin/codex",
+            "/usr/bin/codex",
+            join(homedir(), ".local", "bin", "codex"),
+          ]
+
+  return fallbackCandidates.find((candidate) => isExecutableFile(candidate)) || null
+}
+
 function resolveBundledCodexCliPath(): string {
+  if (didResolveCodexCliPath) {
+    if (cachedCodexCliPath) return cachedCodexCliPath
+  }
+
   const binaryName = process.platform === "win32" ? "codex.exe" : "codex"
   const resourcesDir = app.isPackaged
     ? join(process.resourcesPath, "bin")
@@ -324,8 +482,22 @@ function resolveBundledCodexCliPath(): string {
 
   const binaryPath = join(resourcesDir, binaryName)
   if (existsSync(binaryPath)) {
+    cachedCodexCliPath = binaryPath
+    didResolveCodexCliPath = true
     return binaryPath
   }
+
+  const installedPath = resolveInstalledCodexCliPath()
+  if (installedPath) {
+    console.warn(
+      `[codex] Bundled Codex CLI not found at ${binaryPath}; using installed CLI at ${installedPath}.`,
+    )
+    cachedCodexCliPath = installedPath
+    didResolveCodexCliPath = true
+    return installedPath
+  }
+
+  didResolveCodexCliPath = true
 
   const hint = app.isPackaged
     ? "Binary is missing from bundled resources."
@@ -444,7 +616,7 @@ async function runCodexCli(
     const child = spawn(codexCliPath, args, {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: cwd && cwd.length > 0 ? cwd : undefined,
-      env: process.env,
+      env: buildCodexBaseEnv(),
       windowsHide: true,
     })
 
@@ -521,15 +693,9 @@ function toTimestampMs(value: unknown): number | undefined {
 }
 
 function resolveSessionsRoot(): string {
-  // Match provider env precedence: shell-derived env overrides process.env.
-  const shellCodexHome = getClaudeShellEnvironment().CODEX_HOME?.trim()
-  if (shellCodexHome) {
-    return join(shellCodexHome, "sessions")
-  }
-
-  const processCodexHome = process.env.CODEX_HOME?.trim()
-  if (processCodexHome) {
-    return join(processCodexHome, "sessions")
+  const codexHome = buildCodexBaseEnv().CODEX_HOME?.trim()
+  if (codexHome) {
+    return join(codexHome, "sessions")
   }
 
   return join(homedir(), ".codex", "sessions")
@@ -763,8 +929,9 @@ function resolveCodexStdioEnv(
   }
 
   if (Array.isArray(transport.env_vars)) {
+    const inheritedEnv = buildCodexBaseEnv()
     for (const envName of transport.env_vars) {
-      const value = process.env[envName]
+      const value = inheritedEnv[envName]
       if (typeof value === "string" && value.length > 0 && !merged[envName]) {
         merged[envName] = value
       }
@@ -788,9 +955,10 @@ function resolveCodexHttpHeaders(
   }
 
   if (transport.env_http_headers) {
+    const inheritedEnv = buildCodexBaseEnv()
     for (const [headerName, envName] of Object.entries(transport.env_http_headers)) {
       if (typeof headerName !== "string" || typeof envName !== "string") continue
-      const value = process.env[envName]
+      const value = inheritedEnv[envName]
       if (typeof value === "string" && value.length > 0) {
         merged[headerName] = value
       }
@@ -799,7 +967,7 @@ function resolveCodexHttpHeaders(
 
   const bearerEnvVar = transport.bearer_token_env_var?.trim()
   if (bearerEnvVar && !merged.Authorization) {
-    const token = process.env[bearerEnvVar]?.trim()
+    const token = buildCodexBaseEnv()[bearerEnvVar]?.trim()
     if (token) {
       merged.Authorization = `Bearer ${token}`
     }
@@ -1257,40 +1425,25 @@ function getAuthFingerprint(authConfig?: { apiKey: string }): string | null {
 }
 
 function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, string> {
-  // Prefer shell-derived values (notably PATH) so stdio MCP dependencies
-  // like pipx/npx resolve the same way as in MCP tool probing.
-  const env: Record<string, string> = {}
-
-  for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === "string") {
-      env[key] = value
-    }
-  }
-
-  const shellEnv = getClaudeShellEnvironment()
-  for (const [key, value] of Object.entries(shellEnv)) {
-    if (typeof value === "string") {
-      env[key] = value
-    }
-  }
-
+  const env = buildCodexBaseEnv()
   const apiKey = authConfig?.apiKey?.trim()
-  if (!apiKey) {
-    return env
+  if (apiKey) {
+    env.CODEX_API_KEY = apiKey
   }
 
-  return {
-    ...env,
-    CODEX_API_KEY: apiKey,
-  }
+  return env
 }
 
-function getCodexAuthMethodId(authConfig?: {
-  apiKey: string
-}): "chatgpt" | "codex-api-key" {
-  const apiKey = authConfig?.apiKey?.trim()
-  if (!apiKey) {
-    return "chatgpt"
+function getCodexAuthMethodId(
+  authConfig?: { apiKey: string },
+  env: Record<string, string> = buildCodexBaseEnv(),
+): "chatgpt" | "codex-api-key" | "openai-api-key" {
+  if (authConfig?.apiKey?.trim() || env.CODEX_API_KEY?.trim()) {
+    return "codex-api-key"
+  }
+
+  if (env.OPENAI_API_KEY?.trim()) {
+    return "openai-api-key"
   }
 
   // codex-acp advertises auth methods:
@@ -1299,8 +1452,7 @@ function getCodexAuthMethodId(authConfig?: {
   // - openai-api-key
   // Default subscription auth should be explicit too, otherwise the provider
   // logs a lazy-auth warning before choosing the same method.
-  // For app-managed API key path we want deterministic key auth.
-  return "codex-api-key"
+  return "chatgpt"
 }
 
 function buildUserParts(
@@ -1386,17 +1538,21 @@ function getOrCreateProvider(params: {
     providerSessions.delete(params.subChatId)
   }
 
-  const hasAppManagedApiKey = Boolean(params.authConfig?.apiKey?.trim())
-  // When app-managed key auth is used, avoid resuming older persisted session IDs.
+  const providerEnv = buildCodexProviderEnv(params.authConfig)
+  const usesKeyAuth =
+    Boolean(params.authConfig?.apiKey?.trim()) ||
+    Boolean(providerEnv.CODEX_API_KEY?.trim()) ||
+    Boolean(providerEnv.OPENAI_API_KEY?.trim())
+  // When key auth is used, avoid resuming older persisted session IDs.
   // Those can be tied to unauthenticated/CLI-auth state and trigger auth loops.
-  const existingSessionIdForProvider = hasAppManagedApiKey
+  const existingSessionIdForProvider = usesKeyAuth
     ? undefined
     : params.existingSessionId
 
   const provider = createACPProvider({
     command: resolveCodexAcpBinaryPath(),
-    env: buildCodexProviderEnv(params.authConfig),
-    authMethodId: getCodexAuthMethodId(params.authConfig),
+    env: providerEnv,
+    authMethodId: getCodexAuthMethodId(params.authConfig, providerEnv),
     session: {
       cwd: params.cwd,
       mcpServers: params.mcpServers,
@@ -1525,7 +1681,7 @@ export const codexRouter = router({
 
     const child = spawn(codexCliPath, ["login"], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
+      env: buildCodexBaseEnv(),
       windowsHide: true,
     })
 
@@ -1927,11 +2083,6 @@ export const codexRouter = router({
                 }),
               )
             }
-            if (!resolvedNames.has("backlot-shotlist")) {
-              builtinCodexServers.push(
-                getBuiltinShotlistMcpServerForCodex({ cwd: input.cwd }),
-              )
-            }
             const sessionMcpServers = [
               ...builtinCodexServers,
               ...mcpSnapshot.mcpServersForSession,
@@ -1980,8 +2131,11 @@ export const codexRouter = router({
               return usagePromise
             }
 
+            const backlotHarnessBlock = buildBacklotHarnessBlock()
+
             const result = streamText({
               model: provider.languageModel(selectedModelId),
+              system: backlotHarnessBlock,
               messages: [
                 {
                   role: "user",

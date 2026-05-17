@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ChevronLeft, ScrollText } from "lucide-react"
+import { ChevronLeft, FileText, ScrollText } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import {
   EyeOpenFilledIcon,
@@ -77,6 +77,11 @@ const ADVANCED_TABS_BASE = [
     id: "system-prompt" as SettingsTab,
     label: "System Prompt",
     icon: ScrollText,
+  },
+  {
+    id: "project-memory" as SettingsTab,
+    label: "CLAUDE.md",
+    icon: FileText,
   },
   {
     id: "skills" as SettingsTab,

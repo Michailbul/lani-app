@@ -12,6 +12,7 @@ import { pathsRouter } from "./paths"
 import { harnessRouter } from "./harness"
 import { entitiesRouter } from "./entities"
 import { shotlistsRouter } from "./shotlists"
+import { multishotsRouter } from "./multishots"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
 import { filesRouter } from "./files"
@@ -29,7 +30,7 @@ import { BrowserWindow } from "electron"
  * Create the main app router
  * Uses getter pattern to avoid stale window references
  *
- * Stripped from upstream 1code: ollama (offline LLM fallback) and
+ * Stripped from upstream: ollama (offline LLM fallback) and
  * sandboxImport (CodeSandbox import) — Backlot is online-only and
  * not a sandbox-clone tool.
  */
@@ -48,6 +49,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     harness: harnessRouter,
     entities: entitiesRouter,
     shotlists: shotlistsRouter,
+    multishots: multishotsRouter,
     terminal: terminalRouter,
     external: externalRouter,
     files: filesRouter,

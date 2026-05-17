@@ -124,7 +124,7 @@ import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT } from "../agents/sto
 import { getWindowId } from "../../contexts/WindowContext"
 import { AgentsHelpPopover } from "../agents/components/agents-help-popover"
 import { getShortcutKey, isDesktopApp } from "../../lib/utils/platform"
-import { useResolvedHotkeyDisplay, useResolvedHotkeyDisplayWithAlt } from "../../lib/hotkeys"
+import { useResolvedHotkeyDisplay } from "../../lib/hotkeys"
 import { pluralize } from "../agents/utils/pluralize"
 import { useNewChatDrafts, deleteNewChatDraft, type NewChatDraft } from "../agents/lib/drafts"
 import {
@@ -423,6 +423,7 @@ const DraftItem = React.memo(function DraftItem({
 const AgentChatItem = React.memo(function AgentChatItem({
   chatId,
   chatName,
+  projectName,
   chatBranch,
   chatUpdatedAt,
   chatProjectId,
@@ -471,6 +472,7 @@ const AgentChatItem = React.memo(function AgentChatItem({
 }: {
   chatId: string
   chatName: string | null
+  projectName: string | null
   chatBranch: string | null
   chatUpdatedAt: Date | null
   chatProjectId: string
@@ -597,8 +599,8 @@ const AgentChatItem = React.memo(function AgentChatItem({
                   className="truncate block text-sm leading-tight flex-1"
                 >
                   <TypewriterText
-                    text={chatName || ""}
-                    placeholder="New workspace"
+                    text={projectName || chatName || ""}
+                    placeholder="Untitled project"
                     id={chatId}
                     isJustCreated={isJustCreated}
                     showPlaceholder={true}
@@ -960,20 +962,17 @@ const ChatListSection = React.memo(function ChatListSection({
           const globalIndex = globalIndexMap.get(chat.id) ?? -1
           const isFocused = focusedChatIndex === globalIndex && focusedChatIndex >= 0
 
-          // For remote chats, get repo info from meta; for local, from projectsMap
+          // For remote chats, get repo info from meta; for local, from projectsMap.
+          // The Backlot project NAME ("daddy issues") is the identity the writer
+          // recognises, so it titles the row. gitRepo is a last-resort fallback
+          // for projects with no Backlot name yet.
           const project = chat.projectId ? projectsMap.get(chat.projectId) : null
-          // Prefer the Backlot project NAME over the imported source's gitRepo —
-          // users name their Backlot projects ("daddy issues"), and that's the
-          // identity they recognise. The gitRepo basename ("laniameda-hq") is a
-          // last-resort fallback for projects that have no Backlot name yet.
-          const repoName = chat.isRemote
+          const projectName = chat.isRemote
             ? chat.meta?.repository
             : (project?.name || project?.gitRepo)
-          const displayText = chat.branch
-            ? repoName
-              ? `${repoName} • ${chat.branch}`
-              : chat.branch
-            : repoName || (chat.isRemote ? "Remote project" : "Local project")
+          // Secondary line: the Direction (branch) only — the project name now
+          // titles the row, so repeating it here would be redundant.
+          const displayText = chat.branch ?? ""
 
           const isChecked = selectedChatIds.has(chat.id)
           // For remote chats, use remoteStats; for local, use workspaceFileStats
@@ -994,6 +993,7 @@ const ChatListSection = React.memo(function ChatListSection({
               key={chat.id}
               chatId={chat.id}
               chatName={chat.name}
+              projectName={projectName ?? null}
               chatBranch={chat.branch}
               chatUpdatedAt={chat.updatedAt}
               chatProjectId={chat.projectId ?? ""}
@@ -1380,14 +1380,6 @@ const SidebarHeader = memo(function SidebarHeader({
                   suppressHydrationWarning
                 >
                   <div className="flex items-center gap-1.5 min-w-0 max-w-full">
-                    <div className="flex items-center justify-center flex-shrink-0">
-                      <Logo className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="text-sm font-medium text-foreground truncate">
-                        Backlot
-                      </div>
-                    </div>
                     {showOfflineFeatures && (
                       <div className="flex-shrink-0">
                         <NetworkStatus />
@@ -1706,7 +1698,6 @@ export function AgentsSidebar({
   const { trigger: triggerHaptic } = useHaptic()
 
   // Resolved hotkeys for tooltips
-  const { primary: newWorkspaceHotkey, alt: newWorkspaceAltHotkey } = useResolvedHotkeyDisplayWithAlt("new-workspace")
   const settingsHotkey = useResolvedHotkeyDisplay("open-settings")
 
   // Rename dialog state
@@ -1766,7 +1757,7 @@ export function AgentsSidebar({
   const showWorkspaceIcon = useAtomValue(showWorkspaceIconAtom)
 
   // Desktop: use selectedProject instead of teams
-  const [selectedProject] = useAtom(selectedProjectAtom)
+  const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
 
   // Keep chatSourceModeAtom for backwards compatibility (used in other places)
   const [chatSourceMode, setChatSourceMode] = useAtom(chatSourceModeAtom)
@@ -2107,24 +2098,8 @@ export function AgentsSidebar({
     },
   })
 
-  // Reset selected chat when project changes (but not on initial load)
-  const prevProjectIdRef = useRef<string | null | undefined>(undefined)
-  useEffect(() => {
-    // Skip on initial mount (prevProjectIdRef is undefined)
-    if (prevProjectIdRef.current === undefined) {
-      prevProjectIdRef.current = selectedProject?.id ?? null
-      return
-    }
-    // Only reset if project actually changed from a real value (not from null/initial load)
-    if (
-      prevProjectIdRef.current !== null &&
-      prevProjectIdRef.current !== selectedProject?.id &&
-      selectedChatId
-    ) {
-      setSelectedChatId(null)
-    }
-    prevProjectIdRef.current = selectedProject?.id ?? null
-  }, [selectedProject?.id]) // Don't include selectedChatId in deps to avoid loops
+  // selectedAgentChatIdAtom is keyed per project, so switching projects
+  // restores that project's open chat automatically — no reset needed here.
 
   // Load pinned IDs from localStorage when project changes
   useEffect(() => {
@@ -2283,9 +2258,21 @@ export function AgentsSidebar({
       return { pinnedAgents: [], unpinnedAgents: [], filteredChats: [] }
 
     const filtered = searchQuery.trim()
-      ? agentChats.filter((chat) =>
-          (chat.name ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
-        )
+      ? agentChats.filter((chat) => {
+          const q = searchQuery.toLowerCase()
+          const project = chat.projectId
+            ? projectsMap.get(chat.projectId)
+            : null
+          const projectName = chat.isRemote
+            ? chat.meta?.repository
+            : project?.name || project?.gitRepo
+          // Match the row title (project name) the writer actually sees,
+          // and keep the legacy chat-name match as a fallback.
+          return (
+            (projectName ?? "").toLowerCase().includes(q) ||
+            (chat.name ?? "").toLowerCase().includes(q)
+          )
+        })
       : agentChats
 
     const pinned = filtered.filter((chat) => pinnedChatIds.has(chat.id))
@@ -2296,7 +2283,7 @@ export function AgentsSidebar({
       unpinnedAgents: unpinned,
       filteredChats: [...pinned, ...unpinned],
     }
-  }, [searchQuery, agentChats, pinnedChatIds])
+  }, [searchQuery, agentChats, pinnedChatIds, projectsMap])
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2552,16 +2539,17 @@ export function AgentsSidebar({
     return chatIds
   }, [pendingQuestions])
 
-  const handleNewAgent = () => {
+  // "New Project" lands the user on the project picker / new-project page
+  // (SelectRepoPage), not the new-chat composer. Clearing the selected
+  // project drops App back to SelectRepoPage; recent projects stay one
+  // click away there.
+  const handleNewProject = () => {
     triggerHaptic("light")
     setSelectedChatId(null)
-    setSelectedDraftId(null) // Clear selected draft so form starts empty
-    setShowNewChatForm(true) // Explicitly show new chat form
-    setDesktopView(null) // Clear automations/inbox view
-    // On mobile, switch to chat mode to show NewChatForm
-    if (isMobileFullscreen && onChatSelect) {
-      onChatSelect()
-    }
+    setSelectedDraftId(null)
+    setShowNewChatForm(false)
+    setDesktopView(null)
+    setSelectedProject(null)
   }
 
   const handleChatClick = useCallback((
@@ -3163,11 +3151,11 @@ export function AgentsSidebar({
               )}
             />
           </div>
-          {/* New Workspace Button */}
+          {/* New Project Button */}
           <Tooltip delayDuration={500}>
             <TooltipTrigger asChild>
               <ButtonCustom
-                onClick={handleNewAgent}
+                onClick={handleNewProject}
                 variant="outline"
                 size="sm"
                 className={cn(
@@ -3179,13 +3167,7 @@ export function AgentsSidebar({
               </ButtonCustom>
             </TooltipTrigger>
             <TooltipContent side="right" className="flex flex-col items-start gap-1">
-              <span>Start a new project</span>
-              {newWorkspaceHotkey && (
-                <span className="flex items-center gap-1.5">
-                  <Kbd>{newWorkspaceHotkey}</Kbd>
-                  {newWorkspaceAltHotkey && <><span className="text-[10px] opacity-50">or</span><Kbd>{newWorkspaceAltHotkey}</Kbd></>}
-                </span>
-              )}
+              <span>Open the project picker</span>
             </TooltipContent>
           </Tooltip>
         </div>

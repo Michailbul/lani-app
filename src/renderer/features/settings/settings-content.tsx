@@ -15,6 +15,7 @@ import { AgentsModelsTab } from "../../components/dialogs/settings-tabs/agents-m
 import { AgentsPreferencesTab } from "../../components/dialogs/settings-tabs/agents-preferences-tab"
 import { AgentsProfileTab } from "../../components/dialogs/settings-tabs/agents-profile-tab"
 import { AgentsSystemPromptTab } from "../../components/dialogs/settings-tabs/agents-system-prompt-tab"
+import { AgentsProjectMemoryTab } from "../../components/dialogs/settings-tabs/agents-project-memory-tab"
 import { AgentsProjectsTab } from "../../components/dialogs/settings-tabs/agents-project-worktree-tab"
 import { AgentsSkillsTab } from "../../components/dialogs/settings-tabs/agents-skills-tab"
 import { AgentsPluginsTab } from "../../components/dialogs/settings-tabs/agents-plugins-tab"
@@ -52,6 +53,8 @@ export function SettingsContent() {
         return <AgentsPreferencesTab />
       case "system-prompt":
         return <AgentsSystemPromptTab />
+      case "project-memory":
+        return <AgentsProjectMemoryTab />
       case "models":
         return <AgentsModelsTab />
       case "skills":
@@ -74,7 +77,15 @@ export function SettingsContent() {
   }
 
   // Two-panel tabs need full width and height, no scroll wrapper
-  const isTwoPanelTab = activeTab === "mcp" || activeTab === "skills" || activeTab === "agents" || activeTab === "projects" || activeTab === "keyboard" || activeTab === "plugins"
+  const isTwoPanelTab =
+    activeTab === "mcp" ||
+    activeTab === "skills" ||
+    activeTab === "agents" ||
+    activeTab === "projects" ||
+    activeTab === "keyboard" ||
+    activeTab === "plugins" ||
+    activeTab === "system-prompt" ||
+    activeTab === "project-memory"
 
   if (isTwoPanelTab) {
     return (

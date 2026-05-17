@@ -203,7 +203,6 @@ import { AgentToolRegistry } from "../ui/agent-tool-registry"
 import { isPlanFile } from "../ui/agent-tool-utils"
 import { AgentUserMessageBubble } from "../ui/agent-user-message-bubble"
 import { AgentUserQuestion, type AgentUserQuestionHandle } from "../ui/agent-user-question"
-import { AgentsHeaderControls } from "../ui/agents-header-controls"
 import { ChatTitleEditor } from "../ui/chat-title-editor"
 import { MobileChatHeader } from "../ui/mobile-chat-header"
 import { QuickCommentInput } from "../ui/quick-comment-input"
@@ -2115,7 +2114,7 @@ const ChatViewInner = memo(function ChatViewInner({
       if (error.data?.code === "NOT_FOUND") {
         toast.error("Send a message first before renaming this chat")
       } else {
-        toast.error("Failed to rename chat")
+        toast.error(`Failed to rename chat: ${error.message}`)
       }
     },
   })
@@ -2450,6 +2449,23 @@ const ChatViewInner = memo(function ChatViewInner({
     window.addEventListener("file-viewer-add-to-context", handler)
     return () => window.removeEventListener("file-viewer-add-to-context", handler)
   }, [addTextContext])
+
+  // Listen for "compose into chat" requests (e.g. the Shotlist "Translate"
+  // button). The text is appended to the input draft so the user can
+  // review it and send — never auto-submitted.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { text?: string }
+      const text = detail?.text?.trim()
+      if (!text) return
+      const existing = editorRef.current?.getValue() ?? ""
+      const next = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text
+      editorRef.current?.setValue(next)
+      editorRef.current?.focus()
+    }
+    window.addEventListener("backlot-chat-compose", handler)
+    return () => window.removeEventListener("backlot-chat-compose", handler)
+  }, [])
 
   // Handler for quick comment trigger from popover
   const handleQuickComment = useCallback((text: string, source: TextSelectionSource, rect: DOMRect) => {
@@ -5583,6 +5599,11 @@ Make sure to preserve all functionality from both branches when resolving confli
     diffViewRef.current?.markAllUnviewed()
   }, [])
 
+  // Tracks the workspace whose recent threads we've already seeded into
+  // the tab strip — so seeding runs once per workspace and the writer's
+  // later open/close choices are respected.
+  const seededRecentSubChatsRef = useRef<string | null>(null)
+
   // Initialize store when chat data loads
   useEffect(() => {
     if (!agentChat) return
@@ -5665,19 +5686,35 @@ Make sure to preserve all functionality from both branches when resolving confli
       }
     }
 
-    // All open tabs are now valid (we created placeholders for non-DB ones)
-    const validOpenIds = currentOpenIds
-
-    if (validOpenIds.length === 0 && allSubChats.length > 0) {
-      // No valid open tabs, open the first sub-chat
-      freshState.addToOpenSubChats(allSubChats[0].id)
-      freshState.setActiveSubChat(allSubChats[0].id)
-    } else if (validOpenIds.length > 0) {
-      // Validate active tab is in open tabs
-      const currentActive = freshState.activeSubChatId
-      if (!currentActive || !validOpenIds.includes(currentActive)) {
-        freshState.setActiveSubChat(validOpenIds[0])
+    // The tab strip doubles as a "recents" view: the first time this
+    // workspace loads, surface its most recently-touched threads as tabs
+    // so the writer sees them at a glance. Older threads stay reachable
+    // from the history (clock) menu. Seeded once per workspace —
+    // afterwards the writer's own open/close choices stand.
+    if (seededRecentSubChatsRef.current !== chatId && allSubChats.length > 0) {
+      seededRecentSubChatsRef.current = chatId
+      const recentSubChatIds = [...allSubChats]
+        .sort((a, b) => {
+          const at = new Date(a.updated_at || a.created_at || 0).getTime()
+          const bt = new Date(b.updated_at || b.created_at || 0).getTime()
+          return bt - at
+        })
+        .slice(0, 8)
+        .map((sc) => sc.id)
+      for (const id of recentSubChatIds) {
+        freshState.addToOpenSubChats(id)
       }
+    }
+
+    // Keep the active tab if it's still open; otherwise fall back to the
+    // first (most recent) open thread.
+    const openIdsNow = useAgentSubChatStore.getState().openSubChatIds
+    const activeNow = freshState.activeSubChatId
+    if (
+      openIdsNow.length > 0 &&
+      (!activeNow || !openIdsNow.includes(activeNow))
+    ) {
+      freshState.setActiveSubChat(openIdsNow[0])
     }
   }, [agentChat, chatId])
 
@@ -6572,15 +6609,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                     />
                   ) : (
                     <>
-                      {/* Header controls - desktop only */}
-                      <AgentsHeaderControls
-                        isSidebarOpen={isSidebarOpen}
-                        onToggleSidebar={onToggleSidebar}
-                        hasUnseenChanges={hasAnyUnseenChanges}
-                        isSubChatsSidebarOpen={
-                          subChatsSidebarMode === "sidebar"
-                        }
-                      />
                       <SubChatSelector
                         onCreateNew={handleCreateNewSubChat}
                         isMobile={false}
