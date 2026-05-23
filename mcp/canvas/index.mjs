@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises"
-import { basename, extname, isAbsolute, join, normalize, relative } from "node:path"
+import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, extname, isAbsolute, join, normalize, relative } from "node:path"
 import Database from "better-sqlite3"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
@@ -472,6 +472,125 @@ function deleteNode(args) {
   }
   db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(nowMs(), canvasId)
   return { deleted: result.changes > 0 }
+}
+
+// Bulk geometry/data update — one transaction, one round-trip. Cuts a
+// 12-node rearrange from 12 tool calls to 1. Each update entry mirrors
+// the canvas_update_node arg shape (nodeId + the same optional fields).
+const bulkUpdateNodes = db.transaction((args) => {
+  activeWorktreeId(args)
+  if (!Array.isArray(args.updates) || args.updates.length === 0) {
+    throw new Error("updates must be a non-empty array.")
+  }
+  const updated = []
+  for (const entry of args.updates) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error("Each update must be an object with nodeId.")
+    }
+    if (typeof entry.nodeId !== "string" || !entry.nodeId.trim()) {
+      throw new Error("Each update needs a nodeId.")
+    }
+    updated.push(normalizeNode(updateNode({ ...entry, worktreeId: args.worktreeId })))
+  }
+  return { updated, count: updated.length }
+})
+
+// Rename the file on disk that backs a canvas asset. Stays in the same
+// subdirectory under assets/canvas/ — the writer's organization (imported
+// vs generated vs stitched) is preserved. Updates the asset row and any
+// node referencing it via data.projectRelativePath / data.outputPath so
+// the canvas keeps rendering after the move.
+async function renameAsset(args) {
+  const worktreeId = activeWorktreeId(args)
+  const assetId = cleanString(args.assetId)
+  if (!assetId) throw new Error("assetId is required.")
+  const requestedName = cleanString(args.newFilename)
+  const newLabel = cleanString(args.newLabel)
+  if (!requestedName && !newLabel) {
+    throw new Error("Pass newFilename to move the file or newLabel to relabel the node.")
+  }
+  const asset = db.prepare("SELECT * FROM canvas_assets WHERE id = ?").get(assetId)
+  if (!asset || asset.worktree_id !== worktreeId) {
+    throw new Error(`Canvas asset not found: ${assetId}`)
+  }
+
+  let nextRelPath = asset.project_relative_path
+  let movedFile = false
+
+  if (requestedName) {
+    if (requestedName.includes("/") || requestedName.includes("\\")) {
+      throw new Error("newFilename must be a bare filename, not a path.")
+    }
+    const sanitized = requestedName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")
+    if (!sanitized) throw new Error("newFilename is empty after sanitization.")
+    const sourceRel = asset.project_relative_path
+    const sourceExt = extname(sourceRel).toLowerCase() || ".png"
+    const candidateExt = extname(sanitized).toLowerCase()
+    const finalName = candidateExt ? sanitized : `${sanitized}${sourceExt}`
+    const finalExt = extname(finalName).toLowerCase()
+    if (finalExt !== sourceExt) {
+      throw new Error(`newFilename extension must stay ${sourceExt} (got ${finalExt}).`)
+    }
+    nextRelPath = safeRelativePath(join(dirname(sourceRel), finalName))
+    if (nextRelPath !== sourceRel) {
+      const collision = db
+        .prepare("SELECT id FROM canvas_assets WHERE worktree_id = ? AND project_relative_path = ?")
+        .get(worktreeId, nextRelPath)
+      if (collision) throw new Error(`Another asset already uses ${nextRelPath}.`)
+      const root = worktreeForId(worktreeId)
+      const src = resolveInsideRoot(root, sourceRel)
+      const dest = resolveInsideRoot(root, nextRelPath)
+      if (!existsSync(src)) throw new Error(`Asset file missing on disk: ${sourceRel}`)
+      if (existsSync(dest)) throw new Error(`File already exists at destination: ${nextRelPath}`)
+      await mkdir(dirname(dest), { recursive: true })
+      await rename(src, dest)
+      movedFile = true
+      db.prepare("UPDATE canvas_assets SET project_relative_path = ? WHERE id = ?")
+        .run(nextRelPath, assetId)
+    }
+  }
+
+  // Sync any node pointing at this asset so labels and paths stay
+  // accurate. We touch image nodes (data.assetId) and imageGeneration
+  // nodes (data.outputAssetId).
+  const linkedRows = db.prepare("SELECT * FROM canvas_nodes").all()
+  const touchedNodeIds = []
+  const touchedCanvasIds = new Set()
+  const ts = nowMs()
+  for (const row of linkedRows) {
+    const data = parseData(row.data)
+    let dirty = false
+    if (data.assetId === assetId) {
+      if (movedFile && data.projectRelativePath !== nextRelPath) {
+        data.projectRelativePath = nextRelPath
+        dirty = true
+      }
+      if (newLabel && data.label !== newLabel) {
+        data.label = newLabel
+        dirty = true
+      }
+    }
+    if (data.outputAssetId === assetId && movedFile && data.outputPath !== nextRelPath) {
+      data.outputPath = nextRelPath
+      dirty = true
+    }
+    if (dirty) {
+      db.prepare("UPDATE canvas_nodes SET data = ?, updated_at = ? WHERE id = ?")
+        .run(stringify(data), ts, row.id)
+      touchedNodeIds.push(row.id)
+      touchedCanvasIds.add(row.canvas_id)
+    }
+  }
+  for (const canvasId of touchedCanvasIds) {
+    db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(ts, canvasId)
+  }
+
+  return {
+    asset: db.prepare("SELECT * FROM canvas_assets WHERE id = ?").get(assetId),
+    movedFile,
+    relabeled: !!newLabel,
+    touchedNodeIds,
+  }
 }
 
 function validateConnection(sourceType, sourceHandle, targetType, targetHandle) {
@@ -959,6 +1078,52 @@ const tools = [
     },
   },
   {
+    name: "canvas_update_nodes",
+    description:
+      "Bulk-update many canvas nodes in one transaction. Each entry takes the same shape as canvas_update_node (nodeId plus any optional x/y/width/height/data/replaceData/locked). Use this for rearranging a selection, tidying a layout, or relabeling several nodes at once — much cheaper than looping canvas_update_node.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        updates: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              nodeId: { type: "string" },
+              x: { type: "number" },
+              y: { type: "number" },
+              width: { type: "number" },
+              height: { type: "number" },
+              data: { type: "object" },
+              replaceData: { type: "boolean" },
+              locked: { type: "boolean" },
+            },
+            required: ["nodeId"],
+          },
+        },
+      },
+      required: ["updates"],
+    },
+  },
+  {
+    name: "canvas_rename_asset",
+    description:
+      "Rename a canvas asset — moves the file on disk under assets/canvas/ (preserving its imported/generated/stitched subfolder) and updates every node that references it so the canvas keeps rendering. Pass `newFilename` to rename the file (bare filename only; extension is preserved automatically if omitted). Pass `newLabel` to update the visible label on the linked image node(s). Either or both may be passed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        assetId: { type: "string" },
+        newFilename: { type: "string" },
+        newLabel: { type: "string" },
+      },
+      required: ["assetId"],
+    },
+  },
+  {
     name: "canvas_delete_node",
     description: "Delete a canvas node and its connected edges.",
     inputSchema: {
@@ -1110,6 +1275,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break
       case "canvas_update_node":
         result = updateNode(args)
+        break
+      case "canvas_update_nodes":
+        result = bulkUpdateNodes(args)
+        break
+      case "canvas_rename_asset":
+        result = await renameAsset(args)
         break
       case "canvas_delete_node":
         result = deleteNode(args)

@@ -24,7 +24,6 @@ import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { InCanvasCropOverlay, type CropRect } from "./canvas-crop-overlay"
 import {
-  autoStitchContainerWidth,
   composeStitch,
   justifiedLayout,
   type StitchMode,
@@ -162,11 +161,27 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     useState<PendingConnection | null>(null)
   const [pointerWorld, setPointerWorld] = useState<{ x: number; y: number } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // While the writer is dragging a group, its children render shifted by
+  // (dx, dy) so the whole unit moves together. The expected* fields let
+  // an effect clear the offset cleanly once the persisted positions catch
+  // up — without that, children snap to their old spot for a frame after
+  // pointer-up and before the refetch lands. expectedMembers stays empty
+  // during the live drag; on commit we populate it with each child's new
+  // (x, y) so the offset only clears after every child mutation refreshes.
+  const [groupDragOffset, setGroupDragOffset] = useState<{
+    groupId: string
+    dx: number
+    dy: number
+    expectedGroupX: number
+    expectedGroupY: number
+    expectedMembers: { id: string; x: number; y: number }[]
+  } | null>(null)
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const [stitchOpen, setStitchOpen] = useState(false)
   const [stitchMode, setStitchMode] = useState<StitchMode>("auto")
-  const [stitchRowHeight, setStitchRowHeight] = useState(360)
-  const [stitchSpacing, setStitchSpacing] = useState(16)
+  const [stitchContainerWidth, setStitchContainerWidth] = useState(1200)
+  const [stitchRowHeight, setStitchRowHeight] = useState(300)
+  const [stitchSpacing, setStitchSpacing] = useState(12)
   const [stitchBackground, setStitchBackground] = useState("transparent")
   const [stitching, setStitching] = useState(false)
   const [stitchError, setStitchError] = useState<string | null>(null)
@@ -504,7 +519,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       return node.width > 0 ? node.width / bodyHeight : 1
     })
     const layout = justifiedLayout(aspects, {
-      containerWidth: autoStitchContainerWidth(stitchRowHeight),
+      containerWidth: stitchContainerWidth,
       targetRowHeight: stitchRowHeight,
       spacing: stitchSpacing,
     })
@@ -541,6 +556,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   }, [
     stitchOpen,
     stitchMode,
+    stitchContainerWidth,
     stitchRowHeight,
     stitchSpacing,
     selectedImageNodes,
@@ -569,6 +585,33 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   // pointer-up, after the closure that started the gesture was created.
   const nodesRef = useRef<CanvasNodeView[]>(nodes)
   nodesRef.current = nodes
+
+  // Drop the live offset once every persisted position (group + children)
+  // catches up to the expected post-drag coords. Clearing it too early
+  // would render children at `oldX + dx` before their own mutation lands
+  // — visible as a one-frame snap right after pointer-up. While the drag
+  // is still live (expectedMembers empty) we never clear: trackedMove
+  // refreshes the offset continuously.
+  useEffect(() => {
+    if (!groupDragOffset) return
+    const group = nodes.find((node) => node.id === groupDragOffset.groupId)
+    if (!group) {
+      setGroupDragOffset(null)
+      return
+    }
+    if (groupDragOffset.expectedMembers.length === 0) return
+    if (
+      group.x !== groupDragOffset.expectedGroupX ||
+      group.y !== groupDragOffset.expectedGroupY
+    ) {
+      return
+    }
+    const allCaughtUp = groupDragOffset.expectedMembers.every((expected) => {
+      const member = nodes.find((node) => node.id === expected.id)
+      return Boolean(member && member.x === expected.x && member.y === expected.y)
+    })
+    if (allCaughtUp) setGroupDragOffset(null)
+  }, [nodes, groupDragOffset])
 
   const addDescription = () => {
     if (!worktreeId) return
@@ -742,20 +785,101 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     }))
   }
 
+  // Walk a list of ids, and for every group in it add the group's children
+  // too. A group is treated as a unit on the canvas — selecting it should
+  // pick up its members so a drag/delete/duplicate moves the whole thing.
+  const expandWithGroupChildren = (ids: Iterable<string>): Set<string> => {
+    const out = new Set<string>()
+    for (const id of ids) {
+      out.add(id)
+      const node = nodesById.get(id)
+      if (!node || node.type !== "group") continue
+      const declared = Array.isArray(node.dataJson.nodeIds)
+        ? (node.dataJson.nodeIds as unknown[]).filter(
+            (value): value is string => typeof value === "string",
+          )
+        : []
+      for (const memberId of declared) out.add(memberId)
+      for (const other of nodes) {
+        if ((other.dataJson as { groupId?: unknown }).groupId === id) {
+          out.add(other.id)
+        }
+      }
+    }
+    return out
+  }
+
   const selectNode = (id: string, additive: boolean) => {
+    const target = nodesById.get(id)
+    const cascade = expandWithGroupChildren([id])
     setSelectedIds((prev) => {
       if (additive) {
         const next = new Set(prev)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
+        // Shift-click toggles the whole unit. If the group itself is in,
+        // pull all members out with it; otherwise add them all.
+        const wasIn = target?.type === "group" ? next.has(id) : next.has(id)
+        for (const memberId of cascade) {
+          if (wasIn) next.delete(memberId)
+          else next.add(memberId)
+        }
         return next
       }
       // A plain press on a node already inside a multi-selection keeps that
       // selection (so the writer can grab one of several). Otherwise it
-      // becomes the sole selection.
-      if (prev.has(id)) return prev
-      return new Set([id])
+      // becomes the sole selection — for groups, that selection cascades
+      // to include children.
+      if (prev.has(id)) {
+        if (target?.type === "group") {
+          let missing = false
+          for (const memberId of cascade) {
+            if (!prev.has(memberId)) {
+              missing = true
+              break
+            }
+          }
+          if (!missing) return prev
+        } else {
+          return prev
+        }
+      }
+      return cascade
     })
+  }
+
+  // Persist new positions for every member of a group after the group's
+  // own drag commits. Pulls the live node list via the ref so the offsets
+  // are computed against the most recently rendered state. We also stamp
+  // the expected post-move coords onto the live offset — the cleanup
+  // effect waits for those to land before dropping the visual shift.
+  const commitGroupMemberMove = (
+    groupId: string,
+    dx: number,
+    dy: number,
+  ) => {
+    if (!worktreeId) return
+    if (dx === 0 && dy === 0) {
+      setGroupDragOffset(null)
+      return
+    }
+    const members = nodesRef.current.filter(
+      (node) =>
+        node.id !== groupId &&
+        (node.dataJson as { groupId?: unknown }).groupId === groupId,
+    )
+    const expectedMembers = members.map((member) => ({
+      id: member.id,
+      x: member.x + dx,
+      y: member.y + dy,
+    }))
+    setGroupDragOffset((prev) => (prev ? { ...prev, expectedMembers } : prev))
+    for (const member of members) {
+      updateNode.mutate({
+        worktreeId,
+        nodeId: member.id,
+        x: member.x + dx,
+        y: member.y + dy,
+      })
+    }
   }
 
   const deleteSelected = () => {
@@ -831,6 +955,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         sources,
         mode: stitchMode,
         settings: {
+          containerWidth: stitchContainerWidth,
           targetRowHeight: stitchRowHeight,
           spacing: stitchSpacing,
           background: stitchBackground,
@@ -1205,7 +1330,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             node.y + node.height > minY,
         )
         .map((node) => node.id)
-      setSelectedIds(new Set(hits))
+      setSelectedIds(expandWithGroupChildren(hits))
     }
 
     element.addEventListener("pointermove", onMove as unknown as EventListener)
@@ -1493,12 +1618,14 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         <StitchPanel
           imageCount={selectedImageNodes.length}
           mode={stitchMode}
+          containerWidth={stitchContainerWidth}
           rowHeight={stitchRowHeight}
           spacing={stitchSpacing}
           background={stitchBackground}
           stitching={stitching}
           error={stitchError}
           onModeChange={setStitchMode}
+          onContainerWidthChange={setStitchContainerWidth}
           onRowHeightChange={setStitchRowHeight}
           onSpacingChange={setStitchSpacing}
           onBackgroundChange={setStitchBackground}
@@ -1690,6 +1817,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             cropRect={null}
             onCropRectChange={setCropRect}
             previewOverride={stitchPreviewOverrides?.get(node.id) ?? null}
+            groupDragOffset={groupDragOffset}
+            onGroupDragOffset={setGroupDragOffset}
+            onGroupDragCommit={commitGroupMemberMove}
           />
         ))}
         <CanvasEdges
@@ -1715,6 +1845,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             cropRect={croppingNodeId === node.id ? cropRect : null}
             onCropRectChange={setCropRect}
             previewOverride={stitchPreviewOverrides?.get(node.id) ?? null}
+            groupDragOffset={groupDragOffset}
+            onGroupDragOffset={setGroupDragOffset}
+            onGroupDragCommit={commitGroupMemberMove}
           />
         ))}
         {selBox && (
@@ -1791,12 +1924,14 @@ function IconButton({
 function StitchPanel({
   imageCount,
   mode,
+  containerWidth,
   rowHeight,
   spacing,
   background,
   stitching,
   error,
   onModeChange,
+  onContainerWidthChange,
   onRowHeightChange,
   onSpacingChange,
   onBackgroundChange,
@@ -1805,12 +1940,14 @@ function StitchPanel({
 }: {
   imageCount: number
   mode: StitchMode
+  containerWidth: number
   rowHeight: number
   spacing: number
   background: string
   stitching: boolean
   error: string | null
   onModeChange: (mode: StitchMode) => void
+  onContainerWidthChange: (value: number) => void
   onRowHeightChange: (value: number) => void
   onSpacingChange: (value: number) => void
   onBackgroundChange: (value: string) => void
@@ -1860,20 +1997,31 @@ function StitchPanel({
       </p>
 
       {mode === "auto" && (
-        <div className="mb-2.5 flex gap-2">
-          <StitchNumberField
+        <div className="mb-2.5 flex flex-col gap-2.5">
+          <StitchRangeSlider
+            label="Output width"
+            unit="px"
+            value={containerWidth}
+            min={400}
+            max={3000}
+            step={50}
+            onChange={onContainerWidthChange}
+          />
+          <StitchRangeSlider
             label="Row height"
+            unit="px"
             value={rowHeight}
-            min={120}
-            max={720}
+            min={80}
+            max={800}
             step={20}
             onChange={onRowHeightChange}
           />
-          <StitchNumberField
+          <StitchRangeSlider
             label="Spacing"
+            unit="px"
             value={spacing}
             min={0}
-            max={80}
+            max={100}
             step={2}
             onChange={onSpacingChange}
           />
@@ -1945,8 +2093,13 @@ function StitchPanel({
   )
 }
 
-function StitchNumberField({
+// Slider control for the stitch panel — label + live readout above the
+// range track. Image-stitch uses the same pattern, so the auto-stitch
+// flow on the canvas now feels identical: drag to restitch, no manual
+// number entry.
+function StitchRangeSlider({
   label,
+  unit,
   value,
   min,
   max,
@@ -1954,6 +2107,7 @@ function StitchNumberField({
   onChange,
 }: {
   label: string
+  unit: string
   value: number
   min: number
   max: number
@@ -1961,23 +2115,22 @@ function StitchNumberField({
   onChange: (value: number) => void
 }) {
   return (
-    <label className="flex-1">
-      <span className="mb-1 block px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
+    <label className="flex flex-col gap-1.5 px-0.5">
+      <div className="flex items-center justify-between text-[10px] font-medium uppercase tracking-wide">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums text-foreground">
+          {value}
+          {unit}
+        </span>
+      </div>
       <input
-        type="number"
-        value={value}
+        type="range"
         min={min}
         max={max}
         step={step}
-        onChange={(event) => {
-          const next = Number(event.target.value)
-          if (Number.isFinite(next)) {
-            onChange(Math.min(max, Math.max(min, next)))
-          }
-        }}
-        className="h-8 w-full rounded-lg border border-border bg-background px-2 text-[12px] font-medium tabular-nums text-foreground outline-none focus:border-primary"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="bl-stitch-range h-1 w-full cursor-pointer appearance-none rounded-full bg-foreground/15 outline-none accent-primary"
       />
     </label>
   )
@@ -1998,6 +2151,9 @@ function CanvasNodeShell({
   cropRect,
   onCropRectChange,
   previewOverride,
+  groupDragOffset,
+  onGroupDragOffset,
+  onGroupDragCommit,
 }: {
   worktreeId: string | null
   worktreePath: string | null
@@ -2027,6 +2183,29 @@ function CanvasNodeShell({
   // visible rect via this override — pointer drag and resize are also
   // suppressed so the writer can't fight the layout.
   previewOverride: { x: number; y: number; width: number; height: number } | null
+  // Live offset broadcast by a group being dragged. Children whose
+  // data.groupId matches the offset's groupId render shifted by (dx, dy)
+  // so the whole unit moves together. The group itself does not consume
+  // this — its own dragPosition state carries its visual displacement.
+  groupDragOffset: {
+    groupId: string
+    dx: number
+    dy: number
+    expectedGroupX: number
+    expectedGroupY: number
+    expectedMembers: { id: string; x: number; y: number }[]
+  } | null
+  onGroupDragOffset: (
+    next: {
+      groupId: string
+      dx: number
+      dy: number
+      expectedGroupX: number
+      expectedGroupY: number
+      expectedMembers: { id: string; x: number; y: number }[]
+    } | null,
+  ) => void
+  onGroupDragCommit: (groupId: string, dx: number, dy: number) => void
 }) {
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null)
   const [dragSize, setDragSize] = useState<{ width: number; height: number } | null>(
@@ -2049,12 +2228,28 @@ function CanvasNodeShell({
       typeof node.dataJson.text === "string" ? node.dataJson.text : ""
     return initialText.length === 0
   })
+  // If a sibling group is being dragged and this node belongs to it,
+  // ride the group's live offset so the whole unit moves together. The
+  // group itself never reads this — it carries its own dragPosition.
+  const ownGroupId =
+    typeof (node.dataJson as { groupId?: unknown }).groupId === "string"
+      ? ((node.dataJson as { groupId?: string }).groupId as string)
+      : null
+  const ridesGroupOffset =
+    node.type !== "group" &&
+    groupDragOffset !== null &&
+    ownGroupId === groupDragOffset.groupId
+  const groupOffsetDx = ridesGroupOffset ? groupDragOffset!.dx : 0
+  const groupOffsetDy = ridesGroupOffset ? groupDragOffset!.dy : 0
+
   // The live stitch preview wins over the persisted rect, but the user's
   // own drag/resize (which is locked anyway while the preview is active)
   // would still win if it ever fired — local interaction always trumps a
   // remote override so input feels responsive.
-  const renderedX = dragPosition?.x ?? previewOverride?.x ?? node.x
-  const renderedY = dragPosition?.y ?? previewOverride?.y ?? node.y
+  const renderedX =
+    (dragPosition?.x ?? previewOverride?.x ?? node.x) + groupOffsetDx
+  const renderedY =
+    (dragPosition?.y ?? previewOverride?.y ?? node.y) + groupOffsetDy
   const renderedWidth = dragSize?.width ?? previewOverride?.width ?? node.width
   const renderedHeight =
     dragSize?.height ?? previewOverride?.height ?? node.height
@@ -2151,6 +2346,7 @@ function CanvasNodeShell({
     element.setPointerCapture(event.pointerId)
 
     const dragPositionRef = { current: null as { x: number; y: number } | null }
+    const isGroup = node.type === "group"
 
     const onUp = () => {
       const next = dragPositionRef.current
@@ -2165,6 +2361,17 @@ function CanvasNodeShell({
           x: next.x,
           y: next.y,
         })
+        // When the group itself just finished moving, push the same
+        // displacement onto each child so the unit lands together. The
+        // parent's effect drops the live offset once the group's coords
+        // catch up to `expectedGroup{X,Y}`.
+        if (isGroup) {
+          onGroupDragCommit(node.id, next.x - node.x, next.y - node.y)
+        }
+      } else if (isGroup) {
+        // No drag actually happened (under threshold) — clear any half-set
+        // offset so children don't stay shifted.
+        onGroupDragOffset(null)
       } else if (isTextBox) {
         // Tap without drag on a text box enters edit mode. Pointer capture
         // re-targets click/dblclick away from the inner div, so we drive
@@ -2197,6 +2404,20 @@ function CanvasNodeShell({
       }
       dragPositionRef.current = next
       setDragPosition(next)
+      if (isGroup) {
+        // Broadcast the live displacement so every child renders shifted
+        // with the group. expectedMembers stays empty during the drag —
+        // it gets populated on commit, which is the cue the cleanup
+        // effect uses to know the move has been persisted.
+        onGroupDragOffset({
+          groupId: node.id,
+          dx: next.x - node.x,
+          dy: next.y - node.y,
+          expectedGroupX: next.x,
+          expectedGroupY: next.y,
+          expectedMembers: [],
+        })
+      }
     }
 
     element.addEventListener("pointermove", trackedMove as unknown as EventListener)

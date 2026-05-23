@@ -976,6 +976,16 @@ files live under \`assets/canvas/\`.
   \`canvas_connect\` from \`image\` to \`referenceImage\`.
 - Run generation with \`canvas_generate_image\`; outputs save under
   \`assets/canvas/generated/\` and link back to the generation node.
+- Move, resize, relabel, or lock nodes with \`canvas_update_node\`
+  (one node) or \`canvas_update_nodes\` (bulk — pass an \`updates\`
+  array). Prefer the bulk form whenever you're rearranging or
+  re-labeling a selection — it runs in one transaction and saves tool
+  calls.
+- Rename an asset file with \`canvas_rename_asset\`. Pass \`assetId\`
+  plus \`newFilename\` (bare filename; extension preserved if omitted)
+  to move the file under \`assets/canvas/\`; pass \`newLabel\` to also
+  update the visible label on the image node. The tool keeps every
+  linked node in sync.
 - For storyboard work, create one group whose label matches the
   storyboard thread/task title — e.g. \`STORYBOARD ALPHA - SCENE 3 -
   SHOTS 4-7\` — then put every storyboard prompt and generation node for

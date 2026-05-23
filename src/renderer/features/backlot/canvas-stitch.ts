@@ -14,6 +14,9 @@
 export type StitchMode = "auto" | "manual"
 
 export interface StitchSettings {
+  // Auto-mode container width — sets how wide a row can grow before the
+  // packer wraps to the next one. Higher = more images per row.
+  containerWidth: number
   // Auto-mode target height for each justified row, in layout pixels.
   targetRowHeight: number
   // Gap between images, in layout pixels (auto mode).
@@ -50,13 +53,6 @@ type Rect = StitchLayoutRect
 
 // Electron caps canvas-backed textures; stay well under it.
 const MAX_STITCH_DIMENSION = 4096
-
-// The container width composeStitch uses for auto-layout — the preview on
-// the canvas must use the same so the rearranged nodes match exactly what
-// the composite produces.
-export function autoStitchContainerWidth(targetRowHeight: number): number {
-  return Math.max(targetRowHeight * 4, 600)
-}
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -152,7 +148,7 @@ export async function composeStitch(input: {
       img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 1,
     )
     const layout = justifiedLayout(aspects, {
-      containerWidth: autoStitchContainerWidth(settings.targetRowHeight),
+      containerWidth: settings.containerWidth,
       targetRowHeight: settings.targetRowHeight,
       spacing: settings.spacing,
     })
