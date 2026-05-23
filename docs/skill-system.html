@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backlot — Skill System · Implementation Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --obsidian:#0A0805;--coral:#F26157;--teal:#79B791;--ember:#FF8C42;
+    --linen:#FFF4EA;--ink:#EDE6DB;--mute:#9A9389;--faint:#6A655D;
+    --line:#2C2A26;--panel:#141310;--panel2:#1B1916;
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+    --body:'Inter',system-ui,sans-serif;
+    --display:'Darker Grotesque','Inter',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--obsidian);color:var(--ink);font-family:var(--body);
+    font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:60px 28px 120px}
+  code{font-family:var(--mono);font-size:.85em;background:#211f1b;color:var(--ember);
+    padding:1.5px 6px;border-radius:4px}
+  strong{color:var(--linen)} .em{color:var(--teal)}
+  a{color:var(--coral);text-decoration:none}
+
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.26em;
+    text-transform:uppercase;color:var(--faint)}
+  h1{font-family:var(--display);font-weight:800;font-size:58px;line-height:.98;
+    letter-spacing:-.02em;margin:12px 0 0}
+  h1 .a{color:var(--coral)}
+  .lede{font-size:17px;color:var(--mute);margin-top:16px;max-width:62ch}
+
+  .model{margin-top:26px;padding:18px 22px;border:1px solid var(--line);
+    border-left:3px solid var(--teal);background:var(--panel);border-radius:10px}
+  .model b{color:var(--teal)}
+
+  nav{margin-top:26px;display:flex;flex-wrap:wrap;gap:8px}
+  nav a{font-family:var(--mono);font-size:11px;color:var(--mute);
+    border:1px solid var(--line);padding:6px 11px;border-radius:6px}
+  nav a:hover{color:var(--linen);border-color:var(--coral)}
+
+  section{margin-top:58px;scroll-margin-top:20px}
+  .tag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--obsidian);background:var(--coral);
+    padding:3px 9px;border-radius:5px;display:inline-block}
+  h2{font-family:var(--display);font-weight:700;font-size:33px;letter-spacing:-.015em;
+    margin:12px 0 6px;line-height:1.05}
+  h3{font-family:var(--display);font-weight:700;font-size:21px;color:var(--linen);
+    margin:26px 0 6px}
+  p{margin:11px 0} p.sub{color:var(--mute)}
+  ul{margin:11px 0 11px 2px;list-style:none}
+  li{padding-left:20px;position:relative;margin:6px 0}
+  li::before{content:"";position:absolute;left:3px;top:10px;width:6px;height:6px;
+    background:var(--coral);border-radius:50%}
+  li.t::before{background:var(--teal)}
+  ol{margin:11px 0 11px 22px} ol li{padding-left:4px} ol li::before{display:none}
+
+  pre{font-family:var(--mono);font-size:12.5px;line-height:1.7;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    margin:14px 0;color:#cdc7bc}
+  pre .c{color:var(--faint)} pre .k{color:var(--coral)} pre .s{color:var(--teal)}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--faint);font-weight:700}
+  td code{font-size:.92em}
+
+  .note{border:1px solid var(--line);border-left:3px solid var(--ember);
+    background:var(--panel);border-radius:10px;padding:13px 17px;margin:16px 0}
+  .note.good{border-left-color:var(--teal)}
+  .note .nl{font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);display:block;margin-bottom:3px}
+
+  .flow{display:flex;gap:0;margin:18px 0;flex-wrap:wrap}
+  .fnode{flex:1;min-width:140px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:13px 14px}
+  .fnode .fh{font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint)}
+  .fnode .fb{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:5px;
+    word-break:break-all}
+  .fnode .fn{font-size:11.5px;color:var(--mute);margin-top:5px}
+  .farr{display:flex;align-items:center;color:var(--coral);font-size:18px;padding:0 7px}
+
+  .skills{columns:3;column-gap:18px;margin:12px 0;font-family:var(--mono);
+    font-size:12px;color:var(--mute)}
+  .skills div{break-inside:avoid;padding:2.5px 0}
+  .skills .new{color:var(--teal)}
+  .cat{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin:14px 0 2px}
+
+  .chk{margin:7px 0;padding-left:26px;position:relative;font-size:14px}
+  .chk::before{content:"✓";position:absolute;left:2px;top:0;color:var(--teal);
+    font-weight:700;font-family:var(--mono)}
+  .chk .cn{color:var(--mute);font-size:12.5px;display:block;margin-top:1px}
+
+  footer{margin-top:70px;padding-top:20px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="kicker">Backlot · Skill System · Final Spec — 2026-05-17</span>
+  <h1>Skill system —<br><span class="a">build spec</span></h1>
+  <p class="lede">Decisions locked. This is what gets built: how skills are
+    stored, shipped, chosen on the Settings page, passed to the agent, and
+    created by the agent.</p>
+
+  <div class="model">
+    <b>The model.</b> One directory — <code>~/.backlot/skills/</code> — holds
+    every skill the Backlot agent can use, one folder each. <code>~/.backlot/</code>
+    is registered with the SDK as a <b>local plugin</b>, so skill discovery is
+    independent of <code>settingSources</code>. The user controls which skills
+    are active in Settings; the agent creates and edits skills through a reviewed
+    diff. The user's real library at <code>~/.claude/skills</code> is never read
+    directly by the agent.
+  </div>
+
+  <nav>
+    <a href="#decisions">Locked decisions</a>
+    <a href="#factory">Factory skills</a>
+    <a href="#pass">Passing skills to the agent</a>
+    <a href="#settings">Settings page</a>
+    <a href="#create">Agent creating skills</a>
+    <a href="#harness">Harness &amp; skill-creator</a>
+    <a href="#build">Build checklist</a>
+  </nav>
+
+  <!-- ============ DECISIONS ============ -->
+  <section id="decisions">
+    <span class="tag">Locked</span>
+    <h2>Decisions</h2>
+    <table>
+      <tr><th>Topic</th><th>Decision</th></tr>
+      <tr><td>Library</td><td>One global <code>~/.backlot/skills/</code>; one active set across all projects.</td></tr>
+      <tr><td>Loading</td><td><code>~/.backlot/</code> is a local plugin (<code>plugins</code> option). Not <code>settingSources</code>.</td></tr>
+      <tr><td>Factory skills</td><td>Bundled in the app; seed the directory on first launch.</td></tr>
+      <tr><td>App update</td><td>Copy <em class="em">new</em> factory skills; refresh <em class="em">unmodified</em> ones; never touch edited ones.</td></tr>
+      <tr><td>Import (<code>.claude</code> &rarr; <code>.backlot</code>)</td><td><strong>Symlink</strong> — one shared file, edits stay consistent across tools.</td></tr>
+      <tr><td>On / off</td><td>A <code>skills-disabled.json</code> off-set; active set passed to the SDK <code>skills</code> option.</td></tr>
+      <tr><td>Editing</td><td><strong>Reviewed</strong> — every skill change goes through the <code>propose_skill_change</code> diff. The skills-gate enforces it.</td></tr>
+      <tr><td>Skill Workbench</td><td>Kept — repointed from the registry to <code>~/.backlot/skills/</code>.</td></tr>
+      <tr><td>Grouping</td><td>Flat alphabetical list in Settings and the Workbench.</td></tr>
+      <tr><td>CLAUDE.md</td><td><code>"user"</code> dropped (the leak). <code>"project"</code> behind a toggle, default ON.</td></tr>
+      <tr><td>Codex</td><td>Codex loads the same <code>~/.backlot/skills/</code> library through Codex's plugin/marketplace mechanism — the Settings toggles govern both agents.</td></tr>
+      <tr><td>Removed</td><td><code>BACKLOT_SKILL_REGISTRY</code>, the old <code>skills-preset.json</code>.</td></tr>
+    </table>
+
+    <h3>Copy vs. symlink — the rule</h3>
+    <table>
+      <tr><th>Movement</th><th>Method</th><th>Real file lives in</th></tr>
+      <tr><td>Factory &rarr; <code>~/.backlot/skills/</code></td><td>Copy (from app bundle)</td><td><code>~/.backlot</code> — Backlot-local</td></tr>
+      <tr><td>Import: <code>~/.claude</code>/<code>~/.agents</code> &rarr; <code>~/.backlot</code></td><td>Symlink</td><td><code>~/.claude</code> — shared</td></tr>
+      <tr><td>Agent creates new skill</td><td>Real in <code>~/.backlot</code> + symlink into <code>~/.claude</code></td><td><code>~/.backlot</code> — shared</td></tr>
+    </table>
+    <p class="sub">Imported and agent-created skills are one file reachable from
+      both directories — edits stay consistent everywhere. Factory skills are
+      Backlot-local copies (they have no <code>~/.claude</code> origin). Reviewed
+      editing is what makes the shared-file model safe: no change lands without
+      your approval.</p>
+  </section>
+
+  <!-- ============ FACTORY ============ -->
+  <section id="factory">
+    <span class="tag">A</span>
+    <h2>What the factory skills are</h2>
+    <p>Factory skills are the curated set <strong>shipped inside the Backlot
+      app</strong>, in <code>resources/skills/</code>. On first launch they are
+      copied into <code>~/.backlot/skills/</code> as real, editable folders. They
+      are the baseline every install starts with — no download, no dependency on
+      the user's existing library.</p>
+
+    <div class="cat">Image generation</div>
+    <div class="skills">
+      <div>higgsfield-generate</div><div>higgsfield-marketplace-cards</div>
+      <div>higgsfield-product-photoshoot</div><div>higgsfield-soul-id</div>
+      <div>mj-nb2-pipeline</div><div>nano-banana-pro</div>
+      <div>product-visual-generator</div><div>recraft-v4-prompting</div>
+    </div>
+    <div class="cat">Video generation</div>
+    <div class="skills">
+      <div>frame-vfx-stylizer</div><div>seedance-higgsfield</div>
+      <div>seedance-screenwriter</div><div>varg-video-generation</div>
+      <div>video-prompt-builder</div>
+    </div>
+    <div class="cat">Characters &amp; avatars</div>
+    <div class="skills">
+      <div>ai-avatar-realistic</div><div>character-consistency-character-sheet</div>
+    </div>
+    <div class="cat">Prompt engineering</div>
+    <div class="skills">
+      <div>burst-frame</div><div>burst-frame-cars</div><div>car-angle-extractor</div>
+      <div>enhance-prompt</div><div>image-to-prompt</div><div>visual-style-replicator</div>
+    </div>
+    <div class="cat">Screenwriting</div>
+    <div class="skills"><div>screenwriter</div></div>
+    <div class="cat">Skill authoring — Backlot-adapted</div>
+    <div class="skills">
+      <div class="new">skill-creator <span style="color:var(--faint)">(adapted)</span></div>
+    </div>
+    <p class="sub">22 curated skills + a <strong>Backlot-adapted
+      <code>skill-creator</code></strong> (see §Harness). On an app update, new
+      factory skills are added; factory skills the user/agent hasn't modified are
+      refreshed to the shipped version; modified ones are left untouched.</p>
+  </section>
+
+  <!-- ============ PASS TO AGENT ============ -->
+  <section id="pass">
+    <span class="tag">B</span>
+    <h2>How skills reach the agent</h2>
+    <p>Two channels, never confused: <code>cwd</code> is the project the agent
+      works on; the <code>plugins</code> option is where its skills come from.</p>
+
+    <div class="flow">
+      <div class="fnode">
+        <div class="fh">Library</div>
+        <div class="fb">~/.backlot/skills/</div>
+        <div class="fn">Every skill, one folder each.</div>
+      </div>
+      <div class="farr">&rarr;</div>
+      <div class="fnode">
+        <div class="fh">Plugin</div>
+        <div class="fb">plugins:[{type:"local",<br>path:"~/.backlot"}]</div>
+        <div class="fn">SDK discovers all skills here.</div>
+      </div>
+      <div class="farr">&rarr;</div>
+      <div class="fnode">
+        <div class="fh">Filter</div>
+        <div class="fb">skills: [enabled]</div>
+        <div class="fn">Active set only — minus the disabled list.</div>
+      </div>
+    </div>
+
+    <pre><span class="c">// the agent session — built each turn</span>
+query({
+  options: {
+    cwd: <span class="s">"&lt;the project worktree&gt;"</span>,          <span class="c">// what the agent edits</span>
+    plugins: [{ type: <span class="s">"local"</span>, path: <span class="s">"~/.backlot"</span> }],   <span class="c">// skill source</span>
+    skills: disabledEmpty ? <span class="s">"all"</span> : enabledNames,  <span class="c">// backlot:&lt;slug&gt;</span>
+    settingSources: loadProjectClaudeMd ? [<span class="s">"project"</span>] : [],
+    systemPrompt: { type:<span class="s">"preset"</span>, preset:<span class="s">"claude_code"</span>,
+                    append: backlotHarness },
+  }
+})</pre>
+
+    <ul>
+      <li><strong>Discovery</strong> — the <code>plugins</code> option loads every skill in <code>~/.backlot/skills/</code>. Independent of <code>settingSources</code>.</li>
+      <li><strong>Enabling</strong> — <code>skills</code> carries the active set (all minus the disabled list). Plugin skills are namespaced <code>backlot:&lt;slug&gt;</code>; the UI shows plain names.</li>
+      <li class="t"><strong>CLAUDE.md</strong> — <code>settingSources</code> only ever holds <code>"project"</code> (toggle on) or nothing (off). <code>"user"</code> is never used — that closes the <code>~/.claude/CLAUDE.md</code> leak.</li>
+    </ul>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="settings">
+    <span class="tag">C</span>
+    <h2>The Settings page — controlling inclusion</h2>
+    <p>A <strong>Skills</strong> entry in Settings opens the page. It has three
+      parts.</p>
+
+    <h3>1 · Active skills</h3>
+    <p>A flat, alphabetical list of every skill currently in
+      <code>~/.backlot/skills/</code> — factory, imported, and agent-created
+      together — each with an on/off toggle.</p>
+    <ul>
+      <li>Toggle <strong>off</strong> &rarr; the slug is written to <code>~/.backlot/skills-disabled.json</code>. The agent stops seeing it next session.</li>
+      <li>Toggle <strong>on</strong> &rarr; slug removed from that file.</li>
+      <li class="t">Anything newly added — seeded, imported, or created — is <strong>on by default</strong> (it's simply not in the disabled list).</li>
+      <li>A <strong>Remove</strong> action per skill: an imported skill drops just its symlink (your real <code>~/.claude</code> skill survives); a factory or created skill removes the folder.</li>
+    </ul>
+
+    <h3>2 · Import from your library</h3>
+    <p>This is the flag/section you described. It scans the union of
+      <code>~/.claude/skills</code> + <code>~/.agents/skills</code> (deduped by
+      slug), and lists skills not yet in Backlot.</p>
+    <ul>
+      <li><strong>Add all</strong> — symlinks every listed skill into <code>~/.backlot/skills/</code> at once.</li>
+      <li><strong>Add</strong> per skill — pick individually.</li>
+      <li>"Add" = create a symlink <code>~/.backlot/skills/&lt;slug&gt;</code> &rarr; the user's skill. Instant, no file copying. Added skills appear in the Active list, on by default.</li>
+    </ul>
+
+    <h3>3 · Behaviour toggles</h3>
+    <ul>
+      <li><strong>Load project CLAUDE.md</strong> — default ON. On &rarr; <code>settingSources:["project"]</code>; off &rarr; <code>[]</code>.</li>
+      <li><strong>Publish agent-created skills to ~/.claude/skills</strong> — default ON. On &rarr; a new skill the agent creates is symlinked into your library so other tools see it.</li>
+    </ul>
+  </section>
+
+  <!-- ============ CREATE ============ -->
+  <section id="create">
+    <span class="tag">D</span>
+    <h2>How the agent creates &amp; edits skills</h2>
+    <p>Every skill change the agent makes is <strong>reviewed</strong>. The agent
+      never writes a <code>SKILL.md</code> with raw file tools — the skills-gate
+      blocks that and redirects it to <code>propose_skill_change</code>.</p>
+
+    <ol>
+      <li>The agent drafts the skill (guided by the adapted <code>skill-creator</code>).</li>
+      <li>It calls <code>propose_skill_change</code> &rarr; you see a diff modal.
+        <ul><li>Editing an existing skill: a normal old-vs-new diff.</li>
+        <li class="t">Creating a new skill: the full proposed <code>SKILL.md</code> shown as an all-new diff to approve.</li></ul></li>
+      <li>You <strong>Approve</strong> or <strong>Dismiss</strong>.</li>
+      <li>On Approve, Backlot writes the skill into <code>~/.backlot/skills/&lt;slug&gt;/</code>.</li>
+      <li class="t">For a <em>new</em> skill, if "Publish to ~/.claude/skills" is on and the name is free there, Backlot also drops a symlink <code>~/.claude/skills/&lt;slug&gt;</code> &rarr; the new folder.</li>
+    </ol>
+
+    <p><strong>Delete</strong> — the agent asks; you get a plain confirm (no diff —
+      nothing to diff). On confirm the folder is removed; if it had a
+      <code>~/.claude</code> symlink, that's removed too.</p>
+
+    <div class="note good">
+      <span class="nl">Why reviewed editing makes the shared file safe</span>
+      Imported and created skills are one file shared with <code>~/.claude</code>.
+      Because every change is a diff you approve first, "consistent everywhere"
+      never means "silently broken everywhere." The review gate is the safety
+      that lets the symlink model work.
+    </div>
+  </section>
+
+  <!-- ============ HARNESS ============ -->
+  <section id="harness">
+    <span class="tag">E</span>
+    <h2>Harness &amp; skill-creator changes</h2>
+    <p>Yes — both need updating. The stock <code>skill-creator</code> skill is
+      generic; it doesn't know <code>~/.backlot/</code> exists and would steer the
+      agent toward <code>~/.claude/skills</code>. Two changes fix that:</p>
+
+    <h3>1 · Harness system-prompt block</h3>
+    <p>Add a section to <code>buildBacklotHarnessBlock()</code> (the
+      <code>append</code> on the <code>claude_code</code> preset):</p>
+    <pre><span class="c">Skills live in ~/.backlot/skills/ — one folder per skill.</span>
+<span class="c">To create, edit, or delete a skill, call propose_skill_change —</span>
+<span class="c">never edit SKILL.md files with raw file tools. Changes are</span>
+<span class="c">reviewed by the user and apply to the next session.</span></pre>
+
+    <h3>2 · Backlot-adapted skill-creator (a factory skill)</h3>
+    <p>Ship an adapted <code>skill-creator</code> in the factory set. It keeps the
+      original's <em class="em">writing guidance</em> — skill anatomy, progressive
+      disclosure, frontmatter, description style — and replaces the
+      environment-specific parts:</p>
+    <ul>
+      <li>Target directory is <code>~/.backlot/skills/&lt;slug&gt;/</code>, stated explicitly — not <code>~/.claude/skills</code>.</li>
+      <li>Writing the skill goes through <code>propose_skill_change</code>, not raw <code>Write</code>.</li>
+      <li class="t">The heavy eval / benchmark / packaging apparatus is trimmed — a Backlot writer wants to capture a workflow, not run a benchmark harness.</li>
+    </ul>
+    <p class="sub">Harness block = the always-on rule. Adapted skill-creator =
+      the how-to the agent reads when actually authoring. Belt and suspenders.</p>
+  </section>
+
+  <!-- ============ BUILD ============ -->
+  <section id="build">
+    <span class="tag">Build</span>
+    <h2>Implementation checklist</h2>
+
+    <div class="chk">Register <code>~/.backlot/</code> as a local plugin — write <code>.claude-plugin/plugin.json</code> (name <code>backlot</code>).</div>
+    <div class="chk">Bundle factory skills in <code>resources/skills/</code> (22 + adapted skill-creator); seed <code>~/.backlot/skills/</code> on first launch.
+      <span class="cn">Record a factory manifest (content hashes) for the update logic.</span></div>
+    <div class="chk">App-update logic — copy new factory skills; refresh unmodified ones (hash vs manifest); skip modified ones.</div>
+    <div class="chk">Session config — add <code>plugins:[~/.backlot]</code>; pass <code>skills</code> filter; <code>settingSources</code> &rarr; <code>["project"]</code>/<code>[]</code>; drop <code>"user"</code>.</div>
+    <div class="chk"><code>skills-disabled.json</code> + Settings on/off toggles (flat alphabetical list).</div>
+    <div class="chk">Settings — Import panel scanning <code>~/.claude/skills</code> + <code>~/.agents/skills</code> (deduped); Add all / per-skill &rarr; creates a <strong>symlink</strong>.</div>
+    <div class="chk">Settings — "Load project CLAUDE.md" toggle (default ON).</div>
+    <div class="chk">Settings — "Publish agent-created skills to ~/.claude/skills" toggle (default ON).</div>
+    <div class="chk">Keep + repoint <code>propose_skill_change</code> to <code>~/.backlot/skills/</code>; extend it to review skill <em>creation</em>; on approved create, publish the <code>~/.claude</code> symlink.</div>
+    <div class="chk">Keep + repoint the skills-gate (blocks raw <code>SKILL.md</code> writes, enforces the review path).</div>
+    <div class="chk">Delete flow — imported skill removes its symlink only; factory/created skill removes the folder (+ its <code>~/.claude</code> symlink).</div>
+    <div class="chk">Repoint Skill Workbench + <code>skill-workbench</code> router + <code>open_skill_workbench</code> to <code>~/.backlot/skills/</code>.</div>
+    <div class="chk">Add the skills block to <code>buildBacklotHarnessBlock()</code>.</div>
+    <div class="chk">Author + bundle the Backlot-adapted <code>skill-creator</code> factory skill.</div>
+    <div class="chk">Remove <code>BACKLOT_SKILL_REGISTRY</code> / <code>registry.ts</code>; discard the old <code>skills-preset.json</code>.</div>
+  </section>
+
+  <footer>
+    Backlot · Skill System · Final Implementation Spec · 2026-05-17<br>
+    one directory &nbsp;·&nbsp; ~/.backlot/skills/ &nbsp;·&nbsp; loaded as a plugin
+    &nbsp;·&nbsp; reviewed edits &nbsp;·&nbsp; no CLAUDE.md leak
+  </footer>
+
+</div>
+</body>
+</html>

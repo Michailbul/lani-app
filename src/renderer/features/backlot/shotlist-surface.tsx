@@ -1,13 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useAtomValue } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import {
   Braces,
   Check,
   Copy,
   FileDown,
+  ImagePlus,
   Languages,
+  ListPlus,
   Loader2,
   MessageSquarePlus,
   Plus,
@@ -35,8 +37,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu"
-import { activeEntityAtom } from "./atoms"
+import {
+  activeEntityAtom,
+  selectedSceneIdAtom,
+  type ActiveEntity,
+} from "./atoms"
 import { ShotlistScreenplay } from "./shotlist-screenplay"
+import { ShotlistSubmodeToggle } from "./shotlist-submode-toggle"
 
 const AUTOSAVE_MS = 600
 const LIVE_POLL_MS = 1500
@@ -118,7 +125,7 @@ function readVersions(shot: ShotPrompt): { versions: string[]; active: number } 
   const versions =
     shot.promptVersions && shot.promptVersions.length > 0
       ? shot.promptVersions
-      : [shot.text ?? ""]
+      : [shot.prompt ?? ""]
   let active = shot.activeVersion ?? 0
   if (!Number.isInteger(active) || active < 0 || active >= versions.length) {
     active = 0
@@ -126,14 +133,14 @@ function readVersions(shot: ShotPrompt): { versions: string[]; active: number } 
   return { versions, active }
 }
 
-/** A Part patch that writes a versions array and keeps `text` in sync. */
+/** A Part patch that writes a versions array and keeps `prompt` in sync. */
 function versionPatch(versions: string[], active: number): Partial<ShotPrompt> {
   const safe = versions.length > 0 ? versions : [""]
   const idx = clamp(active, 0, safe.length - 1)
   return {
     promptVersions: safe,
     activeVersion: idx,
-    text: safe[idx] ?? "",
+    prompt: safe[idx] ?? "",
   }
 }
 
@@ -146,6 +153,29 @@ function scriptPathForShotlist(path: string): string {
   return path
     .replace(/\/shotlist\/shotlist\.backlot\.json$/i, "/scene.fountain")
     .replace(/[^/]+$/, "scene.fountain")
+}
+
+/** Resolve which scene the active project-tree entity points at, if any. */
+function sceneFromActive<T extends { id: string; scriptPath: string }>(
+  active: ActiveEntity,
+  scenes: T[],
+): T | null {
+  if (!active) return null
+  if (active.kind === "scene") {
+    return scenes.find((s) => s.id === active.id) ?? null
+  }
+  // A clicked shotlist.backlot.json — resolve back to its scene.
+  if (active.kind === "shotlist") {
+    const activeScriptPath = scriptPathForShotlist(active.path)
+    return (
+      scenes.find(
+        (s) =>
+          s.scriptPath === activeScriptPath ||
+          shotlistPathForScene(s.scriptPath) === active.path,
+      ) ?? null
+    )
+  }
+  return null
 }
 
 function randomId(): string {
@@ -161,6 +191,11 @@ function renumber(shots: ShotPrompt[]): ShotPrompt[] {
   )
 }
 
+/** Stream a project file to the renderer over the backlot-asset:// scheme. */
+function assetUrl(absPath: string): string {
+  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+}
+
 /** A fresh, empty Part — its screenplay slice may be seeded by the caller. */
 function emptyPart(scriptRef: string): ShotPrompt {
   return {
@@ -171,10 +206,11 @@ function emptyPart(scriptRef: string): ShotPrompt {
     action: "",
     summary: "",
     scriptRef,
-    text: "",
+    prompt: "",
     promptVersions: [""],
     activeVersion: 0,
     tag: "",
+    referenceImages: [],
     status: "draft",
     updatedAt: new Date().toISOString(),
   }
@@ -223,32 +259,34 @@ function ShotlistWorkspace({
   const hierarchy = trpc.entities.list.useQuery(entityRoot)
   const active = useAtomValue(activeEntityAtom)
   const scenes = hierarchy.data?.scenes ?? []
-  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
+  const [pickedSceneId, setPickedSceneId] = useAtom(selectedSceneIdAtom)
+  const lastActivePathRef = useRef<string | null>(active?.path ?? null)
   const activeShotlistPath = active?.kind === "shotlist" ? active.path : null
 
+  // Follow the project tree: when the active entity *changes* to one that
+  // resolves to a scene (a scene file, or a shotlist.backlot.json), jump
+  // the surface to it. A change only — a stable `active` never overrides
+  // the writer's own pick from the scene selector.
   useEffect(() => {
-    if (scenes.length === 0) return
-    const fromActive = (() => {
-      if (active?.kind === "scene") return scenes.find((s) => s.id === active.id)
-      if (active?.kind === "shotlist") {
-        const activeScriptPath = scriptPathForShotlist(active.path)
-        return scenes.find(
-          (s) =>
-            s.scriptPath === activeScriptPath ||
-            shotlistPathForScene(s.scriptPath) === active.path,
-        )
-      }
-      return undefined
-    })()
-    if (fromActive) {
-      if (selectedSceneId !== fromActive.id) setSelectedSceneId(fromActive.id)
-      return
-    }
-    if (selectedSceneId && scenes.some((s) => s.id === selectedSceneId)) return
-    setSelectedSceneId((fromActive ?? scenes[0]!).id)
-  }, [scenes, active, selectedSceneId])
+    const path = active?.path ?? null
+    if (path === lastActivePathRef.current) return
+    lastActivePathRef.current = path
+    const fromActive = sceneFromActive(active, scenes)
+    if (fromActive) setPickedSceneId(fromActive.id)
+  }, [active, scenes])
 
-  const scene = scenes.find((s) => s.id === selectedSceneId) ?? null
+  // Resolve the scene to render: the writer's explicit pick → the active
+  // entity's scene → the only scene. Otherwise null — show the picker.
+  const scene = useMemo(() => {
+    if (pickedSceneId) {
+      const s = scenes.find((x) => x.id === pickedSceneId)
+      if (s) return s
+    }
+    const fromActive = sceneFromActive(active, scenes)
+    if (fromActive) return fromActive
+    return scenes.length === 1 ? (scenes[0] ?? null) : null
+  }, [scenes, active, pickedSceneId])
+
   const sceneOwnsActiveShotlist =
     !!scene &&
     !!activeShotlistPath &&
@@ -273,9 +311,15 @@ function ShotlistWorkspace({
     )
   }
 
+  const sceneOptions: SceneOption[] = scenes.map((s) => ({
+    id: s.id,
+    label: s.label,
+    order: s.order,
+  }))
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {scene && (
+      {scene ? (
         <SceneShotlistView
           key={`${entityRootKey}:${scene.id}`}
           entityRoot={entityRoot}
@@ -284,12 +328,15 @@ function ShotlistWorkspace({
           sceneOrder={scene.order}
           scriptPath={scene.scriptPath}
           shotlistPath={sceneOwnsActiveShotlist ? activeShotlistPath : null}
-          scenes={scenes.map((s) => ({
-            id: s.id,
-            label: s.label,
-            order: s.order,
-          }))}
-          onSelectScene={setSelectedSceneId}
+          scenes={sceneOptions}
+          onSelectScene={setPickedSceneId}
+        />
+      ) : (
+        <ScenePicker
+          mode="Shotlist"
+          blurb="Each scene keeps its own shotlist."
+          scenes={sceneOptions}
+          onPick={setPickedSceneId}
         />
       )}
     </div>
@@ -336,6 +383,7 @@ function SceneShotlistView({
   const write = trpc.shotlists.write.useMutation({
     onError: (err) => toast.error(err.message || "Couldn't save shotlist"),
   })
+  const queueAdd = trpc.queue.addItem.useMutation()
 
   const [doc, setDoc] = useState<SceneShotlist | null>(null)
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
@@ -437,7 +485,7 @@ function SceneShotlistView({
 
   const startShotlist = () => {
     queueSave({
-      schemaVersion: 1,
+      schemaVersion: 2,
       sceneId,
       sceneNumber: sceneOrder != null ? String(sceneOrder) : "",
       heading: sceneLabel,
@@ -590,7 +638,7 @@ function SceneShotlistView({
       `Scene ${doc.sceneNumber || sceneOrder || "?"} · Part ${index + 1}` +
         (shot.action ? ` — ${shot.action}` : ""),
       shot.scriptRef ? `Screenplay:\n${shot.scriptRef}` : "",
-      shot.text ? `Prompt:\n${shot.text}` : "",
+      shot.prompt ? `Prompt:\n${shot.prompt}` : "",
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -605,9 +653,43 @@ function SceneShotlistView({
     toast.success(`Part ${index + 1} added to chat context`)
   }
 
+  /** Push a Part's prompt onto the project's submission queue. */
+  const addToQueue = async (shot: ShotPrompt, index: number) => {
+    if (!doc) return
+    const text = (shot.prompt ?? "").trim()
+    if (!text) {
+      toast.error("Write the prompt before queuing it.")
+      return
+    }
+    const partNum = index + 1
+    const partLabel =
+      `Part ${partNum}` + (shot.action ? ` — ${shot.action}` : "")
+    try {
+      await queueAdd.mutateAsync({
+        ...entityRoot,
+        prompt: shot.prompt,
+        zh: shot.zh,
+        sourceImages: shot.referenceImages ?? [],
+        scriptExcerpt: shot.scriptRef?.trim() || undefined,
+        source: {
+          mode: "shotlist",
+          sceneId: doc.sceneId,
+          label: `Scene ${doc.sceneNumber || sceneOrder || "?"} · ${partLabel}`,
+          sceneName: doc.heading || undefined,
+          partLabel,
+        },
+      })
+      toast.success("Added to the submission queue")
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't add to the queue",
+      )
+    }
+  }
+
   /** Hand the English prompt to the chat thread for a ZH translation. */
   const sendToTranslate = (shot: ShotPrompt, index: number) => {
-    const english = (shot.text ?? "").trim()
+    const english = (shot.prompt ?? "").trim()
     if (!english) {
       toast.error("Write the English prompt first.")
       return
@@ -615,10 +697,9 @@ function SceneShotlistView({
     const message = [
       "Translate this generation prompt into Chinese (ZH) and save it as the Part's ZH prompt.",
       "",
-      "Use the `shotlist_update_shot` MCP tool with:",
-      `  scriptPath: ${scriptPath}`,
-      `  shotId: ${shot.id}`,
-      "  zh: <your Chinese translation>",
+      "Edit the scene's shotlist file directly and set this Part's `zh` field.",
+      `Shotlist: ${relPath}`,
+      `Part id: ${shot.id}`,
       "",
       `English prompt — Part ${index + 1}${
         shot.action ? ` (${shot.action})` : ""
@@ -643,11 +724,9 @@ function SceneShotlistView({
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {/* ── Scene bar — fixed, the surface's masthead. ───────────────── */}
       <header className="no-drag flex h-11 shrink-0 items-center gap-3 border-b border-border/70 px-4">
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2.5">
           <span className="h-3.5 w-[3px] rounded-full bg-primary" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            Shotlist
-          </span>
+          <ShotlistSubmodeToggle />
         </div>
         <Select value={sceneId} onValueChange={onSelectScene}>
           <SelectTrigger className="h-7 w-auto min-w-[230px] rounded-lg border-none bg-transparent px-1.5 shadow-none hover:bg-accent/60">
@@ -731,6 +810,8 @@ function SceneShotlistView({
         />
       ) : (
         <WorkArea
+          entityRoot={entityRoot}
+          relPath={relPath}
           shots={doc.shots}
           selectedShot={selectedShot}
           selectedIndex={resolvedIndex}
@@ -745,6 +826,8 @@ function SceneShotlistView({
           onMerge={mergeAt}
           onAddToContext={() => addToContext(selectedShot, resolvedIndex)}
           onSendToTranslate={() => sendToTranslate(selectedShot, resolvedIndex)}
+          onAddToQueue={() => addToQueue(selectedShot, resolvedIndex)}
+          addingToQueue={queueAdd.isPending}
         />
       )}
     </div>
@@ -857,6 +940,8 @@ function ScreenplaySeed({
 // ── Work area — prompt | screenplay ───────────────────────────────────────
 
 function WorkArea({
+  entityRoot,
+  relPath,
   shots,
   selectedShot,
   selectedIndex,
@@ -871,7 +956,11 @@ function WorkArea({
   onMerge,
   onAddToContext,
   onSendToTranslate,
+  onAddToQueue,
+  addingToQueue,
 }: {
+  entityRoot: EntityRoot
+  relPath: string
   shots: ShotPrompt[]
   selectedShot: ShotPrompt
   selectedIndex: number
@@ -886,6 +975,8 @@ function WorkArea({
   onMerge: (index: number) => void
   onAddToContext: () => void
   onSendToTranslate: () => void
+  onAddToQueue: () => void
+  addingToQueue: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -922,11 +1013,15 @@ function WorkArea({
         style={{ width: `calc(${promptFraction * 100}% - 7px)` }}
       >
         <PromptColumn
+          entityRoot={entityRoot}
+          relPath={relPath}
           shot={selectedShot}
           index={selectedIndex}
           onChange={onChangeSelected}
           onAddToContext={onAddToContext}
           onSendToTranslate={onSendToTranslate}
+          onAddToQueue={onAddToQueue}
+          addingToQueue={addingToQueue}
         />
       </div>
       <PanelResizer onResize={beginColResize} />
@@ -967,17 +1062,25 @@ function PanelResizer({
 type PromptLang = "en" | "zh"
 
 function PromptColumn({
+  entityRoot,
+  relPath,
   shot,
   index,
   onChange,
   onAddToContext,
   onSendToTranslate,
+  onAddToQueue,
+  addingToQueue,
 }: {
+  entityRoot: EntityRoot
+  relPath: string
   shot: ShotPrompt
   index: number
   onChange: (patch: Partial<ShotPrompt>) => void
   onAddToContext: () => void
   onSendToTranslate: () => void
+  onAddToQueue: () => void
+  addingToQueue: boolean
 }) {
   const { versions, active } = readVersions(shot)
   const activeText = versions[active] ?? ""
@@ -985,6 +1088,64 @@ function PromptColumn({
   const [lang, setLang] = useState<PromptLang>("en")
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addReferences = trpc.shotlists.addPartReferenceImages.useMutation()
+
+  const mergeAddedReferences = (added: string[]) => {
+    if (added.length === 0) return
+    const existing = shot.referenceImages ?? []
+    const merged = [...existing, ...added.filter((p) => !existing.includes(p))]
+    if (merged.length === existing.length) return
+    onChange({ referenceImages: merged })
+  }
+
+  const pickAndAddReferences = async () => {
+    try {
+      const result = await addReferences.mutateAsync({
+        ...entityRoot,
+        relPath,
+      })
+      mergeAddedReferences(result.added)
+      if (result.added.length > 0) {
+        toast.success(
+          result.added.length === 1
+            ? "Reference image added"
+            : `${result.added.length} reference images added`,
+        )
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't add reference images",
+      )
+    }
+  }
+
+  const dropAddReferences = async (sourcePaths: string[]) => {
+    if (sourcePaths.length === 0) return
+    try {
+      const result = await addReferences.mutateAsync({
+        ...entityRoot,
+        relPath,
+        sourcePaths,
+      })
+      mergeAddedReferences(result.added)
+      if (result.added.length > 0) {
+        toast.success(
+          result.added.length === 1
+            ? "Reference image added"
+            : `${result.added.length} reference images added`,
+        )
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't add reference images",
+      )
+    }
+  }
+
+  const removeReference = (path: string) => {
+    const next = (shot.referenceImages ?? []).filter((p) => p !== path)
+    onChange({ referenceImages: next })
+  }
 
   useEffect(() => {
     return () => {
@@ -1139,6 +1300,19 @@ function PromptColumn({
           </button>
           <button
             type="button"
+            onClick={onAddToQueue}
+            disabled={addingToQueue}
+            title="Add this part's prompt to the submission queue"
+            className="press flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/65 transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            {addingToQueue ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ListPlus className="h-4 w-4" />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={copyPrompt}
             title={isZh ? "Copy ZH prompt" : "Copy prompt"}
             className={cn(
@@ -1156,6 +1330,16 @@ function PromptColumn({
           </button>
         </div>
       </div>
+
+      {/* Reference images — visual refs and/or prompt inputs for this Part. */}
+      <PartReferences
+        entityRoot={entityRoot}
+        images={shot.referenceImages ?? []}
+        adding={addReferences.isPending}
+        onAdd={pickAndAddReferences}
+        onDropPaths={dropAddReferences}
+        onRemove={removeReference}
+      />
 
       {/* Body — the prompt, capped to a readable measure. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1186,6 +1370,157 @@ function PromptColumn({
           {bodyText.length.toLocaleString()} chars
         </span>
       </div>
+    </div>
+  )
+}
+
+// ── Reference images for a Part ───────────────────────────────────────────
+
+function PartReferences({
+  entityRoot,
+  images,
+  adding,
+  onAdd,
+  onDropPaths,
+  onRemove,
+}: {
+  entityRoot: EntityRoot
+  images: string[]
+  adding: boolean
+  onAdd: () => void
+  onDropPaths: (paths: string[]) => void
+  onRemove: (path: string) => void
+}) {
+  const [dragging, setDragging] = useState(false)
+
+  const collectDroppedPaths = (e: React.DragEvent): string[] => {
+    const files = Array.from(e.dataTransfer.files)
+    return files
+      .map(
+        (file) =>
+          window.webUtils?.getPathForFile?.(file) ??
+          (file as File & { path?: string }).path ??
+          "",
+      )
+      .filter((p) => p.length > 0)
+  }
+
+  return (
+    <div
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault()
+          setDragging(true)
+        }
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = "copy"
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setDragging(false)
+        }
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return
+        e.preventDefault()
+        setDragging(false)
+        const paths = collectDroppedPaths(e)
+        if (paths.length > 0) onDropPaths(paths)
+      }}
+      className={cn(
+        "flex shrink-0 items-center gap-2.5 rounded-lg pb-2.5 transition-colors",
+        dragging && "bg-primary/[0.06] ring-1 ring-primary/40",
+      )}
+    >
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/45">
+        Refs
+      </span>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5">
+        {images.map((path) => (
+          <PartReferenceThumb
+            key={path}
+            entityRoot={entityRoot}
+            path={path}
+            onRemove={() => onRemove(path)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          title="Add reference images"
+          className={cn(
+            "press flex h-14 w-14 shrink-0 items-center justify-center rounded-lg",
+            "border border-dashed border-border text-muted-foreground/55",
+            "transition-colors hover:border-primary/60 hover:bg-foreground/[0.04] hover:text-foreground",
+            "disabled:pointer-events-none disabled:opacity-50",
+          )}
+        >
+          {adding ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ImagePlus className="h-4 w-4" />
+          )}
+        </button>
+        {images.length === 0 && !adding && (
+          <span className="shrink-0 pl-0.5 text-[11px] text-muted-foreground/45">
+            Drop or pick reference images for this part
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PartReferenceThumb({
+  entityRoot,
+  path,
+  onRemove,
+}: {
+  entityRoot: EntityRoot
+  path: string
+  onRemove: () => void
+}) {
+  const resolved = trpc.entities.resolvePath.useQuery(
+    { ...entityRoot, entityPath: path },
+    { staleTime: 60_000 },
+  )
+  const name = path.split("/").pop() ?? path
+  const url = resolved.data?.absPath ? assetUrl(resolved.data.absPath) : null
+
+  return (
+    <div
+      title={name}
+      className="group/thumb relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-foreground/[0.04] ring-1 ring-border/70"
+    >
+      {url ? (
+        <img
+          src={url}
+          alt={name}
+          draggable={false}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground/35">
+          <ImagePlus className="h-4 w-4" />
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove reference"
+        className={cn(
+          "absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full",
+          "bg-background/85 text-foreground/70 opacity-0 transition-opacity",
+          "group-hover/thumb:opacity-100 hover:bg-destructive hover:text-white",
+        )}
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
     </div>
   )
 }
@@ -1271,6 +1606,52 @@ function ShotlistEmpty({
       <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
         {message}
       </p>
+    </div>
+  )
+}
+
+// ── Scene picker — the mode's landing page when no scene is in context ────
+
+function ScenePicker({
+  mode,
+  blurb,
+  scenes,
+  onPick,
+}: {
+  mode: string
+  blurb: string
+  scenes: SceneOption[]
+  onPick: (id: string) => void
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-10">
+      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/60">
+        {mode}
+      </span>
+      <p className="mt-2 text-sm font-medium text-foreground">Pick a scene</p>
+      <p className="mt-1 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
+        {blurb}
+      </p>
+      <div className="mt-5 flex w-full max-w-sm flex-col gap-1">
+        {scenes.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onPick(s.id)}
+            className={cn(
+              "press flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2.5 text-left",
+              "transition-colors hover:border-border hover:bg-foreground/[0.04]",
+            )}
+          >
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {s.order != null ? String(s.order).padStart(2, "0") : "—"}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
+              {s.label}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

@@ -8,6 +8,7 @@
 import { atom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 import { selectedProjectAtom } from "../agents/atoms"
+import { activeEntityFromPath, labelFromFilename } from "./entity-kind"
 
 // ────────────────────────────────────────────────────────────────────────
 // Active entity — what the user has selected in the project tree.
@@ -85,6 +86,26 @@ export type ActiveEntity =
       path: string
     }
   | {
+      // The project's submission queue (queue.backlot.json). Opens in
+      // the Queue workdesk surface, not a text editor.
+      kind: "queue"
+      label: string
+      path: string
+    }
+  | {
+      // Image asset (png / jpg / webp / gif / svg …). Opens in the
+      // AssetPreviewPane instead of a text editor.
+      kind: "image"
+      label: string
+      path: string
+    }
+  | {
+      // Video asset (mp4 / mov / webm …). Opens in the AssetPreviewPane.
+      kind: "video"
+      label: string
+      path: string
+    }
+  | {
       // Generic file — anything in the worktree that doesn't match the
       // canonical schema (brief / world / main-script / character /
       // location / act / scene / shot). The Cursor-style file tree
@@ -106,7 +127,25 @@ export const activeEntityAtom = atom(
   (get) => {
     const projectId = get(selectedProjectAtom)?.id
     if (!projectId) return null
-    return get(activeEntityByProjectAtom)[projectId] ?? null
+    const stored = get(activeEntityByProjectAtom)[projectId] ?? null
+    if (!stored) return null
+    if (typeof stored.path !== "string" || !stored.path) return null
+    // A persisted entity freezes whatever `kind` the path heuristic
+    // produced when it was first opened. Once the recognition rules
+    // grow — e.g. multishot.backlot.json gaining its own surface — an
+    // entity saved earlier as a generic "file" would stay "file" and
+    // open as raw JSON until re-clicked. Re-derive `kind` from the
+    // stored path so classification is always current; the legacy
+    // master-script artifact keeps its kind (its path would otherwise
+    // re-derive to main-script).
+    if (stored.kind === "master-script") {
+      return { kind: "master-script" as const, path: stored.path }
+    }
+    const label =
+      "label" in stored && typeof stored.label === "string"
+        ? stored.label
+        : labelFromFilename(stored.path.split("/").pop() ?? stored.path)
+    return activeEntityFromPath(stored.path, label)
   },
   (get, set, entity: ActiveEntity) => {
     const projectId = get(selectedProjectAtom)?.id
@@ -128,20 +167,29 @@ export const projectTreeOpenAtom = atomWithStorage<boolean>(
 )
 
 // ────────────────────────────────────────────────────────────────────────
-// View mode — the user's pipeline stage. Distinct surfaces, NOT a
-// split. Screenwriting mode = the screenplay editor takes the whole
-// center; Multishot mode = the scene's screenplay paired with one
-// multi-shot generation prompt; Shotlist mode = the scene cut into Parts
-// with per-Part prompts; Canvas mode = the visual board. The user toggles
-// between them as a workflow shift, not as a layout preference.
+// View mode — the user's pipeline stage. Distinct surfaces, NOT a split.
+//
+//   Screenwriting → the screenplay editor takes the whole center.
+//   Shotlist      → a scene broken into shots. Holds two submodes (see
+//                   shotlistSubmodeAtom): the Shotlist itself (many Parts)
+//                   and the Multishot (one multi-shot prompt).
+//   Skill         → the skill workbench.
+//   Canvas        → the visual board.
+//   Queue         → the submission tracker — prompts drafted in
+//                   Shotlist/Multishot land here for execution.
+//   Library       → the project's bookshelf of reusable workflows,
+//                   character-sheet templates and saved prompts.
+//
+// The user toggles between them as a workflow shift, not a layout pref.
 // ────────────────────────────────────────────────────────────────────────
 
 export type ViewMode =
   | "screenwriting"
-  | "multishot"
   | "shotlist"
-  | "canvas"
   | "skill"
+  | "canvas"
+  | "queue"
+  | "library"
 
 // Remembered per project — each project keeps its own pipeline stage.
 const viewModeByProjectAtom = atomWithStorage<Record<string, ViewMode>>(
@@ -153,7 +201,14 @@ export const viewModeAtom = atom(
   (get) => {
     const projectId = get(selectedProjectAtom)?.id
     if (!projectId) return "screenwriting" as ViewMode
-    return get(viewModeByProjectAtom)[projectId] ?? "screenwriting"
+    const stored = get(viewModeByProjectAtom)[projectId]
+    // Legacy: the standalone "multishot" mode is now a submode of
+    // Shotlist — migrate any persisted value forward.
+    if ((stored as string) === "multishot") return "shotlist"
+    // Legacy: the project-wide "prompts" surface was removed; prompts
+    // flow straight from Shotlist/Multishot into the Queue.
+    if ((stored as string) === "prompts") return "queue"
+    return stored ?? "screenwriting"
   },
   (get, set, mode: ViewMode) => {
     const projectId = get(selectedProjectAtom)?.id
@@ -162,6 +217,64 @@ export const viewModeAtom = atom(
       ...get(viewModeByProjectAtom),
       [projectId]: mode,
     })
+  },
+)
+
+// ────────────────────────────────────────────────────────────────────────
+// Shotlist submode — the Shotlist mode holds two surfaces the user
+// toggles between: the Shotlist (a scene cut into many Parts, each with
+// its own prompt) and the Multishot (the scene kept whole, one multi-shot
+// prompt). They are distinct workflows; the toggle just lives under one
+// dock button. Remembered per project.
+// ────────────────────────────────────────────────────────────────────────
+
+export type ShotlistSubmode = "shotlist" | "multishot"
+
+const shotlistSubmodeByProjectAtom = atomWithStorage<
+  Record<string, ShotlistSubmode>
+>("backlot:shotlist-submode-by-project", {})
+
+export const shotlistSubmodeAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return "shotlist" as ShotlistSubmode
+    return get(shotlistSubmodeByProjectAtom)[projectId] ?? "shotlist"
+  },
+  (get, set, submode: ShotlistSubmode) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    set(shotlistSubmodeByProjectAtom, {
+      ...get(shotlistSubmodeByProjectAtom),
+      [projectId]: submode,
+    })
+  },
+)
+
+// ────────────────────────────────────────────────────────────────────────
+// Selected scene — shared by the Shotlist and Multishot surfaces so that
+// toggling between the two submodes (or leaving and re-entering the mode)
+// keeps the writer on the same scene. Remembered per project; `null` =
+// no scene chosen yet, which lands the surface on its scene picker.
+// ────────────────────────────────────────────────────────────────────────
+
+const selectedSceneByProjectAtom = atomWithStorage<Record<string, string>>(
+  "backlot:selected-scene-by-project",
+  {},
+)
+
+export const selectedSceneIdAtom = atom(
+  (get) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return null
+    return get(selectedSceneByProjectAtom)[projectId] ?? null
+  },
+  (get, set, sceneId: string | null) => {
+    const projectId = get(selectedProjectAtom)?.id
+    if (!projectId) return
+    const next = { ...get(selectedSceneByProjectAtom) }
+    if (sceneId) next[projectId] = sceneId
+    else delete next[projectId]
+    set(selectedSceneByProjectAtom, next)
   },
 )
 
@@ -190,9 +303,62 @@ export interface SkillWorkbenchTab {
   pane: "left" | "right"
 }
 
-export const skillWorkbenchTabsAtom = atomWithStorage<SkillWorkbenchTab[]>(
+type SkillWorkbenchTabsUpdate =
+  | SkillWorkbenchTab[]
+  | ((current: SkillWorkbenchTab[]) => SkillWorkbenchTab[])
+
+const rawSkillWorkbenchTabsAtom = atomWithStorage<unknown[]>(
   "backlot:skill-workbench-tabs",
   [],
+)
+
+function normalizeSkillWorkbenchTabs(value: unknown): SkillWorkbenchTab[] {
+  if (!Array.isArray(value)) return []
+
+  const tabs: SkillWorkbenchTab[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const candidate = item as Partial<SkillWorkbenchTab>
+    if (
+      typeof candidate.skillName !== "string" ||
+      typeof candidate.skillDir !== "string" ||
+      typeof candidate.relPath !== "string"
+    ) {
+      continue
+    }
+
+    const skillName = candidate.skillName.trim()
+    const skillDir = candidate.skillDir.trim()
+    const relPath = candidate.relPath.trim()
+    if (!skillName || !skillDir || !relPath) continue
+
+    const id =
+      typeof candidate.id === "string" && candidate.id.trim()
+        ? candidate.id
+        : `${skillName}::${relPath}`
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    tabs.push({
+      id,
+      skillName,
+      skillDir,
+      relPath,
+      pane: candidate.pane === "right" ? "right" : "left",
+    })
+  }
+
+  return tabs
+}
+
+export const skillWorkbenchTabsAtom = atom(
+  (get) => normalizeSkillWorkbenchTabs(get(rawSkillWorkbenchTabsAtom)),
+  (get, set, update: SkillWorkbenchTabsUpdate) => {
+    const current = normalizeSkillWorkbenchTabs(get(rawSkillWorkbenchTabsAtom))
+    const tabs = typeof update === "function" ? update(current) : update
+    set(rawSkillWorkbenchTabsAtom, normalizeSkillWorkbenchTabs(tabs))
+  },
 )
 
 /** Active tab id per pane. `null` = that pane has no active tab. */
@@ -253,3 +419,38 @@ export const threadStripHeightAtom = atomWithStorage<number>(
   "backlot:thread-strip-height",
   60,
 )
+
+/**
+ * Library mode — width of the detail panel that slides in from the
+ * right when a workflow card is opened. Resizable via the panel's
+ * left edge; min/max clamps live in the surface so the gallery
+ * always has a sensible amount of room beside it.
+ */
+export const libraryPanelWidthAtom = atomWithStorage<number>(
+  "backlot:library-panel-width",
+  520,
+)
+
+/**
+ * Library mode — height of the detail panel's hero image strip.
+ *
+ * `0` is a sentinel that means "use the native 16:9 aspect of the
+ * panel's current width" — the hero defaults to a cinematic frame
+ * and adapts as the panel is resized. Once the user grabs the handle
+ * to deviate from 16:9, the explicit pixel height is stored and
+ * persisted. Clamped in the surface so the body always has room.
+ */
+export const libraryHeroHeightAtom = atomWithStorage<number>(
+  "backlot:library-hero-height",
+  0,
+)
+
+/**
+ * Transient — how many pixels at the right edge of the workspace
+ * are currently occupied by an open overlay panel (e.g. the Library
+ * detail panel). The floating ModeDock reads this and shifts left
+ * by the same amount so it always centres over the *visible*
+ * canvas, never under an open panel. Not persisted; resets to 0 on
+ * navigation away.
+ */
+export const workspaceRightInsetAtom = atom<number>(0)

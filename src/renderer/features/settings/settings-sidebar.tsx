@@ -75,7 +75,7 @@ const ADVANCED_TABS_BASE = [
   },
   {
     id: "system-prompt" as SettingsTab,
-    label: "System Prompt",
+    label: "Harness",
     icon: ScrollText,
   },
   {

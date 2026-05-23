@@ -5,9 +5,9 @@
  *
  * A CodeMirror 6 editor whose buffer is raw Fountain, decorated so it
  * reads like a typeset screenplay page: Courier on a centred "paper"
- * leaf, scene headings bold, dialogue and character names indented,
- * transitions right-aligned. The text never leaves Fountain — the
- * decorations are pure presentation.
+ * leaf, scene headings bold, Backlot `SHOT A:` headings marked,
+ * dialogue and character names indented, transitions right-aligned.
+ * The text never leaves Fountain — the decorations are pure presentation.
  *
  * The point of styled-source over a render/edit swap: there is no
  * swap. The writer always sees the same screenplay-shaped surface and

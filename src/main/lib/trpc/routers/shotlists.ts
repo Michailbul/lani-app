@@ -1,15 +1,31 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path"
+import { BrowserWindow, dialog } from "electron"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
 import { z } from "zod"
 import { chats, getDatabase, projects } from "../../db"
 import {
+  IMAGE_EXTENSIONS,
+  isSupportedImagePath,
+  uniqueDestination,
+} from "../../media-utils"
+import {
   normalizeShotlist,
   type SceneShotlist,
 } from "../../../../shared/shotlist-types"
 import { publicProcedure, router } from "../index"
+
+/** Scene-level flat folder where Part reference images live. */
+const SCENE_REFERENCES_DIRNAME = "references"
 
 type RootInput = {
   chatId?: string | null
@@ -79,6 +95,7 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     console.warn("[shotlists.write] user edit settlement skipped:", err)
   }
 }
+
 
 const rootInput = {
   chatId: z.string().optional(),
@@ -158,5 +175,73 @@ export const shotlistsRouter = router({
       } catch {
         return { exists: false as const, text: "" }
       }
+    }),
+
+  /**
+   * Copy reference images into the scene's flat `references/` folder
+   * and return their project-relative paths. The Shotlist surface
+   * appends these to the active Part's `referenceImages` and saves the
+   * doc through the normal `write` mutation — so an in-flight edit is
+   * never clobbered.
+   *
+   * When `sourcePaths` is provided (drag-and-drop), those paths are
+   * used directly. When absent, a native file picker opens. Files that
+   * aren't supported images or don't exist are skipped silently; the
+   * response lists only the paths actually copied.
+   *
+   * Filename collisions resolve via `-2`, `-3`… suffixes — the original
+   * descriptive filename is preserved so the same image can serve more
+   * than one Part as the shotlist is re-cut.
+   */
+  addPartReferenceImages: publicProcedure
+    .input(
+      z.object({
+        ...rootInput,
+        relPath: z.string().min(1),
+        sourcePaths: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { root } = resolveRoot(input)
+      if (!root) throw new Error("No project root or worktree resolved.")
+
+      let sources = (input.sourcePaths ?? []).filter(
+        (p) => isAbsolute(p) && existsSync(p),
+      )
+
+      if (sources.length === 0) {
+        const window =
+          (ctx as { getWindow?: () => BrowserWindow | null }).getWindow?.() ??
+          BrowserWindow.getFocusedWindow()
+        if (!window) return { added: [] as string[] }
+        if (!window.isFocused()) {
+          window.focus()
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        const picked = await dialog.showOpenDialog(window, {
+          properties: ["openFile", "multiSelections"],
+          title: "Add reference images",
+          buttonLabel: "Add references",
+          filters: [{ name: "Images", extensions: IMAGE_EXTENSIONS }],
+        })
+        if (picked.canceled || picked.filePaths.length === 0) {
+          return { added: [] as string[] }
+        }
+        sources = picked.filePaths
+      }
+
+      const sceneFolderRel = dirname(input.relPath)
+      const mediaRel = join(sceneFolderRel, SCENE_REFERENCES_DIRNAME)
+      const mediaDir = resolveInside(root, mediaRel)
+      await mkdir(mediaDir, { recursive: true })
+
+      const added: string[] = []
+      for (const src of sources) {
+        if (!isSupportedImagePath(src)) continue
+        const destination = uniqueDestination(mediaDir, basename(src))
+        await copyFile(src, destination)
+        added.push(relative(root, destination))
+      }
+      return { added }
     }),
 })

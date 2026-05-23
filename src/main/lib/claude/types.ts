@@ -47,10 +47,13 @@ export type UIMessageChunk =
   // Session initialization (MCP servers, plugins, tools)
   | {
       type: "session-init"
+      runtime?: "acp" | "app-server"
       tools: string[]
       mcpServers: MCPServer[]
       plugins: { name: string; path: string }[]
       skills: string[]
+      models?: unknown[]
+      account?: unknown
     }
 
 export type MCPServerStatus = "connected" | "failed" | "pending" | "needs-auth"
@@ -83,6 +86,10 @@ export type ModelUsageEntry = {
 
 export type MessageMetadata = {
   sessionId?: string
+  threadId?: string
+  appServerSessionId?: string
+  providerTurnId?: string
+  threadConfigFingerprint?: string
   sdkMessageUuid?: string // SDK's message UUID for resumeSessionAt (rollback support)
   inputTokens?: number
   outputTokens?: number

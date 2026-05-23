@@ -1,0 +1,20 @@
+{
+  "skill_name": "character-consistency-character-sheet",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to create a consistent AI character for my short film. I have a photo of an actress and I need a character sheet with multiple angles so I can use her in different scenes.",
+      "expected_output": "Provide the character sheet prompt with reference image instructions, explain the 7-view layout, and mention generating 4 outputs to pick the best."
+    },
+    {
+      "id": 2,
+      "prompt": "How do I keep my AI character looking the same when I change their outfit? I already have a character sheet.",
+      "expected_output": "Provide the wardrobe change prompt and explain using the character sheet as image reference."
+    },
+    {
+      "id": 3,
+      "prompt": "I need to create an AI influencer character from scratch. No reference photo, just a description. How do I make a character sheet?",
+      "expected_output": "Provide the text-only character sheet prompt and explain the workflow."
+    }
+  ]
+}

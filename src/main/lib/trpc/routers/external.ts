@@ -123,4 +123,12 @@ export const externalRouter = router({
 			await shell.openExternal(url);
 			return { success: true };
 		}),
+
+	/** Open a local file with the OS default application. */
+	openPath: publicProcedure
+		.input(z.string())
+		.mutation(async ({ input: inputPath }) => {
+			await shell.openPath(expandTilde(inputPath));
+			return { success: true };
+		}),
 });

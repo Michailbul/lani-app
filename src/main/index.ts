@@ -27,6 +27,10 @@ import {
   parseLaunchDirectory,
 } from "./lib/cli"
 import { cleanupGitWatchers } from "./lib/git/watcher"
+import {
+  registerAssetProtocolHandler,
+  registerAssetScheme,
+} from "./lib/asset-protocol"
 import { cancelAllPendingOAuth, handleMcpOAuthCallback } from "./lib/mcp-auth"
 import {
   createMainWindow,
@@ -41,6 +45,10 @@ import { IS_DEV, AUTH_SERVER_PORT } from "./constants"
 // Deep link protocol (must match package.json build.protocols.schemes)
 // Use different protocol in dev to avoid conflicts with production app
 const PROTOCOL = IS_DEV ? "twentyfirst-agents-dev" : "twentyfirst-agents"
+
+// Register the backlot-asset:// media scheme as privileged. This MUST
+// happen before the app `ready` event, so it runs here at module load.
+registerAssetScheme()
 
 // Set dev mode userData path BEFORE requestSingleInstanceLock()
 // This ensures dev and prod have separate instance locks
@@ -619,6 +627,14 @@ if (gotTheLock) {
     // Register protocol handler (must be after app is ready)
     initialRegistration = registerProtocol()
 
+    // Serve local media to renderer windows. BrowserWindow uses the
+    // `persist:main` partition, so the handler must be registered on
+    // that session's protocol object rather than only on defaultSession.
+    registerAssetProtocolHandler(
+      session.fromPartition("persist:main").protocol,
+      "persist:main",
+    )
+
     // Handle deep link on macOS (app already running)
     app.on("open-url", (event, url) => {
       console.log("[Protocol] open-url event received:", url)
@@ -947,6 +963,19 @@ if (gotTheLock) {
         console.error("[App] MCP warmup failed:", error)
       }
     }, 3000)
+
+    // Seed the Backlot skill library (~/.backlot/skills/) from the
+    // bundled factory skills, and set up the plugin manifest. Idempotent
+    // — runs in the background so a fresh install has its skills ready
+    // before the user opens Settings or starts a chat.
+    setTimeout(async () => {
+      try {
+        const { ensureBacklotPlugin } = await import("./lib/skills/library")
+        await ensureBacklotPlugin()
+      } catch (error) {
+        console.error("[App] Backlot skill seeding failed:", error)
+      }
+    }, 1000)
 
     // Handle directory argument from CLI (e.g., `1code /path/to/project`)
     parseLaunchDirectory()

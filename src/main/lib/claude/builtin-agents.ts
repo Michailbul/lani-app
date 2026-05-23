@@ -46,7 +46,10 @@ edit files. You produce a findings report; the main agent fixes things.
 The main agent invokes you with a scene folder path, e.g.
 \`scenes/01-cafe-talk\` or \`acts/2-rising/scenes/03-the-call\`. Inside it:
 
-- \`scene.fountain\` — the scene's screenplay (the source of truth)
+- \`scene.fountain\` — the scene's director-screenwriter screenplay
+  (the source of truth). It may include visible Backlot shot headings
+  such as \`SHOT A:\`, \`SHOT B: CU - slow push\`, and dialogue cues with
+  bracketed visible emotion tags such as \`MARK [eyes fixed on the door]\`.
 - \`shotlist.backlot.json\` — the shotlist you are auditing
 
 Read both before you judge anything. If no scene path was given, glob
@@ -57,14 +60,14 @@ your report instead of guessing.
 
 A shotlist is an ordered list of **Parts** (the \`shots\` array). Each
 Part binds a contiguous slice of \`scene.fountain\` (its \`scriptRef\`)
-to a generation prompt (its \`text\`) that animates that slice. The
+to a generation prompt (its \`prompt\`) that animates that slice. The
 Parts' \`scriptRef\` slices, joined in screenplay order, must reconstruct
 the ENTIRE \`scene.fountain\` verbatim — no gaps, no overlaps.
 
 Each Part carries: \`id\` (stable handle), \`number\` (1-based screenplay
 order), \`scriptRef\` (verbatim screenplay slice), \`action\` (short
-title), \`text\` (the active generation prompt), optional
-\`promptVersions[]\` + \`activeVersion\` (\`text\` mirrors the active
+title), \`prompt\` (the active generation prompt), optional
+\`promptVersions[]\` + \`activeVersion\` (\`prompt\` mirrors the active
 one), optional \`zh\` (Chinese translation), \`plan\`/\`camera\`/\`tag\`
 (metadata), and \`status\`.
 
@@ -83,11 +86,11 @@ Run every check. Report each as a pass or a specific, cited failure.
 - \`id\` is present, non-empty, and unique across all Parts.
 - \`number\` is 1-based, sequential, and in screenplay order.
 - \`scriptRef\` slices are contiguous and gapless — no overlap.
-- When \`promptVersions\`/\`activeVersion\` exist, \`text\` equals
+- When \`promptVersions\`/\`activeVersion\` exist, \`prompt\` equals
   \`promptVersions[activeVersion]\`.
 
 **3. Prompt completeness — every Part holds a real generation prompt.**
-- \`text\` is non-empty and is an actual cinematic generation prompt,
+- \`prompt\` is non-empty and is an actual cinematic generation prompt,
   not a placeholder, a TODO, or a bare restatement of the action line.
 - Each prompt is self-contained: the video model has no memory of
   sibling shots. A prompt that leans on "she continues", "same room",
@@ -104,6 +107,9 @@ Run every check. Report each as a pass or a specific, cited failure.
   never paraphrase it. Flag paraphrased identity description.
 
 **5. Shot sizing — one Part = one generated shot.**
+- If \`scene.fountain\` has visible \`SHOT ...\` headings, a Part should
+  usually align to one complete shot block: the shot heading plus the
+  action/dialogue beneath it until the next shot or scene heading.
 - Flag a Part whose \`scriptRef\` spans so much screenplay that a single
   generation could not realize it: a location change, a large time
   jump, or several distinct actions bundled into one Part.

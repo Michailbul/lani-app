@@ -65,6 +65,8 @@ import { AgentsQuickSwitchDialog } from "../components/agents-quick-switch-dialo
 import { SubChatsQuickSwitchDialog } from "../components/subchats-quick-switch-dialog"
 import { isDesktopApp } from "../../../lib/utils/platform"
 import { SettingsContent } from "../../settings/settings-content"
+import { HarnessFocusHost } from "../../backlot/harness-focus-host"
+import { HarnessEditorModal } from "../../backlot/harness-editor-modal"
 // Desktop mock
 const useIsAdmin = () => false
 
@@ -814,11 +816,14 @@ export function AgentsContent() {
   // Mobile layout - completely different structure
   if (isMobile) {
     return (
-      <div
-        className="flex h-full bg-background"
-        data-agents-page
-        data-mobile-view
-      >
+      <>
+        <HarnessFocusHost />
+        <HarnessEditorModal />
+        <div
+          className="flex h-full bg-background"
+          data-agents-page
+          data-mobile-view
+        >
         {/* Mobile: Settings/Automations/Inbox fullscreen views */}
         {desktopView === "settings" ? (
           <SettingsContent />
@@ -916,13 +921,15 @@ export function AgentsContent() {
             )}
           </div>
         )}
-      </div>
+        </div>
+      </>
     )
   }
 
   // Desktop layout
   return (
     <>
+      <HarnessFocusHost />
       <div className="flex h-full">
         {/* Sub-chats sidebar — hidden in Backlot. The ProjectTreeRail
             (rendered by ScreenplayWorkspace) is the project's primary

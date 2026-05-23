@@ -1,0 +1,10 @@
+{
+  "name": "@backlot/harness-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}

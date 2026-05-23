@@ -3,18 +3,19 @@
  *
  * One scene = one shotlist file at `<scene folder>/shotlist.backlot.json`,
  * sitting next to that scene's `scene.fountain`. A shotlist is an ordered
- * list of Parts; each Part owns a slice of the scene's screenplay plus the
- * generation prompt that covers that slice.
+ * list of Parts; each Part owns a slice of the scene's director-screenwriter
+ * screenplay plus the generation prompt that covers that slice.
  *
  * The screenplay lives in the shotlist itself: each Part's `scriptRef` is a
  * contiguous slice, and the slices joined in order reconstruct the full
- * scene screenplay. A divider is simply the boundary between two Parts.
+ * scene screenplay, including visible `SHOT A:` Backlot shot headings when
+ * present. A divider is simply the boundary between two Parts.
  * This is a writer's working copy of the screenplay — it is seeded from
  * `scene.fountain` but is not kept in sync with it. No hashing, no drift
  * detection.
  *
- * Prompt `text` is deliberately generic: the language, the target model,
- * and the prompt style are the author's choice, not part of the schema.
+ * The Part's `prompt` field is deliberately generic: the language, target
+ * model, and prompt style are the author's choice, not part of the schema.
  */
 
 export type ShotStatus =
@@ -53,11 +54,12 @@ export interface ShotPrompt {
    * The active generation prompt. Content is generic — language/model is
    * the author's choice. Mirrors `promptVersions[activeVersion]` so any
    * external reader (the agent, an export) sees the chosen version here.
+   * Legacy shotlists may still have `text`; normalizeShot() migrates it.
    */
-  text: string
+  prompt: string
   /**
    * All drafted versions of this shot's prompt — v1 is index 0. Optional:
-   * when absent, the shot has a single version equal to `text`. A writer
+   * when absent, the shot has a single version equal to `prompt`. A writer
    * keeps alternate prompt drafts and switches the active one.
    */
   promptVersions?: string[]
@@ -71,12 +73,19 @@ export interface ShotPrompt {
   zh?: string
   /** Short label, e.g. duration / aspect ratio / a tag. */
   tag: string
+  /**
+   * Project-relative paths to reference images attached to this Part.
+   * Files live in the scene's flat `references/` folder. The same image
+   * may be referenced by more than one Part; removing a path from this
+   * array only unlinks it from this Part — it does not delete the file.
+   */
+  referenceImages: string[]
   status: ShotStatus
   updatedAt: string
 }
 
 export interface SceneShotlist {
-  schemaVersion: 1
+  schemaVersion: 2
   /** Matches the project scene entity id (the scene folder name). */
   sceneId: string
   /** Scene number — also written into the .fountain. */
@@ -121,7 +130,7 @@ function normalizeShot(raw: unknown, index: number): ShotPrompt {
 
   let promptVersions: string[] | undefined
   let activeVersion: number | undefined
-  let text = asString(r.text)
+  let prompt = asString(r.prompt, asString(r.text))
   if (hasVersions) {
     promptVersions = (r.promptVersions as unknown[]).map((v) => asString(v))
     activeVersion = Number.isInteger(r.activeVersion)
@@ -130,7 +139,7 @@ function normalizeShot(raw: unknown, index: number): ShotPrompt {
     if (activeVersion < 0 || activeVersion >= promptVersions.length) {
       activeVersion = 0
     }
-    text = promptVersions[activeVersion] ?? ""
+    prompt = promptVersions[activeVersion] ?? ""
   }
 
   const status = r.status as ShotStatus
@@ -142,10 +151,15 @@ function normalizeShot(raw: unknown, index: number): ShotPrompt {
     action: asString(r.action),
     ...(r.summary !== undefined ? { summary: asString(r.summary) } : {}),
     scriptRef: asString(r.scriptRef),
-    text,
+    prompt,
     ...(promptVersions ? { promptVersions, activeVersion } : {}),
     ...(r.zh !== undefined ? { zh: asString(r.zh) } : {}),
     tag: asString(r.tag),
+    referenceImages: Array.isArray(r.referenceImages)
+      ? (r.referenceImages as unknown[])
+          .map((p) => asString(p))
+          .filter((p) => p.length > 0)
+      : [],
     status: VALID_SHOT_STATUSES.includes(status) ? status : "draft",
     updatedAt: asString(r.updatedAt),
   }
@@ -158,7 +172,7 @@ export function normalizeShotlist(raw: unknown): SceneShotlist {
   >
   const shots = Array.isArray(doc.shots) ? doc.shots : []
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sceneId: asString(doc.sceneId, "scene"),
     sceneNumber: asString(doc.sceneNumber),
     heading: asString(doc.heading),

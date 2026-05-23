@@ -368,6 +368,22 @@
   }
 }
 
+/* Library rotating thumb — used by the cardless masonry to cross-fade
+   between an entry's reference images. The top layer mounts each tick
+   with this keyframe; the layer beneath holds the previous image so
+   the fade has something to reveal under it. */
+@keyframes bl-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes bl-fade-in {
+    from { opacity: 1; }
+    to   { opacity: 1; }
+  }
+}
+
 /* Search highlight styles */
 .search-highlight {
   background-color: rgb(250 204 21 / 0.35) !important;
@@ -878,83 +894,147 @@
 .rich-prose:focus { outline: none; }
 
 /* ────────────────────────────────────────────────────────────────────
+ * Skill Workbench variant — brand-tinted headings.
+ *
+ * Skill docs (SKILL.md, references) read like structured specs, so
+ * their headings carry the brand accent instead of plain ink. The
+ * colour token is `--accent-deep`: a darkened olive-lime on the light
+ * theme (raw Lime fails contrast on paper) and bright Lime on dark.
+ * Scoped to `.rich-prose-skill` so the screenplay editor keeps its
+ * ink-coloured editorial headings.
+ * ──────────────────────────────────────────────────────────────────── */
+.rich-prose-skill h1,
+.rich-prose-skill h2,
+.rich-prose-skill h3 {
+  color: hsl(var(--accent-deep));
+}
+/* Heavier nib on h3 to match the tinted heading. */
+.rich-prose-skill h3::before {
+  background: hsl(var(--accent-deep));
+  height: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Backlot Fountain styled-source editor (CodeMirror 6).
  *
  * The buffer is raw Fountain; these rules decorate each `.cm-line` so
- * it reads like a typeset screenplay leaf. Indents are in `em` so they
- * track the 13px Courier line. Vertical rhythm is the writer's own
- * blank lines — no block margins here, or the page would double-space.
+ * it reads like a typeset screenplay leaf. Vertical rhythm is the
+ * writer's own blank lines — no block margins here, or the page would
+ * double-space.
  *
- * Class is applied by fountain-decorations.ts via classifyFountainLines.
+ * Layout philosophy: action and scaffolding (scene / shot / action /
+ * transition) flow full-width across the column. Dialogue and its
+ * attribution (character cue, emotion tag, parenthetical, dialogue
+ * body) collapse to a centered column. This stays readable at any
+ * container width — no fixed em indents that fall off the right edge
+ * when the rail narrows.
+ *
+ * Specificity note: CodeMirror's theme emits `.cm-editor .cm-line {
+ * padding: 0 }` at specificity (0,2,0); we anchor every rule below at
+ * `.cm-content .cm-fountain-…` (0,2,0) plus a second class where the
+ * theme would otherwise win, so the typesetting actually applies.
+ *
+ * Class is applied by fountain-decorations.ts: line classes via
+ * classifyFountainLines, plus a mark decoration that wraps the
+ * `[emotion tag]` portion inside a character-cue line as
+ * .cm-fountain-emotion so it can stack below the name.
  * ──────────────────────────────────────────────────────────────────── */
 
 /* Scene heading — INT./EXT. line, bold caps. */
-.cm-fountain-scene {
+.cm-content .cm-fountain-scene {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
-/* Action — default paragraph; no override needed beyond the page. */
-
-/* Character cue — indented ~3.7" from page-left, bold. */
-.cm-fountain-character {
-  padding-left: 17em;
-  font-weight: 600;
+/* Shot heading — Backlot extension: SHOT A: / SHOT B: CU - push. */
+.cm-content .cm-fountain-shot {
+  color: hsl(var(--primary) / 0.92);
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
-/* Parenthetical — under the cue, italic, inset. */
-.cm-fountain-paren {
-  padding-left: 13em;
-  padding-right: 8em;
+/* Action — default paragraph; flows full-width across the column. */
+
+/* Character cue — centered column, bold caps, breathing room above. */
+.cm-content .cm-line.cm-fountain-character {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding-inline: clamp(0.5em, 14%, 6em);
+  margin-top: 0.2em;
+}
+
+/* Emotion tag — `[low, clipped, eyes on the Bentley]` portion of a
+ * character cue line. Forced onto its own visual line below the name
+ * via display: block on the mark span; carried muted so the cue name
+ * stays the loudest element of the block. */
+.cm-content .cm-fountain-emotion {
+  display: block;
+  font-weight: 400;
   font-style: italic;
-  color: hsl(var(--foreground) / 0.85);
+  text-transform: none;
+  letter-spacing: 0;
+  color: hsl(var(--muted-foreground) / 0.9);
+  font-size: 0.92em;
+  margin-top: 0.05em;
 }
 
-/* Dialogue — inset block beneath the cue. */
-.cm-fountain-dialogue {
-  padding-left: 10em;
-  padding-right: 6em;
+/* Parenthetical — `(quiet)` under the cue, traditional Fountain. */
+.cm-content .cm-line.cm-fountain-paren {
+  text-align: center;
+  font-style: italic;
+  color: hsl(var(--muted-foreground) / 0.95);
+  padding-inline: clamp(0.5em, 22%, 9em);
+}
+
+/* Dialogue — centered column under the cue. Brand accent gives it a
+ * distinct register so the page reads at a glance: olive/lime for the
+ * lines that animate, ink for the lines that describe. */
+.cm-content .cm-line.cm-fountain-dialogue {
+  text-align: center;
+  color: hsl(var(--accent-deep));
+  padding-inline: clamp(0.5em, 12%, 5em);
 }
 
 /* Transition — right-aligned caps. */
-.cm-fountain-transition {
+.cm-content .cm-line.cm-fountain-transition {
   text-align: right;
   letter-spacing: 0.02em;
   font-weight: 600;
 }
 
 /* Centered text. */
-.cm-fountain-centered {
+.cm-content .cm-line.cm-fountain-centered {
   text-align: center;
 }
 
-/* Section — above-the-line outline scaffolding, muted. */
-.cm-fountain-section {
+/* Section — above-the-line outline scaffolding. */
+.cm-content .cm-fountain-section {
   color: hsl(var(--primary) / 0.9);
   font-weight: 700;
 }
 
 /* Synopsis — `= beat summary`, outline note. */
-.cm-fountain-synopsis {
+.cm-content .cm-fountain-synopsis {
   color: hsl(var(--muted-foreground) / 0.8);
   font-style: italic;
 }
 
 /* Boneyard / writer's notes — commented-out, dimmed. */
-.cm-fountain-note {
+.cm-content .cm-fountain-note {
   color: hsl(var(--muted-foreground) / 0.6);
   font-style: italic;
 }
 
 /* Page break — `===`, faint and tracked. */
-.cm-fountain-pagebreak {
+.cm-content .cm-line.cm-fountain-pagebreak {
   color: hsl(var(--muted-foreground) / 0.55);
   text-align: center;
   letter-spacing: 0.3em;
 }
 
 /* Title-page key/value lines. */
-.cm-fountain-title {
+.cm-content .cm-fountain-title {
   color: hsl(var(--foreground) / 0.9);
 }
 
@@ -1026,7 +1106,7 @@
 /* The Part bound to the Prompt column — highlighted like selected text:
  * a flat wash over the region's characters, no border, no margin bar. */
 .cm-shotlist-region {
-  background: hsl(var(--primary) / 0.16);
+  background: hsl(var(--primary) / 0.32);
 }
 
 /* The Isolate popup — floats above a screenplay selection. Scales in

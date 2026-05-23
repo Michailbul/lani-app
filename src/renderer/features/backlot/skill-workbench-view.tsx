@@ -9,15 +9,26 @@
  * splits side-by-side so the user can hold two skill files (or a skill
  * and its reference doc) in view at once.
  *
- * Editing is direct + autosave — the same low-friction convention as
- * the writer's surfaces. The agent's own skill edits still route
- * through the propose_skill_change diff modal.
+ * Edits still autosave to disk, but saving into the skill library is
+ * explicit: the library is git-backed, dirty files show up in the
+ * explorer, and the user can save, discard, or roll a file back.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAtom } from "jotai"
-import { FileText, PanelLeft, PanelRight, Wrench, X } from "lucide-react"
-import { ChatMarkdownRenderer } from "../../components/chat-markdown-renderer"
+import {
+  Check,
+  Clock3,
+  FileText,
+  GitCompare,
+  PanelLeft,
+  PanelRight,
+  RotateCcw,
+  Wrench,
+  X,
+} from "lucide-react"
+import { toast } from "sonner"
+import { RichMarkdownEditor } from "./rich-markdown-editor"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import {
@@ -341,11 +352,22 @@ function SkillTab({
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// File editor — direct edit + debounced autosave, with a markdown
-// preview toggle for .md files.
+// File editor — direct edit + debounced autosave. Markdown files edit
+// in a WYSIWYG "Rich" view (with a rendered preamble card) and can be
+// flipped to a "Raw" markdown view. Both views are editable.
 // ────────────────────────────────────────────────────────────────────────
 
 const AUTOSAVE_DELAY_MS = 600
+
+type SkillFileStatus = "clean" | "modified" | "untracked" | "deleted" | "added"
+
+interface SkillReviewHunk {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: Array<{ kind: "context" | "added" | "removed"; text: string }>
+}
 
 function SkillFileEditor({
   skillDir,
@@ -355,8 +377,8 @@ function SkillFileEditor({
   relPath: string
 }) {
   const isMarkdown = relPath.toLowerCase().endsWith(".md")
-  const [mode, setMode] = useState<"edit" | "preview">(
-    isMarkdown ? "preview" : "edit",
+  const [mode, setMode] = useState<"rich" | "raw">(
+    isMarkdown ? "rich" : "raw",
   )
   const [content, setContent] = useState<string | null>(null)
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
@@ -366,24 +388,79 @@ function SkillFileEditor({
   // Latest unsaved buffer. Held in a ref so an unmount (tab switch /
   // close) mid-debounce can still flush it.
   const latestRef = useRef<string | null>(null)
+  const lastServerContentRef = useRef<string | null>(null)
 
   const fileQuery = trpc.skillWorkbench.readFile.useQuery(
     { skillDir, relPath },
-    { refetchOnWindowFocus: false },
+    { refetchOnWindowFocus: false, refetchInterval: 2000 },
   )
   // Writes go through the vanilla client, not useMutation — that way a
   // flush triggered while the component is unmounting still completes.
   const utils = trpc.useUtils()
+  const refreshWorkbench = useCallback(() => {
+    void utils.skillWorkbench.readFile.invalidate({ skillDir, relPath })
+    void utils.skillWorkbench.tree.invalidate({ skillDir })
+    void utils.skillWorkbench.list.invalidate()
+  }, [skillDir, relPath, utils])
+
+  const history = trpc.skillWorkbench.history.useQuery(
+    { skillDir, relPath },
+    { enabled: !!fileQuery.data, refetchOnWindowFocus: false },
+  )
+  const saveFile = trpc.skillWorkbench.saveFile.useMutation({
+    onSuccess: () => {
+      refreshWorkbench()
+      void history.refetch()
+      toast.success("Skill change saved")
+    },
+    onError: (e) => toast.error(e.message || "Couldn't save skill change"),
+  })
+  const discardFile = trpc.skillWorkbench.discardFile.useMutation({
+    onSuccess: async () => {
+      latestRef.current = null
+      const next = await fileQuery.refetch()
+      if (next.data) {
+        lastServerContentRef.current = next.data.content
+        setContent(next.data.content)
+      }
+      refreshWorkbench()
+      toast.success("Skill change discarded")
+    },
+    onError: (e) => toast.error(e.message || "Couldn't discard skill change"),
+  })
+  const rollback = trpc.skillWorkbench.rollbackFile.useMutation({
+    onSuccess: async () => {
+      latestRef.current = null
+      const next = await fileQuery.refetch()
+      if (next.data) {
+        lastServerContentRef.current = next.data.content
+        setContent(next.data.content)
+      }
+      refreshWorkbench()
+      toast.success("Rolled file back")
+    },
+    onError: (e) => toast.error(e.message || "Couldn't roll back file"),
+  })
 
   // Load buffer once per file. The `key` on this component is the tab
   // id, so a new file always remounts — no cross-file bleed.
   useEffect(() => {
-    if (fileQuery.data && content === null) {
+    if (!fileQuery.data) return
+    if (content === null) {
+      lastServerContentRef.current = fileQuery.data.content
+      setContent(fileQuery.data.content)
+      return
+    }
+    if (
+      latestRef.current === null &&
+      lastServerContentRef.current !== fileQuery.data.content
+    ) {
+      lastServerContentRef.current = fileQuery.data.content
       setContent(fileQuery.data.content)
     }
   }, [fileQuery.data, content])
 
-  const flush = useCallback(() => {
+  const flush = useCallback(async () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
       saveTimer.current = null
@@ -392,11 +469,19 @@ function SkillFileEditor({
     if (next === null) return
     latestRef.current = null
     setStatus("saving")
-    utils.client.skillWorkbench.writeFile
-      .mutate({ skillDir, relPath, content: next })
-      .then(() => setStatus("saved"))
-      .catch(() => setStatus("error"))
-  }, [skillDir, relPath, utils])
+    try {
+      await utils.client.skillWorkbench.writeFile.mutate({
+        skillDir,
+        relPath,
+        content: next,
+      })
+      lastServerContentRef.current = next
+      setStatus("saved")
+      refreshWorkbench()
+    } catch {
+      setStatus("error")
+    }
+  }, [skillDir, relPath, utils, refreshWorkbench])
 
   // Always flush through the freshest closure on unmount.
   const flushRef = useRef(flush)
@@ -404,7 +489,9 @@ function SkillFileEditor({
     flushRef.current = flush
   }, [flush])
   useEffect(() => {
-    return () => flushRef.current()
+    return () => {
+      void flushRef.current()
+    }
   }, [])
 
   const onChange = useCallback((next: string) => {
@@ -412,8 +499,23 @@ function SkillFileEditor({
     latestRef.current = next
     setStatus("saving")
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => flushRef.current(), AUTOSAVE_DELAY_MS)
+    saveTimer.current = setTimeout(() => {
+      void flushRef.current()
+    }, AUTOSAVE_DELAY_MS)
   }, [])
+
+  const currentStatus: SkillFileStatus = fileQuery.data?.status ?? "clean"
+  const isDirty = currentStatus !== "clean"
+  const hunks = (fileQuery.data?.hunks ?? []) as SkillReviewHunk[]
+
+  const saveCurrentFile = useCallback(async () => {
+    await flushRef.current()
+    saveFile.mutate({ skillDir, relPath })
+  }, [skillDir, relPath, saveFile])
+
+  const discardCurrentFile = useCallback(() => {
+    discardFile.mutate({ skillDir, relPath })
+  }, [skillDir, relPath, discardFile])
 
   if (fileQuery.isError) {
     return (
@@ -437,7 +539,7 @@ function SkillFileEditor({
 
   return (
     <div className="flex h-full flex-col min-h-0">
-      {/* File chrome — path, save status, preview toggle. */}
+      {/* File chrome — path, save status, Rich/Raw toggle. */}
       <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-border/40">
         <span
           className="truncate text-[11px] text-muted-foreground/70 font-mono"
@@ -446,29 +548,52 @@ function SkillFileEditor({
           {relPath}
         </span>
         <SaveStatus status={status} />
+        {isDirty ? <DirtyStatus status={currentStatus} /> : null}
         {isMarkdown && (
-          <button
-            type="button"
-            onClick={() => setMode((m) => (m === "edit" ? "preview" : "edit"))}
-            className={cn(
-              "ml-auto press text-[10px] uppercase tracking-wider font-mono px-2 py-0.5 rounded",
-              "text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors",
-            )}
-          >
-            {mode === "edit" ? "Preview" : "Edit"}
-          </button>
+          <div className="ml-auto flex items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5">
+            {(["rich", "raw"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={cn(
+                  "press rounded px-2 py-0.5 text-[10px] uppercase tracking-wider font-mono transition-colors",
+                  mode === m
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground/70 hover:text-foreground",
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         )}
       </div>
+      {isDirty && (
+        <SkillReviewBar
+          status={currentStatus}
+          hunks={hunks}
+          history={history.data ?? []}
+          busy={
+            saveFile.isPending || discardFile.isPending || rollback.isPending
+          }
+          onSave={saveCurrentFile}
+          onDiscard={discardCurrentFile}
+          onRollback={(commit) =>
+            rollback.mutate({ skillDir, relPath, commit })
+          }
+        />
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto">
-        {isMarkdown && mode === "preview" ? (
-          <div
-            className="px-6 py-5 cursor-text"
-            onClick={() => setMode("edit")}
-            title="Click to edit"
-          >
-            <ChatMarkdownRenderer content={content} size="sm" />
-          </div>
+        {isMarkdown && mode === "rich" ? (
+          <RichMarkdownEditor
+            value={content}
+            onChange={onChange}
+            editable
+            autoFocus={false}
+            frontmatterVariant="skill"
+          />
         ) : (
           <textarea
             value={content}
@@ -486,6 +611,198 @@ function SkillFileEditor({
   )
 }
 
+function DirtyStatus({ status }: { status: SkillFileStatus }) {
+  const label =
+    status === "untracked"
+      ? "Untracked"
+      : status === "deleted"
+        ? "Deleted"
+        : status === "added"
+          ? "Added"
+          : "Modified"
+  return (
+    <span
+      className={cn(
+        "rounded-sm px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-mono",
+        status === "deleted"
+          ? "bg-rose-500/10 text-rose-500"
+          : "bg-primary/10 text-primary",
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
+function SkillReviewBar({
+  status,
+  hunks,
+  history,
+  busy,
+  onSave,
+  onDiscard,
+  onRollback,
+}: {
+  status: SkillFileStatus
+  hunks: SkillReviewHunk[]
+  history: Array<{
+    hash: string
+    shortHash: string
+    date: string
+    subject: string
+  }>
+  busy: boolean
+  onSave: () => void
+  onDiscard: () => void
+  onRollback: (commit: string) => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const changedLines = hunks.reduce(
+    (sum, hunk) =>
+      sum +
+      hunk.lines.filter((line) => line.kind === "added" || line.kind === "removed")
+        .length,
+    0,
+  )
+
+  return (
+    <div className="shrink-0 border-b border-border/45 bg-background/60">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <GitCompare className="h-3.5 w-3.5 text-primary/80" />
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <span
+            className="block truncate text-[12px] text-foreground/85"
+            style={{ fontFamily: "var(--font-body)", fontWeight: 500 }}
+          >
+            {changedLines > 0
+              ? `${changedLines} changed line${changedLines === 1 ? "" : "s"}`
+              : status === "untracked"
+                ? "New file"
+                : "Pending skill change"}
+          </span>
+          <span className="block text-[10.5px] text-muted-foreground/65">
+            Save commits this file. Discard restores it from the last saved
+            revision.
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onSave}
+          className={cn(
+            "press inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px]",
+            "bg-primary text-primary-foreground disabled:opacity-50",
+          )}
+        >
+          <Check className="h-3.5 w-3.5" />
+          Save
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onDiscard}
+          className={cn(
+            "press inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px]",
+            "bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.1]",
+            "disabled:opacity-50",
+          )}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Discard
+        </button>
+        {history.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            className={cn(
+              "press inline-flex h-7 w-7 items-center justify-center rounded-md",
+              "text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground",
+            )}
+            title="Saved revisions"
+            aria-label="Saved revisions"
+          >
+            <Clock3 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {expanded && hunks.length > 0 && (
+        <div className="max-h-52 overflow-auto border-t border-border/35 px-3 py-2">
+          <div className="space-y-2">
+            {hunks.slice(0, 8).map((hunk, index) => (
+              <MiniHunk key={`${hunk.newStart}-${index}`} hunk={hunk} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {historyOpen && (
+        <div className="border-t border-border/35 px-3 py-2">
+          <div className="space-y-1">
+            {history.slice(1, 8).map((entry) => (
+              <button
+                key={entry.hash}
+                type="button"
+                disabled={busy}
+                onClick={() => onRollback(entry.hash)}
+                className={cn(
+                  "w-full rounded-md px-2 py-1.5 text-left transition-colors",
+                  "hover:bg-foreground/[0.05] disabled:opacity-50",
+                )}
+              >
+                <span className="block truncate text-[11.5px] text-foreground/80">
+                  {entry.subject}
+                </span>
+                <span className="font-mono text-[10px] text-muted-foreground/55">
+                  {entry.shortHash} · {entry.date}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MiniHunk({ hunk }: { hunk: SkillReviewHunk }) {
+  const visible = hunk.lines.filter((line) => line.kind !== "context").slice(0, 10)
+  return (
+    <div>
+      <div className="mb-1 font-mono text-[10px] text-muted-foreground/55">
+        lines {hunk.newStart}-{Math.max(hunk.newStart, hunk.newStart + hunk.newLines - 1)}
+      </div>
+      <div className="space-y-0.5">
+        {visible.map((line, index) => (
+          <div
+            key={`${line.kind}-${index}-${line.text}`}
+            className={cn(
+              "grid grid-cols-[18px_1fr] gap-2 rounded-sm px-1 py-0.5 font-mono text-[11px]",
+              line.kind === "added"
+                ? "bg-primary/8 text-foreground"
+                : "bg-rose-500/8 text-foreground/75",
+            )}
+          >
+            <span
+              className={
+                line.kind === "added" ? "text-primary" : "text-rose-500"
+              }
+            >
+              {line.kind === "added" ? "+" : "-"}
+            </span>
+            <span className="truncate">{line.text || " "}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SaveStatus({
   status,
 }: {
@@ -494,10 +811,10 @@ function SaveStatus({
   if (status === "idle") return null
   const label =
     status === "saving"
-      ? "Saving…"
+      ? "Writing…"
       : status === "saved"
-        ? "Saved"
-        : "Save failed"
+        ? "Draft saved"
+        : "Write failed"
   return (
     <span
       className={cn(

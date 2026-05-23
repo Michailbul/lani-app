@@ -29,8 +29,6 @@ import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
 import { ClaudeLoginModal } from "../../components/dialogs/claude-login-modal"
 import { CodexLoginModal } from "../../components/dialogs/codex-login-modal"
-import { SkillProposalsHost } from "../skills/skill-proposals-host"
-import { SkillWorkbenchFocusHost } from "../backlot/skill-workbench-focus-host"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
 import { ProjectsSidebar } from "../sidebar/projects-sidebar"
@@ -320,12 +318,6 @@ export function AgentsLayout() {
       <QueueProcessor />
       <ClaudeLoginModal />
       <CodexLoginModal />
-      {/* Renders the SkillDiffModal whenever the in-process MCP tool
-          `propose_skill_change` fires. One host for the whole app. */}
-      <SkillProposalsHost />
-      {/* Flips into Skill Workbench mode when the agent's
-          `open_skill_workbench` MCP tool fires. */}
-      <SkillWorkbenchFocusHost />
       <div className="flex flex-col w-full h-full relative overflow-hidden bg-background select-none">
         {/* Windows Title Bar (only shown on Windows with frameless window) */}
         <WindowsTitleBar />

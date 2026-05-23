@@ -24,6 +24,7 @@ export type TextSelectionSource =
   | { type: "tool-edit"; filePath: string; isWrite: boolean }
   | { type: "plan"; planPath: string }
   | { type: "file-viewer"; filePath: string }
+  | { type: "center-pane"; filePath: string; mode?: string }
 
 export interface TextSelectionState {
   selectedText: string | null
@@ -286,6 +287,27 @@ export function TextSelectionProvider({
             const messageId = messageElement.getAttribute("data-assistant-message-id")
             if (messageId) {
               source = { type: "assistant-message", messageId }
+            }
+          }
+
+          // Fallback: any text inside the workdesk center pane. The
+          // workspace tags the center pane with data-center-pane-path
+          // (current file) and data-center-pane-mode (current workdesk
+          // mode). Lowest priority — runs after every more specific
+          // source has had a chance to match.
+          if (!source) {
+            const centerPaneElement = element.closest?.(
+              "[data-center-pane-path]",
+            ) as HTMLElement | null
+            if (centerPaneElement) {
+              const filePath =
+                centerPaneElement.getAttribute("data-center-pane-path") || ""
+              const mode =
+                centerPaneElement.getAttribute("data-center-pane-mode") ||
+                undefined
+              if (filePath) {
+                source = { type: "center-pane", filePath, mode }
+              }
             }
           }
         }

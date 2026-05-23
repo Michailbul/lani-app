@@ -1,85 +1,50 @@
 import { useEffect, useState } from "react"
-import { useAtomValue } from "jotai"
 import { Check, FileText, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { selectedProjectAtom } from "../../../features/agents/atoms"
 import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
 
 /**
- * AgentsProjectMemoryTab — view and edit the active project's
- * CLAUDE.md.
+ * AgentsProjectMemoryTab — edit the global CLAUDE.md template.
  *
- * CLAUDE.md is the project's persistent memory: the agent loads it
- * every turn (via `settingSources: ["project"]`) and updates it as
- * facts solidify. This tab edits that file directly — a settings-side
- * surface for the same file the agent and the main editor also touch.
- * A clean save is checkpointed as a focused git commit.
+ * Backlot keeps one shared CLAUDE.md template at
+ * `~/.backlot/CLAUDE.template.md`. Every new project's CLAUDE.md is
+ * seeded from it; when the template changes, existing projects whose
+ * CLAUDE.md is still an untouched scaffold are refreshed to the new
+ * version (projects with real memory are left alone).
  */
 export function AgentsProjectMemoryTab() {
-  const project = useAtomValue(selectedProjectAtom)
   const utils = trpc.useUtils()
 
-  const memory = trpc.projects.readClaudeMd.useQuery(
-    { projectId: project?.id ?? "" },
-    { enabled: !!project?.id },
-  )
+  const template = trpc.projects.readClaudeMdTemplate.useQuery()
 
-  const save = trpc.projects.writeClaudeMd.useMutation({
+  const save = trpc.projects.writeClaudeMdTemplate.useMutation({
     onSuccess: () => {
-      if (project?.id) {
-        utils.projects.readClaudeMd.invalidate({ projectId: project.id })
-      }
-      toast.success("CLAUDE.md saved", {
-        description: "The agent reads it on its next turn.",
+      utils.projects.readClaudeMdTemplate.invalidate()
+      toast.success("Template saved", {
+        description: "New projects use it; untouched ones were refreshed.",
       })
     },
     onError: (err) => toast.error(err.message || "Couldn't save"),
   })
 
-  // Local editable buffer. Seeded once per project from the loaded
-  // content; a background refetch never clobbers in-progress edits.
+  // Local editable buffer, seeded once from the loaded template.
   const [draft, setDraft] = useState<string | null>(null)
-  const [seededFor, setSeededFor] = useState<string | null>(null)
+  const [seeded, setSeeded] = useState(false)
   useEffect(() => {
-    const pid = project?.id ?? null
-    if (seededFor === pid) return
-    if (!pid) {
-      setDraft(null)
-      setSeededFor(null)
-      return
+    if (seeded) return
+    if (template.data) {
+      setDraft(template.data.content)
+      setSeeded(true)
     }
-    if (memory.data) {
-      setDraft(memory.data.content)
-      setSeededFor(pid)
-    } else {
-      // New project, content not loaded yet — drop the stale buffer.
-      setDraft(null)
-    }
-  }, [project?.id, memory.data, seededFor])
+  }, [template.data, seeded])
 
-  if (!project) {
-    return (
-      <div className="p-6">
-        <div className="flex flex-col space-y-1.5">
-          <h3 className="text-sm font-semibold text-foreground">
-            CLAUDE.md
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Open a project to view and edit its CLAUDE.md.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  const loaded = memory.data
-  const exists = loaded?.exists ?? false
-  const dirty = draft !== null && loaded != null && draft !== loaded.content
+  const loaded = template.data?.content ?? null
+  const dirty = draft !== null && loaded !== null && draft !== loaded
 
   const onSave = () => {
-    if (draft === null || !project.id) return
-    save.mutate({ projectId: project.id, content: draft })
+    if (draft === null) return
+    save.mutate({ content: draft })
   }
 
   return (
@@ -87,40 +52,29 @@ export function AgentsProjectMemoryTab() {
       {/* Header */}
       <div className="flex flex-col space-y-1.5">
         <h3 className="text-sm font-semibold text-foreground">
-          CLAUDE.md
+          CLAUDE.md template
         </h3>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          <code>CLAUDE.md</code> for{" "}
-          <strong className="text-foreground">{project.name}</strong> — the
-          project's persistent memory. The agent loads it every turn and
-          updates it as facts solidify. Edits take effect on the next agent
-          turn.
+          The shared starting point for every project's{" "}
+          <code>CLAUDE.md</code> — a project's persistent memory, which the
+          agent reads each turn. New projects are seeded from this template;
+          when you change it, existing projects whose memory is still an
+          untouched scaffold are refreshed. Projects with real memory are
+          left alone.
         </p>
       </div>
 
       {/* Status row */}
-      <div className="flex items-center justify-between py-1">
-        <div className="flex flex-col space-y-0.5">
-          <span className="text-sm font-medium text-foreground">
-            {exists ? "CLAUDE.md" : "No CLAUDE.md yet"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {exists
-              ? "Project root · loaded into every agent session."
-              : "Saving will create it at the project root."}
-          </span>
-        </div>
+      <div className="flex items-center gap-2 py-1">
         <FileText className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+        <span className="text-xs text-muted-foreground font-mono">
+          ~/.backlot/CLAUDE.template.md
+        </span>
       </div>
 
       {/* Editor */}
       <div className="flex flex-col flex-1 min-h-0 gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-            CLAUDE.md
-          </span>
-        </div>
-        {memory.isPending || draft === null ? (
+        {template.isPending || draft === null ? (
           <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
             Loading…
           </div>
@@ -130,12 +84,13 @@ export function AgentsProjectMemoryTab() {
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
             className={cn(
-              "w-full flex-1 min-h-0 resize-none p-0 bg-transparent",
+              "w-full flex-1 min-h-0 resize-none p-4 rounded-lg",
+              "bg-muted/40 border border-border",
               "font-mono text-[13.5px] leading-[1.65] text-foreground/90",
-              "outline-none border-0",
+              "outline-none focus:border-primary",
               "selection:bg-primary/25 caret-primary",
             )}
-            placeholder="# CLAUDE.md…"
+            placeholder="# Project memory…"
           />
         )}
       </div>
@@ -159,7 +114,7 @@ export function AgentsProjectMemoryTab() {
           ) : (
             <Check className="h-3.5 w-3.5" />
           )}
-          {dirty ? "Save changes" : "Saved"}
+          {dirty ? "Save template" : "Saved"}
         </button>
       </div>
     </div>

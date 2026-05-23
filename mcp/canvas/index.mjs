@@ -38,6 +38,18 @@ function activeWorktreeId(input = {}) {
   return worktreeId
 }
 
+const DEFAULT_CANVAS_PAGE = "main"
+
+// Pull the target page off the tool args. Each Backlot worktree can hold
+// many named canvas pages; if the agent doesn't specify one, we land on
+// the same "main" page the writer's renderer opens by default. The
+// caller can pass it as `page` (preferred) or the legacy `canvasName`.
+function pageName(input = {}) {
+  const raw = input.page || input.canvasName
+  if (typeof raw === "string" && raw.trim()) return raw.trim()
+  return DEFAULT_CANVAS_PAGE
+}
+
 function parseData(value) {
   try {
     const parsed = JSON.parse(value || "{}")
@@ -49,6 +61,57 @@ function parseData(value) {
 
 function stringify(value) {
   return JSON.stringify(value || {})
+}
+
+function plainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+}
+
+function cleanString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function cleanNodeIds(value) {
+  if (!Array.isArray(value)) return []
+  return [
+    ...new Set(
+      value
+        .filter((id) => typeof id === "string")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
+function normalizeNode(node) {
+  return node ? { ...node, data: parseData(node.data) } : node
+}
+
+function groupDataFromArgs(args) {
+  const groupId = cleanString(args.groupId)
+  if (!groupId) return {}
+  const groupLabel = cleanString(args.groupLabel)
+  return {
+    groupId,
+    ...(groupLabel ? { groupLabel } : {}),
+  }
+}
+
+function defaultNodeSize(type) {
+  switch (type) {
+    case "prompt":
+      return { width: 520, height: 320 }
+    case "imageGeneration":
+      return { width: 560, height: 320 }
+    case "textBlock":
+      return { width: 360, height: 120 }
+    case "description":
+      return { width: 360, height: 160 }
+    case "group":
+      return { width: 760, height: 420 }
+    default:
+      return { width: 420, height: 300 }
+  }
 }
 
 function worktreeForId(worktreeId) {
@@ -98,39 +161,116 @@ function mimeTypeFromPath(filePath) {
   }
 }
 
-function ensureCanvas(worktreeId) {
+function ensureCanvas(worktreeId, name = DEFAULT_CANVAS_PAGE) {
   const existing = db
-    .prepare("SELECT * FROM canvas_documents WHERE worktree_id = ? AND name = 'main'")
-    .get(worktreeId)
+    .prepare("SELECT * FROM canvas_documents WHERE worktree_id = ? AND name = ?")
+    .get(worktreeId, name)
   if (existing) return existing
   const canvasId = id("canvas")
   const ts = nowMs()
   db.prepare(
-    "INSERT INTO canvas_documents (id, worktree_id, name, created_at, updated_at) VALUES (?, ?, 'main', ?, ?)",
-  ).run(canvasId, worktreeId, ts, ts)
+    "INSERT INTO canvas_documents (id, worktree_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+  ).run(canvasId, worktreeId, name, ts, ts)
   return db.prepare("SELECT * FROM canvas_documents WHERE id = ?").get(canvasId)
+}
+
+function listPages(worktreeId) {
+  return db
+    .prepare("SELECT * FROM canvas_documents WHERE worktree_id = ? ORDER BY created_at")
+    .all(worktreeId)
+}
+
+function getNodeRow(nodeId) {
+  return db.prepare("SELECT * FROM canvas_nodes WHERE id = ?").get(nodeId)
+}
+
+function getEdgeRow(edgeId) {
+  return db.prepare("SELECT * FROM canvas_edges WHERE id = ?").get(edgeId)
+}
+
+// ─── Page (named canvas document) management ───────────────────────
+//
+// A worktree can hold many named canvas pages — each one is a separate
+// graph. The writer's renderer surfaces these as tabs in the bottom-
+// left selector; the agent can target a specific page on any tool by
+// passing `page: "<name>"`. If omitted, the default page "main" is used.
+
+function listCanvasPagesTool(args = {}) {
+  const worktreeId = activeWorktreeId(args)
+  return { pages: listPages(worktreeId) }
+}
+
+function createCanvasPage(args = {}) {
+  const worktreeId = activeWorktreeId(args)
+  const name = cleanString(args.name)
+  if (!name) throw new Error("name is required.")
+  const existing = db
+    .prepare("SELECT * FROM canvas_documents WHERE worktree_id = ? AND name = ?")
+    .get(worktreeId, name)
+  if (existing) throw new Error(`Page "${name}" already exists.`)
+  return ensureCanvas(worktreeId, name)
+}
+
+function renameCanvasPage(args = {}) {
+  const worktreeId = activeWorktreeId(args)
+  const oldName = cleanString(args.name)
+  const newName = cleanString(args.newName)
+  if (!oldName || !newName) throw new Error("name and newName are required.")
+  if (oldName === newName) return ensureCanvas(worktreeId, oldName)
+  const collision = db
+    .prepare("SELECT id FROM canvas_documents WHERE worktree_id = ? AND name = ?")
+    .get(worktreeId, newName)
+  if (collision) throw new Error(`Page "${newName}" already exists.`)
+  const target = db
+    .prepare("SELECT * FROM canvas_documents WHERE worktree_id = ? AND name = ?")
+    .get(worktreeId, oldName)
+  if (!target) throw new Error(`Canvas page not found: ${oldName}`)
+  db.prepare("UPDATE canvas_documents SET name = ?, updated_at = ? WHERE id = ?")
+    .run(newName, nowMs(), target.id)
+  return db.prepare("SELECT * FROM canvas_documents WHERE id = ?").get(target.id)
+}
+
+function deleteCanvasPage(args = {}) {
+  const worktreeId = activeWorktreeId(args)
+  const name = cleanString(args.name)
+  if (!name) throw new Error("name is required.")
+  const pages = listPages(worktreeId)
+  if (pages.length <= 1) {
+    throw new Error("Can't delete the only canvas page — make another first.")
+  }
+  const target = pages.find((page) => page.name === name)
+  if (!target) throw new Error(`Canvas page not found: ${name}`)
+  const result = db
+    .prepare("DELETE FROM canvas_documents WHERE id = ?")
+    .run(target.id)
+  return {
+    deleted: result.changes > 0,
+    remainingPages: pages.filter((page) => page.id !== target.id).map((page) => page.name),
+  }
 }
 
 function readCanvas(args = {}) {
   const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
+  const canvas = ensureCanvas(worktreeId, pageName(args))
   const nodes = db.prepare("SELECT * FROM canvas_nodes WHERE canvas_id = ?").all(canvas.id)
     .map((node) => ({ ...node, data: parseData(node.data) }))
   const edges = db.prepare("SELECT * FROM canvas_edges WHERE canvas_id = ?").all(canvas.id)
   const assets = db.prepare("SELECT * FROM canvas_assets WHERE worktree_id = ?").all(worktreeId)
-  return { canvas, nodes, edges, assets }
+  const pages = listPages(worktreeId)
+  return { canvas, pages, nodes, edges, assets }
 }
 
 function addNode(args) {
   const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
+  const canvas = ensureCanvas(worktreeId, pageName(args))
   const nodeId = id("node")
   const type = args.type
-  if (!["prompt", "image", "imageGeneration"].includes(type)) {
-    throw new Error("type must be prompt, image, or imageGeneration.")
+  if (!["prompt", "image", "imageGeneration", "textBlock", "description", "group"].includes(type)) {
+    throw new Error("type must be image, imageGeneration, textBlock, description, or group.")
   }
-  const width = args.width ?? (type === "prompt" ? 520 : 420)
-  const height = args.height ?? (type === "prompt" ? 320 : 300)
+  const defaults = defaultNodeSize(type)
+  const width = args.width ?? defaults.width
+  const height = args.height ?? defaults.height
   const ts = nowMs()
   db.prepare(
     "INSERT INTO canvas_nodes (id, canvas_id, type, x, y, width, height, data, locked, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -151,13 +291,144 @@ function addNode(args) {
   return db.prepare("SELECT * FROM canvas_nodes WHERE id = ?").get(nodeId)
 }
 
-function updateNode(args) {
+function boundsForNodes(nodes, padding) {
+  if (nodes.length === 0) return null
+  const left = Math.min(...nodes.map((node) => node.x))
+  const top = Math.min(...nodes.map((node) => node.y))
+  const right = Math.max(...nodes.map((node) => node.x + node.width))
+  const bottom = Math.max(...nodes.map((node) => node.y + node.height))
+  return {
+    x: Math.round(left - padding),
+    y: Math.round(top - padding - 32),
+    width: Math.round(right - left + padding * 2),
+    height: Math.round(bottom - top + padding * 2 + 32),
+  }
+}
+
+function groupNodes(args) {
   const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
-  const node = db
-    .prepare("SELECT * FROM canvas_nodes WHERE id = ? AND canvas_id = ?")
-    .get(args.nodeId, canvas.id)
+  const page = pageName(args)
+  const canvas = ensureCanvas(worktreeId, page)
+  const rows = db.prepare("SELECT * FROM canvas_nodes WHERE canvas_id = ?").all(canvas.id)
+  const groupId = cleanString(args.groupId)
+  let group = groupId ? rows.find((node) => node.id === groupId) : null
+  if (group && group.type !== "group") {
+    throw new Error(`Canvas node is not a group: ${groupId}`)
+  }
+
+  const nodeIds = cleanNodeIds(args.nodeIds).filter((id) => id !== groupId)
+  const memberRows = nodeIds
+    .map((nodeId) => rows.find((node) => node.id === nodeId))
+    .filter((node) => node && node.type !== "group")
+  const groupedNodeIds = memberRows.map((node) => node.id)
+  const padding = Math.max(0, Math.round(args.padding ?? 32))
+  const computedBounds =
+    args.autoResize === false ? null : boundsForNodes(memberRows, padding)
+  const currentGroupData = group ? parseData(group.data) : {}
+  const label =
+    cleanString(args.label) ||
+    cleanString(currentGroupData.label) ||
+    "Group"
+  const groupData = {
+    ...currentGroupData,
+    ...(plainObject(args.data) ? args.data : {}),
+    label,
+    nodeIds: groupedNodeIds,
+  }
+  const geometry = {
+    x: args.x ?? computedBounds?.x,
+    y: args.y ?? computedBounds?.y,
+    width: args.width ?? computedBounds?.width,
+    height: args.height ?? computedBounds?.height,
+  }
+
+  if (group) {
+    group = updateNode({
+      worktreeId,
+      nodeId: group.id,
+      ...geometry,
+      data: groupData,
+    })
+  } else {
+    group = addNode({
+      worktreeId,
+      page,
+      type: "group",
+      ...geometry,
+      data: groupData,
+    })
+  }
+
+  for (const node of memberRows) {
+    const data = parseData(node.data)
+    updateNode({
+      worktreeId,
+      nodeId: node.id,
+      replaceData: true,
+      data: {
+        ...data,
+        groupId: group.id,
+        groupLabel: label,
+      },
+    })
+  }
+
+  return { group: normalizeNode(group), groupedNodeIds }
+}
+
+function ungroupNodes(args) {
+  const worktreeId = activeWorktreeId(args)
+  const canvas = ensureCanvas(worktreeId, pageName(args))
+  const groupId = cleanString(args.groupId)
+  if (!groupId) throw new Error("groupId is required.")
+  const rows = db.prepare("SELECT * FROM canvas_nodes WHERE canvas_id = ?").all(canvas.id)
+  const group = rows.find((node) => node.id === groupId)
+  if (!group || group.type !== "group") throw new Error(`Canvas group not found: ${groupId}`)
+  const groupData = parseData(group.data)
+  const memberIds = new Set([
+    ...cleanNodeIds(groupData.nodeIds),
+    ...rows
+      .filter((node) => parseData(node.data).groupId === groupId)
+      .map((node) => node.id),
+  ])
+
+  for (const node of rows) {
+    if (!memberIds.has(node.id) || node.type === "group") continue
+    const data = parseData(node.data)
+    delete data.groupId
+    delete data.groupLabel
+    updateNode({
+      worktreeId,
+      nodeId: node.id,
+      replaceData: true,
+      data,
+    })
+  }
+
+  if (args.deleteGroup === true) {
+    deleteNode({ worktreeId, nodeId: groupId })
+    return { groupId, ungroupedNodeIds: [...memberIds], deletedGroup: true }
+  }
+
+  const updated = updateNode({
+    worktreeId,
+    nodeId: groupId,
+    data: { nodeIds: [] },
+  })
+  return {
+    group: normalizeNode(updated),
+    ungroupedNodeIds: [...memberIds],
+    deletedGroup: false,
+  }
+}
+
+// Node-id-keyed update — derives canvasId from the row, so the agent
+// can update a node on any page without having to name it.
+function updateNode(args) {
+  activeWorktreeId(args)
+  const node = getNodeRow(args.nodeId)
   if (!node) throw new Error(`Canvas node not found: ${args.nodeId}`)
+  const canvasId = node.canvas_id
   const currentData = parseData(node.data)
   const nextData = args.data
     ? args.replaceData
@@ -174,25 +445,39 @@ function updateNode(args) {
     updatedAt: nowMs(),
   }
   db.prepare(
-    "UPDATE canvas_nodes SET x = ?, y = ?, width = ?, height = ?, data = ?, locked = ?, updated_at = ? WHERE id = ? AND canvas_id = ?",
-  ).run(next.x, next.y, next.width, next.height, next.data, next.locked, next.updatedAt, args.nodeId, canvas.id)
-  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(next.updatedAt, canvas.id)
+    "UPDATE canvas_nodes SET x = ?, y = ?, width = ?, height = ?, data = ?, locked = ?, updated_at = ? WHERE id = ?",
+  ).run(next.x, next.y, next.width, next.height, next.data, next.locked, next.updatedAt, args.nodeId)
+  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(next.updatedAt, canvasId)
   return db.prepare("SELECT * FROM canvas_nodes WHERE id = ?").get(args.nodeId)
 }
 
 function deleteNode(args) {
-  const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
+  activeWorktreeId(args)
+  const node = getNodeRow(args.nodeId)
+  if (!node) return { deleted: false }
+  const canvasId = node.canvas_id
   const result = db
-    .prepare("DELETE FROM canvas_nodes WHERE id = ? AND canvas_id = ?")
-    .run(args.nodeId, canvas.id)
-  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(nowMs(), canvas.id)
+    .prepare("DELETE FROM canvas_nodes WHERE id = ?")
+    .run(args.nodeId)
+  if (node.type === "group" && result.changes > 0) {
+    const rows = db.prepare("SELECT * FROM canvas_nodes WHERE canvas_id = ?").all(canvasId)
+    for (const row of rows) {
+      const data = parseData(row.data)
+      if (data.groupId !== args.nodeId) continue
+      delete data.groupId
+      delete data.groupLabel
+      db.prepare("UPDATE canvas_nodes SET data = ?, updated_at = ? WHERE id = ?")
+        .run(stringify(data), nowMs(), row.id)
+    }
+  }
+  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(nowMs(), canvasId)
   return { deleted: result.changes > 0 }
 }
 
 function validateConnection(sourceType, sourceHandle, targetType, targetHandle) {
+  const textSource = sourceType === "textBlock" || sourceType === "prompt"
   const valid =
-    (sourceType === "prompt" &&
+    (textSource &&
       sourceHandle === "text" &&
       targetType === "imageGeneration" &&
       targetHandle === "prompt") ||
@@ -208,37 +493,38 @@ function validateConnection(sourceType, sourceHandle, targetType, targetHandle) 
 }
 
 function connect(args) {
-  const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
-  const source = db
-    .prepare("SELECT * FROM canvas_nodes WHERE id = ? AND canvas_id = ?")
-    .get(args.sourceNodeId, canvas.id)
-  const target = db
-    .prepare("SELECT * FROM canvas_nodes WHERE id = ? AND canvas_id = ?")
-    .get(args.targetNodeId, canvas.id)
+  activeWorktreeId(args)
+  const source = getNodeRow(args.sourceNodeId)
+  const target = getNodeRow(args.targetNodeId)
   if (!source || !target) throw new Error("Both edge endpoints must exist.")
+  if (source.canvas_id !== target.canvas_id) {
+    throw new Error("Canvas edge endpoints must live on the same page.")
+  }
   validateConnection(source.type, args.sourceHandle, target.type, args.targetHandle)
+  const canvasId = source.canvas_id
 
   const existing = db.prepare(
     "SELECT * FROM canvas_edges WHERE canvas_id = ? AND source_node_id = ? AND source_handle = ? AND target_node_id = ? AND target_handle = ?",
-  ).get(canvas.id, args.sourceNodeId, args.sourceHandle, args.targetNodeId, args.targetHandle)
+  ).get(canvasId, args.sourceNodeId, args.sourceHandle, args.targetNodeId, args.targetHandle)
   if (existing) return existing
 
   const edgeId = id("edge")
   const ts = nowMs()
   db.prepare(
     "INSERT INTO canvas_edges (id, canvas_id, source_node_id, source_handle, target_node_id, target_handle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(edgeId, canvas.id, args.sourceNodeId, args.sourceHandle, args.targetNodeId, args.targetHandle, ts)
-  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(ts, canvas.id)
+  ).run(edgeId, canvasId, args.sourceNodeId, args.sourceHandle, args.targetNodeId, args.targetHandle, ts)
+  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(ts, canvasId)
   return db.prepare("SELECT * FROM canvas_edges WHERE id = ?").get(edgeId)
 }
 
 function disconnect(args) {
-  const worktreeId = activeWorktreeId(args)
-  const canvas = ensureCanvas(worktreeId)
+  activeWorktreeId(args)
+  const edge = getEdgeRow(args.edgeId)
+  if (!edge) return { deleted: false }
   const result = db
-    .prepare("DELETE FROM canvas_edges WHERE id = ? AND canvas_id = ?")
-    .run(args.edgeId, canvas.id)
+    .prepare("DELETE FROM canvas_edges WHERE id = ?")
+    .run(args.edgeId)
+  db.prepare("UPDATE canvas_documents SET updated_at = ? WHERE id = ?").run(nowMs(), edge.canvas_id)
   return { deleted: result.changes > 0 }
 }
 
@@ -271,6 +557,7 @@ async function importImage(args) {
     ? null
     : addNode({
         worktreeId,
+        page: pageName(args),
         type: "image",
         x: args.x,
         y: args.y,
@@ -281,6 +568,14 @@ async function importImage(args) {
           label: args.label || basename(source),
           projectRelativePath: asset.project_relative_path,
           mimeType: asset.mime_type,
+          ...(cleanString(args.groupId)
+            ? {
+                groupId: cleanString(args.groupId),
+                ...(cleanString(args.groupLabel)
+                  ? { groupLabel: cleanString(args.groupLabel) }
+                  : {}),
+              }
+            : {}),
         },
       })
   return { asset, node }
@@ -297,7 +592,11 @@ function generationInputs(canvasId, nodeId) {
     const source = nodes.find((node) => node.id === edge.source_node_id)
     if (!source) continue
     const data = parseData(source.data)
-    if (source.type === "prompt" && edge.target_handle === "prompt" && typeof data.text === "string") {
+    if (
+      (source.type === "textBlock" || source.type === "prompt") &&
+      edge.target_handle === "prompt" &&
+      typeof data.text === "string"
+    ) {
       promptParts.push(data.text.trim())
     }
     if (source.type === "image" && edge.target_handle === "referenceImage" && typeof data.assetId === "string") {
@@ -341,21 +640,19 @@ async function callOpenAIImage({ model, prompt, size, quality }) {
 async function generateImage(args) {
   const worktreeId = activeWorktreeId(args)
   const root = worktreeForId(worktreeId)
-  const canvas = ensureCanvas(worktreeId)
-  const node = db
-    .prepare("SELECT * FROM canvas_nodes WHERE id = ? AND canvas_id = ?")
-    .get(args.nodeId, canvas.id)
+  const node = getNodeRow(args.nodeId)
   if (!node || node.type !== "imageGeneration") {
     throw new Error("nodeId must point to an imageGeneration node.")
   }
-  const { prompt, inputAssetIds } = generationInputs(canvas.id, args.nodeId)
+  const canvasId = node.canvas_id
+  const { prompt, inputAssetIds } = generationInputs(canvasId, args.nodeId)
   const nodeData = parseData(node.data)
   const model = args.model || nodeData.model || DEFAULT_IMAGE_MODEL
   const runId = id("run")
   const ts = nowMs()
   db.prepare(
     "INSERT INTO canvas_generation_runs (id, canvas_id, node_id, model, status, prompt, input_asset_ids, started_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)",
-  ).run(runId, canvas.id, args.nodeId, model, prompt, JSON.stringify(inputAssetIds), ts)
+  ).run(runId, canvasId, args.nodeId, model, prompt, JSON.stringify(inputAssetIds), ts)
   updateNode({ worktreeId, nodeId: args.nodeId, data: { status: "running", model, lastRunId: runId, error: null } })
 
   try {
@@ -400,55 +697,243 @@ async function generateImage(args) {
 
 const tools = [
   {
-    name: "canvas_read",
-    description: "Read the active Backlot canvas graph, including nodes, edges, and image assets.",
+    name: "canvas_list_pages",
+    description:
+      "List every canvas page on the worktree. Each Backlot worktree can hold many named pages (one graph per page) — the writer's renderer surfaces them as bottom-left tabs. Returns the page name, id, and timestamps; pass the name back as `page` on any other canvas tool to target that page.",
     inputSchema: {
       type: "object",
       properties: { worktreeId: { type: "string" }, chatId: { type: "string" } },
     },
   },
   {
-    name: "canvas_add_prompt",
-    description: "Add a text prompt node to the canvas.",
+    name: "canvas_create_page",
+    description:
+      "Create a new canvas page on the worktree under the given name. Errors if a page with the same name already exists. Use this when the writer asks for a new page (e.g. 'a page for Scene 2 storyboard'), then thread that name to subsequent canvas tools as `page`.",
     inputSchema: {
       type: "object",
       properties: {
         worktreeId: { type: "string" },
         chatId: { type: "string" },
+        name: { type: "string" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "canvas_rename_page",
+    description:
+      "Rename a canvas page. Errors if `newName` collides with another existing page on the same worktree.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        name: { type: "string" },
+        newName: { type: "string" },
+      },
+      required: ["name", "newName"],
+    },
+  },
+  {
+    name: "canvas_delete_page",
+    description:
+      "Delete a canvas page along with every node and edge on it (FK cascade). Refuses to delete the only remaining page — make another first. Asset files on disk are left alone. Destructive: prefer asking the writer first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        name: { type: "string" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "canvas_read",
+    description:
+      "Read a Backlot canvas page. Returns the page document, every page on the worktree, and the nodes/edges/assets for the requested page. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "canvas_add_prompt",
+    description:
+      "Add a text-box node carrying a generation prompt. Identical to canvas_add_text but with a larger default size suited to prompts. The text box has a right-side output handle you can wire into an imageGeneration node. For storyboard work, place each shot prompt inside the storyboard group and pass groupId when available. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
         text: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        fontSize: { type: "number" },
         label: { type: "string" },
+        groupId: { type: "string" },
+        groupLabel: { type: "string" },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "canvas_add_group",
+    description:
+      "Add a visible group container to the canvas. Use this to hold related nodes, especially storyboard prompt sets. If nodeIds are provided, the group auto-sizes around those nodes and tags them with the group id. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+        label: { type: "string" },
+        nodeIds: { type: "array", items: { type: "string" } },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        padding: { type: "number" },
+        autoResize: { type: "boolean" },
+        data: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "canvas_group_nodes",
+    description:
+      "Create or update a visible group container around existing canvas nodes. Pass groupId to update an existing group; omit it to create one. The tool stores membership on the group and on each member node. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+        groupId: { type: "string" },
+        label: { type: "string" },
+        nodeIds: { type: "array", items: { type: "string" } },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        padding: { type: "number" },
+        autoResize: { type: "boolean" },
+        data: { type: "object" },
+      },
+      required: ["nodeIds"],
+    },
+  },
+  {
+    name: "canvas_ungroup",
+    description:
+      "Remove canvas nodes from a group. Set deleteGroup true to remove the empty group container after clearing membership. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+        groupId: { type: "string" },
+        deleteGroup: { type: "boolean" },
+      },
+      required: ["groupId"],
+    },
+  },
+  {
+    name: "canvas_add_text",
+    description:
+      "Add a freeform text-box node — a lightly bordered, resizable box of plain text. Use it for notes, labels, commentary, or any text you might later wire into image generation. The text box has a right-side output handle that can connect to an imageGeneration node's prompt input. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+        text: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        fontSize: { type: "number" },
+        groupId: { type: "string" },
+        groupLabel: { type: "string" },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "canvas_add_description",
+    description:
+      "Add a chrome-free description text node — a borderless block of editorial text used for headings, labels, and contextual descriptions on the board. The node has no input or output handles (it never wires into generation). Carries inline formatting on the node: fontSize, color (default | primary | muted | teal | linen | ember), highlight (none | amber | coral | teal | ember | linen), bold, italic. Pass `page` to target a specific page (default: \"main\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worktreeId: { type: "string" },
+        chatId: { type: "string" },
+        page: { type: "string" },
+        text: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        fontSize: { type: "number" },
+        color: {
+          type: "string",
+          enum: ["default", "primary", "muted", "teal", "linen", "ember"],
+        },
+        highlight: {
+          type: "string",
+          enum: ["none", "amber", "coral", "teal", "ember", "linen"],
+        },
+        bold: { type: "boolean" },
+        italic: { type: "boolean" },
+        groupId: { type: "string" },
+        groupLabel: { type: "string" },
       },
       required: ["text"],
     },
   },
   {
     name: "canvas_add_image_generation",
-    description: "Add an image generation node. Connect a prompt node to its prompt handle before generating.",
+    description:
+      "Add an image generation node. Connect a prompt node to its prompt handle before generating. Pass `page` to target a specific page (default: \"main\").",
     inputSchema: {
       type: "object",
       properties: {
         worktreeId: { type: "string" },
         chatId: { type: "string" },
+        page: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
         model: { type: "string" },
+        groupId: { type: "string" },
+        groupLabel: { type: "string" },
       },
     },
   },
   {
     name: "canvas_add_image_from_path",
-    description: "Import an image file into assets/canvas/imported and add an image node for it.",
+    description:
+      "Import an image file into assets/canvas/imported and add an image node for it. Pass `page` to target a specific page (default: \"main\").",
     inputSchema: {
       type: "object",
       properties: {
         worktreeId: { type: "string" },
         chatId: { type: "string" },
+        page: { type: "string" },
         sourcePath: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
         label: { type: "string" },
+        groupId: { type: "string" },
+        groupLabel: { type: "string" },
       },
       required: ["sourcePath"],
     },
@@ -484,7 +969,8 @@ const tools = [
   },
   {
     name: "canvas_connect",
-    description: "Connect prompt.text or image.image to an imageGeneration node.",
+    description:
+      "Connect a text-box (textBlock or legacy prompt) text output, or an image output, to an imageGeneration node's prompt or referenceImage input.",
     inputSchema: {
       type: "object",
       properties: {
@@ -537,16 +1023,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     let result
     switch (request.params.name) {
+      case "canvas_list_pages":
+        result = listCanvasPagesTool(args)
+        break
+      case "canvas_create_page":
+        result = createCanvasPage(args)
+        break
+      case "canvas_rename_page":
+        result = renameCanvasPage(args)
+        break
+      case "canvas_delete_page":
+        result = deleteCanvasPage(args)
+        break
       case "canvas_read":
         result = readCanvas(args)
         break
       case "canvas_add_prompt":
+        // Prompts and notes share one visual on the canvas now — both land
+        // as `textBlock` nodes. The text-box's right-side handle is what
+        // wires into an imageGeneration node.
         result = addNode({
           ...args,
-          type: "prompt",
-          width: 520,
-          height: 320,
-          data: { text: args.text, label: args.label || "Prompt" },
+          type: "textBlock",
+          width: args.width ?? 520,
+          height: args.height ?? 320,
+          data: {
+            text: args.text,
+            fontSize: args.fontSize ?? 16,
+            ...(args.label ? { label: args.label } : {}),
+            ...groupDataFromArgs(args),
+          },
+        })
+        break
+      case "canvas_add_group":
+      case "canvas_group_nodes":
+        result = groupNodes(args)
+        break
+      case "canvas_ungroup":
+        result = ungroupNodes(args)
+        break
+      case "canvas_add_text":
+        result = addNode({
+          ...args,
+          type: "textBlock",
+          width: args.width ?? 360,
+          height: args.height ?? 120,
+          data: {
+            text: args.text ?? "",
+            fontSize: args.fontSize ?? 18,
+            ...groupDataFromArgs(args),
+          },
+        })
+        break
+      case "canvas_add_description":
+        result = addNode({
+          ...args,
+          type: "description",
+          width: args.width ?? 360,
+          height: args.height ?? 160,
+          data: {
+            text: args.text ?? "",
+            fontSize: args.fontSize ?? 22,
+            color: typeof args.color === "string" ? args.color : "default",
+            highlight: typeof args.highlight === "string" ? args.highlight : "none",
+            bold: args.bold === true,
+            italic: args.italic === true,
+            ...groupDataFromArgs(args),
+          },
         })
         break
       case "canvas_add_image_generation":
@@ -555,7 +1098,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           type: "imageGeneration",
           width: 560,
           height: 320,
-          data: { model: args.model || DEFAULT_IMAGE_MODEL, status: "idle" },
+          data: {
+            model: args.model || DEFAULT_IMAGE_MODEL,
+            status: "idle",
+            ...groupDataFromArgs(args),
+          },
         })
         break
       case "canvas_add_image_from_path":

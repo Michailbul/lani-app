@@ -1,6 +1,15 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path"
+import { BrowserWindow, dialog } from "electron"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
 import { z } from "zod"
@@ -85,6 +94,29 @@ const rootInput = {
   projectId: z.string().optional(),
 }
 
+const REFERENCE_IMAGE_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "avif",
+  "bmp",
+]
+
+/** A non-overwriting destination — suffixes "-2", "-3"… on collision. */
+function uniqueDestination(dir: string, fileName: string): string {
+  const ext = extname(fileName)
+  const stem = basename(fileName, ext)
+  let candidate = join(dir, fileName)
+  let n = 2
+  while (existsSync(candidate)) {
+    candidate = join(dir, `${stem}-${n}${ext}`)
+    n += 1
+  }
+  return candidate
+}
+
 export const multishotsRouter = router({
   /** Read a scene's multishot file. `relPath` points at multishot.backlot.json. */
   read: publicProcedure
@@ -142,6 +174,50 @@ export const multishotsRouter = router({
         await settleUserEdit(root, input.relPath)
       }
       return { written: true, relPath: input.relPath }
+    }),
+
+  /**
+   * Open a native picker, copy the chosen images into the scene's
+   * `references/` folder, and return their project-relative paths. The
+   * Multishot surface appends these to the doc's `referenceImages`.
+   * `relPath` points at the scene's `multishot.backlot.json`.
+   */
+  addReferenceImages: publicProcedure
+    .input(z.object({ ...rootInput, relPath: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const { root } = resolveRoot(input)
+      if (!root) throw new Error("No project root or worktree resolved.")
+
+      const window = ctx.getWindow?.() ?? BrowserWindow.getFocusedWindow()
+      if (!window) return { added: [] as string[] }
+      if (!window.isFocused()) {
+        window.focus()
+        await new Promise((r) => setTimeout(r, 100))
+      }
+
+      const picked = await dialog.showOpenDialog(window, {
+        properties: ["openFile", "multiSelections"],
+        title: "Add reference images",
+        buttonLabel: "Add references",
+        filters: [{ name: "Images", extensions: REFERENCE_IMAGE_EXTENSIONS }],
+      })
+      if (picked.canceled || picked.filePaths.length === 0) {
+        return { added: [] as string[] }
+      }
+
+      const multishotFull = resolveInside(root, input.relPath)
+      const refsDir = join(dirname(multishotFull), "references")
+      await mkdir(refsDir, { recursive: true })
+
+      const added: string[] = []
+      for (const source of picked.filePaths) {
+        const ext = extname(source).toLowerCase().replace(/^\./, "")
+        if (!REFERENCE_IMAGE_EXTENSIONS.includes(ext)) continue
+        const destination = uniqueDestination(refsDir, basename(source))
+        await copyFile(source, destination)
+        added.push(relative(root, destination))
+      }
+      return { added }
     }),
 
   /**

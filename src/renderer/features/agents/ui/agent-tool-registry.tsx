@@ -617,31 +617,6 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     variant: "simple",
   },
 
-  // Backlot in-process MCP — propose_skill_change. Renders as a
-  // friendly "Proposing skill change" chip while waiting on the user's
-  // verdict in the SkillDiffModal.
-  "tool-mcp__backlot-skills__propose_skill_change": {
-    icon: IconEditFile,
-    title: (part) => {
-      const isPending =
-        part.state !== "output-available" && part.state !== "output-error"
-      const isInputStreaming = part.state === "input-streaming"
-      if (isInputStreaming) return "Preparing skill change"
-      if (isPending) return "Awaiting your verdict"
-      // Output text starts with "User applied" or "User dismissed".
-      const out = part.output?.content?.[0]?.text || ""
-      if (out.startsWith("User applied")) return "Skill updated"
-      if (out.startsWith("User dismissed")) return "Change dismissed"
-      if (out.startsWith("No-op")) return "No change needed"
-      return "Skill change resolved"
-    },
-    subtitle: (part) => {
-      const summary = part.input?.summary || ""
-      if (!summary) return ""
-      return summary.length > 60 ? summary.slice(0, 57) + "..." : summary
-    },
-    variant: "simple",
-  },
 
   // Extended Thinking
   "tool-Thinking": {

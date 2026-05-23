@@ -1,55 +1,55 @@
 /**
  * Skill Workbench router — backs the Skill Workbench mode.
  *
- * The workbench lets the user (and the agent) inspect and edit the
- * Claude Agent SDK skills Backlot surfaces in Settings — the curated
- * `BACKLOT_SKILL_REGISTRY`. A skill is a *folder*, not a single file:
- * `~/.claude/skills/<name>/` holds `SKILL.md` plus any reference docs,
- * scripts, or assets the skill ships. So this router exposes the
- * folder tree, not just SKILL.md.
- *
- * Editing is direct + autosave (writer-surface convention), so
- * `writeFile` writes straight to disk. Path containment is enforced on
- * every read/write: a resolved path must stay inside the user skills
- * root, so a malformed `relPath` can't escape into the rest of disk.
+ * The workbench browses and edits the Backlot skill library at
+ * `~/.backlot/skills/`. A skill is a folder (SKILL.md + optional
+ * resources), so this router exposes the folder tree, not just
+ * SKILL.md. Path containment is enforced on every read/write: a
+ * resolved path must stay inside the library root.
  */
 
-import { observable } from "@trpc/server/observable"
 import * as fs from "node:fs/promises"
-import * as os from "node:os"
 import * as path from "node:path"
-import matter from "gray-matter"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { z } from "zod"
 import { publicProcedure, router } from "../index"
-import { BACKLOT_SKILL_REGISTRY } from "../../skills/registry"
 import {
-  subscribeSkillWorkbenchFocus,
-  type SkillWorkbenchFocusRequest,
-} from "../../skills/workbench-focus"
+  BACKLOT_SKILLS_DIR,
+  createSkill,
+  listBacklotSkills,
+} from "../../skills/library"
 
-/** Root of user-scope skills. Every workbench path must resolve inside. */
-const USER_SKILLS_ROOT = path.join(os.homedir(), ".claude", "skills")
+const execFileAsync = promisify(execFile)
 
 /** Files/dirs the tree never surfaces — OS noise and VCS metadata. */
 const TREE_IGNORE = new Set([".git", ".DS_Store", "node_modules"])
 
-/**
- * Resolve a skill directory and assert it lives directly under the
- * user skills root. Returns the absolute, normalised path.
- */
+type SkillFileStatus = "clean" | "modified" | "untracked" | "deleted" | "added"
+
+interface SkillStatusEntry {
+  status: SkillFileStatus
+  porcelain: string
+}
+
+interface SkillReviewHunk {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: Array<{ kind: "context" | "added" | "removed"; text: string }>
+}
+
+/** Resolve a skill directory and assert it lives under the library root. */
 function resolveSkillDir(skillDir: string): string {
   const resolved = path.resolve(skillDir)
-  const parent = path.dirname(resolved)
-  if (parent !== USER_SKILLS_ROOT) {
-    throw new Error("Skill directory must live under ~/.claude/skills")
+  if (path.dirname(resolved) !== BACKLOT_SKILLS_DIR) {
+    throw new Error("Skill directory must live under ~/.backlot/skills")
   }
   return resolved
 }
 
-/**
- * Resolve `relPath` inside an already-validated skill directory and
- * assert it can't escape that directory via `..` or an absolute path.
- */
+/** Resolve `relPath` inside a skill dir, rejecting any escape via `..`. */
 function resolveFileInSkill(skillDir: string, relPath: string): string {
   const resolved = path.resolve(skillDir, relPath)
   if (resolved !== skillDir && !resolved.startsWith(skillDir + path.sep)) {
@@ -58,18 +58,205 @@ function resolveFileInSkill(skillDir: string, relPath: string): string {
   return resolved
 }
 
+function toGitPath(absOrRel: string): string {
+  return absOrRel.split(path.sep).join("/")
+}
+
+function relToLibrary(abs: string): string {
+  const rel = path.relative(BACKLOT_SKILLS_DIR, abs)
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("File path escapes the skill library")
+  }
+  return toGitPath(rel)
+}
+
+async function git(
+  args: string[],
+  options: { allowFailure?: boolean } = {},
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", args, {
+      cwd: BACKLOT_SKILLS_DIR,
+      maxBuffer: 20 * 1024 * 1024,
+    })
+    return stdout
+  } catch (err) {
+    if (options.allowFailure) {
+      const failed = err as { stdout?: string | Buffer }
+      return typeof failed.stdout === "string"
+        ? failed.stdout
+        : Buffer.isBuffer(failed.stdout)
+          ? failed.stdout.toString("utf-8")
+          : ""
+    }
+    const message =
+      err instanceof Error && err.message ? err.message : "Git command failed"
+    throw new Error(message)
+  }
+}
+
+async function hasCommit(): Promise<boolean> {
+  try {
+    await git(["rev-parse", "--verify", "HEAD"])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Git is the review ledger for skills. First use creates a local repo
+ * in `~/.backlot/skills` and commits the current library as the baseline;
+ * subsequent edits stay visible as pending changes until the user saves
+ * or discards them from Skill Workbench.
+ *
+ * Memoized: the workbench page fires several tRPC queries in parallel,
+ * and concurrent `git config` writes race on `.git/config.lock`. We do
+ * the setup once per process and reuse the resolved promise after that.
+ */
+let skillsRepoReady: Promise<void> | null = null
+
+async function initSkillsGitRepo(): Promise<void> {
+  await fs.mkdir(BACKLOT_SKILLS_DIR, { recursive: true })
+  try {
+    await git(["rev-parse", "--is-inside-work-tree"])
+  } catch {
+    await git(["init", "-b", "main"])
+  }
+  const name = (await git(["config", "user.name"], { allowFailure: true })).trim()
+  if (name !== "Backlot") {
+    await git(["config", "user.name", "Backlot"])
+  }
+  const email = (await git(["config", "user.email"], { allowFailure: true })).trim()
+  if (email !== "backlot@local") {
+    await git(["config", "user.email", "backlot@local"])
+  }
+  if (await hasCommit()) return
+
+  await git(["add", "-A", "--", "."])
+  await git(["commit", "--allow-empty", "-m", "Baseline skill library"])
+}
+
+async function ensureSkillsGitRepo(): Promise<void> {
+  if (!skillsRepoReady) {
+    skillsRepoReady = initSkillsGitRepo().catch((err) => {
+      skillsRepoReady = null
+      throw err
+    })
+  }
+  return skillsRepoReady
+}
+
+function statusFromPorcelain(code: string): SkillFileStatus {
+  if (code === "??") return "untracked"
+  if (code.includes("D")) return "deleted"
+  if (code.includes("A")) return "added"
+  return "modified"
+}
+
+async function readStatusMap(): Promise<Map<string, SkillStatusEntry>> {
+  await ensureSkillsGitRepo()
+  const raw = await git(["status", "--porcelain=v1", "-z", "--", "."])
+  const entries = raw.split("\0").filter(Boolean)
+  const map = new Map<string, SkillStatusEntry>()
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i]
+    const code = entry.slice(0, 2)
+    const file = entry.slice(3)
+    if (!file) continue
+    if (code.includes("R") || code.includes("C")) i += 1
+    map.set(file, { status: statusFromPorcelain(code), porcelain: code })
+  }
+  return map
+}
+
+function fileStatus(
+  map: Map<string, SkillStatusEntry>,
+  relPath: string,
+): SkillFileStatus {
+  return map.get(toGitPath(relPath))?.status ?? "clean"
+}
+
+function descendantCount(
+  map: Map<string, SkillStatusEntry>,
+  relPath: string,
+): number {
+  const prefix = relPath ? `${toGitPath(relPath)}/` : ""
+  let count = 0
+  for (const file of map.keys()) {
+    if (!prefix || file.startsWith(prefix)) count += 1
+  }
+  return count
+}
+
+async function readBaseContent(relPath: string): Promise<string | null> {
+  if (!(await hasCommit())) return null
+  const raw = await git(["show", `HEAD:${relPath}`], { allowFailure: true })
+  return raw === "" ? null : raw
+}
+
+function parseUnifiedDiff(diffText: string): SkillReviewHunk[] {
+  const hunks: SkillReviewHunk[] = []
+  let current: SkillReviewHunk | null = null
+  for (const line of diffText.split("\n")) {
+    const match = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+    if (match) {
+      current = {
+        oldStart: Number(match[1]),
+        oldLines: Number(match[2] ?? "1"),
+        newStart: Number(match[3]),
+        newLines: Number(match[4] ?? "1"),
+        lines: [],
+      }
+      hunks.push(current)
+      continue
+    }
+    if (!current) continue
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      current.lines.push({ kind: "added", text: line.slice(1) })
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      current.lines.push({ kind: "removed", text: line.slice(1) })
+    } else if (line.startsWith(" ")) {
+      current.lines.push({ kind: "context", text: line.slice(1) })
+    }
+  }
+  return hunks
+}
+
+async function diffForPath(relPath: string): Promise<string> {
+  await ensureSkillsGitRepo()
+  const status = (await readStatusMap()).get(relPath)?.status ?? "clean"
+  if (status === "untracked") {
+    return git(
+      [
+        "diff",
+        "--no-index",
+        "--",
+        "/dev/null",
+        path.join(BACKLOT_SKILLS_DIR, relPath),
+      ],
+      { allowFailure: true },
+    )
+  }
+  if (status === "added") {
+    return git(["diff", "--cached", "--", relPath], { allowFailure: true })
+  }
+  return git(["diff", "--", relPath], { allowFailure: true })
+}
+
 interface SkillTreeNode {
   kind: "file" | "folder"
   name: string
-  /** Path relative to the skill directory. */
   relPath: string
+  status?: SkillFileStatus
+  changedDescendantCount?: number
   children?: SkillTreeNode[]
 }
 
-/** Recursively walk a skill directory into a tree of relative paths. */
 async function walkSkillTree(
   absDir: string,
   skillDir: string,
+  statusMap: Map<string, SkillStatusEntry>,
 ): Promise<SkillTreeNode[]> {
   let entries: import("node:fs").Dirent[]
   try {
@@ -77,25 +264,29 @@ async function walkSkillTree(
   } catch {
     return []
   }
-
   const nodes: SkillTreeNode[] = []
   for (const entry of entries) {
     if (TREE_IGNORE.has(entry.name)) continue
     const abs = path.join(absDir, entry.name)
     const relPath = path.relative(skillDir, abs)
     if (entry.isDirectory()) {
+      const rootRel = relToLibrary(abs)
       nodes.push({
         kind: "folder",
         name: entry.name,
         relPath,
-        children: await walkSkillTree(abs, skillDir),
+        changedDescendantCount: descendantCount(statusMap, rootRel),
+        children: await walkSkillTree(abs, skillDir, statusMap),
       })
     } else if (entry.isFile()) {
-      nodes.push({ kind: "file", name: entry.name, relPath })
+      nodes.push({
+        kind: "file",
+        name: entry.name,
+        relPath,
+        status: fileStatus(statusMap, relToLibrary(abs)),
+      })
     }
   }
-
-  // Folders first, then files; each group alphabetised.
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1
     return a.name.localeCompare(b.name)
@@ -103,59 +294,46 @@ async function walkSkillTree(
   return nodes
 }
 
-/** Read a SKILL.md description without throwing on malformed YAML. */
-async function readSkillDescription(skillMdPath: string): Promise<string> {
-  try {
-    const raw = await fs.readFile(skillMdPath, "utf-8")
-    const { data } = matter(raw)
-    return typeof data.description === "string" ? data.description : ""
-  } catch {
-    return ""
-  }
-}
-
 export const skillWorkbenchRouter = router({
   /**
-   * The curated registry skills, grouped by category — the same set the
-   * Settings → Skills page shows. Each skill carries its absolute folder
-   * path and an `installed` flag (false when the directory is missing).
+   * The Backlot skill library — a flat, alphabetical list. Each entry
+   * carries its absolute folder path and on/off state.
    */
   list: publicProcedure.query(async () => {
-    return Promise.all(
-      BACKLOT_SKILL_REGISTRY.map(async (category) => ({
-        label: category.label,
-        blurb: category.blurb,
-        skills: await Promise.all(
-          category.skills.map(async (skill) => {
-            const dir = path.join(USER_SKILLS_ROOT, skill.name)
-            const skillMdPath = path.join(dir, "SKILL.md")
-            let installed = false
-            try {
-              await fs.access(skillMdPath)
-              installed = true
-            } catch {
-              installed = false
-            }
-            return {
-              name: skill.name,
-              dir,
-              installed,
-              description: installed
-                ? await readSkillDescription(skillMdPath)
-                : "",
-            }
-          }),
-        ),
-      })),
-    )
+    const skills = await listBacklotSkills()
+    const statusMap = await readStatusMap()
+    return skills
+      .slice()
+      .sort((a, b) => a.slug.localeCompare(b.slug))
+      .map((s) => ({
+        name: s.slug,
+        label: s.name,
+        dir: s.dir,
+        description: s.description,
+        enabled: s.enabled,
+        imported: s.imported,
+        installed: true,
+        changedDescendantCount: descendantCount(statusMap, s.slug),
+      }))
   }),
+
+  /**
+   * Scaffold a new skill — a folder + starter `SKILL.md` — and return
+   * its slug and absolute path so the renderer can open it.
+   */
+  create: publicProcedure
+    .input(z.object({ name: z.string().min(1).max(64) }))
+    .mutation(async ({ input }) => {
+      return createSkill(input.name)
+    }),
 
   /** The file tree of one skill folder. */
   tree: publicProcedure
     .input(z.object({ skillDir: z.string().min(1) }))
     .query(async ({ input }) => {
       const dir = resolveSkillDir(input.skillDir)
-      return walkSkillTree(dir, dir)
+      const statusMap = await readStatusMap()
+      return walkSkillTree(dir, dir, statusMap)
     }),
 
   /** Read one file inside a skill folder. */
@@ -169,11 +347,21 @@ export const skillWorkbenchRouter = router({
     .query(async ({ input }) => {
       const dir = resolveSkillDir(input.skillDir)
       const abs = resolveFileInSkill(dir, input.relPath)
+      const rel = relToLibrary(abs)
       const content = await fs.readFile(abs, "utf-8")
-      return { content }
+      const statusMap = await readStatusMap()
+      const status = statusMap.get(rel)?.status ?? "clean"
+      const diffText = status === "clean" ? "" : await diffForPath(rel)
+      return {
+        content,
+        status,
+        diffText,
+        hunks: parseUnifiedDiff(diffText),
+        baseContent: status === "clean" ? content : await readBaseContent(rel),
+      }
     }),
 
-  /** Write one file inside a skill folder (direct edit + autosave). */
+  /** Write one file inside a skill folder. The pending change is git-visible. */
   writeFile: publicProcedure
     .input(
       z.object({
@@ -190,22 +378,93 @@ export const skillWorkbenchRouter = router({
       return { success: true as const }
     }),
 
-  /**
-   * Stream of workbench focus requests. The agent's `open_skill_workbench`
-   * MCP tool emits one; the renderer host flips into Skill Workbench mode
-   * and opens the file. Live requests only — a request is not replayed on
-   * (re)connect, so relaunching the app never hijacks the view mode.
-   */
-  focusEvents: publicProcedure.subscription(() => {
-    return observable<SkillWorkbenchFocusRequest>((emit) => {
-      const unsubscribe = subscribeSkillWorkbenchFocus((request) => {
-        try {
-          emit.next(request)
-        } catch {
-          // Subscriber already closed — ignore.
-        }
+  /** Save one skill file by committing just that path to the skill ledger. */
+  saveFile: publicProcedure
+    .input(
+      z.object({
+        skillDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const dir = resolveSkillDir(input.skillDir)
+      const abs = resolveFileInSkill(dir, input.relPath)
+      const rel = relToLibrary(abs)
+      await ensureSkillsGitRepo()
+      await git(["add", "--", rel])
+      const staged = await git(["diff", "--cached", "--name-only", "--", rel])
+      if (!staged.trim()) return { success: true as const }
+      await git([
+        "commit",
+        "-m",
+        `Save skill change: ${rel}`,
+        "--",
+        rel,
+      ])
+      return { success: true as const }
+    }),
+
+  /** Discard one pending skill-file change by restoring it from HEAD. */
+  discardFile: publicProcedure
+    .input(
+      z.object({
+        skillDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const dir = resolveSkillDir(input.skillDir)
+      const abs = resolveFileInSkill(dir, input.relPath)
+      const rel = relToLibrary(abs)
+      await ensureSkillsGitRepo()
+      await git(["restore", "--staged", "--worktree", "--", rel], {
+        allowFailure: true,
       })
-      return () => unsubscribe()
-    })
-  }),
+      await git(["clean", "-f", "--", rel], { allowFailure: true })
+      return { success: true as const }
+    }),
+
+  /** Full history for rollback/audit UI. */
+  history: publicProcedure
+    .input(
+      z.object({
+        skillDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .query(async ({ input }) => {
+      const dir = resolveSkillDir(input.skillDir)
+      const abs = resolveFileInSkill(dir, input.relPath)
+      const rel = relToLibrary(abs)
+      await ensureSkillsGitRepo()
+      const raw = await git(
+        ["log", "--date=iso", "--pretty=format:%H%x00%h%x00%ad%x00%s", "--", rel],
+        { allowFailure: true },
+      )
+      return raw
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [hash, shortHash, date, subject] = line.split("\0")
+          return { hash, shortHash, date, subject }
+        })
+    }),
+
+  /** Roll one skill file back to a previous saved revision. */
+  rollbackFile: publicProcedure
+    .input(
+      z.object({
+        skillDir: z.string().min(1),
+        relPath: z.string().min(1),
+        commit: z.string().min(7),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const dir = resolveSkillDir(input.skillDir)
+      const abs = resolveFileInSkill(dir, input.relPath)
+      const rel = relToLibrary(abs)
+      await ensureSkillsGitRepo()
+      await git(["checkout", input.commit, "--", rel])
+      return { success: true as const }
+    }),
 })

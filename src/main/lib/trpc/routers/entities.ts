@@ -1,6 +1,24 @@
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  rename as fsRename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path"
 import { eq } from "drizzle-orm"
 import simpleGit from "simple-git"
 import { z } from "zod"
@@ -93,6 +111,23 @@ export function shotPath(sceneId: string, shotId: string): string {
     `${shotId}.md`,
   )
 }
+
+const IMPORTABLE_MEDIA_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".avif",
+  ".bmp",
+  ".ico",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".m4v",
+  ".ogv",
+])
 
 // ────────────────────────────────────────────────────────────────────────
 // Entity types returned by `list`. The frontend uses these to drive the
@@ -253,6 +288,46 @@ function resolveRoot(input: {
   return { root: null, kind: null }
 }
 
+function isInsideRoot(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate)
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
+}
+
+function resolveRootRelativePath(root: string, relPath: string): string {
+  const full = resolve(root, relPath || ".")
+  const resolvedRoot = resolve(root)
+  if (!isInsideRoot(resolvedRoot, full)) {
+    throw new Error("Path escapes the root.")
+  }
+  return full
+}
+
+function toRootRelativePath(root: string, fullPath: string): string {
+  return relative(root, fullPath).split(sep).join("/")
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function uniqueChildPath(parentDir: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf(".")
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ""
+  let candidate = join(parentDir, name)
+  let counter = 2
+  while (await pathExists(candidate)) {
+    candidate = join(parentDir, `${stem}-${counter}${ext}`)
+    counter += 1
+  }
+  return candidate
+}
+
 async function settleUserEdit(root: string, relPath: string): Promise<void> {
   try {
     const git = simpleGit(root)
@@ -266,6 +341,42 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     await git.commit(`Backlot: save user edit to ${relPath}`, [relPath])
   } catch (err) {
     console.warn("[entities.write] user edit settlement skipped:", err)
+  }
+}
+
+/**
+ * Settle a rename as one creative-history checkpoint. Stages both sides
+ * (old path removed, new path added) so git recognises it as a rename
+ * rather than a delete + add, then commits with a writer-friendly
+ * message. Best-effort: a missing repo or staging failure never blocks
+ * the user — the file is already on disk under its new name.
+ */
+async function settleUserRename(
+  root: string,
+  fromRel: string,
+  toRel: string,
+): Promise<void> {
+  try {
+    const git = simpleGit(root)
+    const isRepo = await git.checkIsRepo()
+    if (!isRepo) return
+
+    try {
+      await git.add([fromRel, toRel])
+    } catch {
+      try {
+        await git.raw(["add", "-A", "--", fromRel, toRel])
+      } catch {
+        /* ignore — commit below will report any real problem */
+      }
+    }
+
+    const porcelain = await git.raw(["status", "--porcelain"])
+    if (!porcelain.trim()) return
+
+    await git.commit(`Backlot: rename ${fromRel} → ${toRel}`)
+  } catch (err) {
+    console.warn("[entities.rename] settlement skipped:", err)
   }
 }
 
@@ -743,6 +854,31 @@ export const entitiesRouter = router({
     }),
 
   /**
+   * Resolve an entity's relative path to its absolute filesystem path.
+   * The renderer needs this to build a `backlot-asset://` URL for media
+   * previews (images / video), which must point at a real file on disk.
+   */
+  resolvePath: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        entityPath: z.string().min(1),
+      }),
+    )
+    .query(({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        return { exists: false, absPath: null as string | null }
+      }
+      const full = join(root, input.entityPath)
+      if (!full.startsWith(root)) {
+        throw new Error("Entity path escapes the root.")
+      }
+      return { exists: existsSync(full), absPath: full }
+    }),
+
+  /**
    * Write any entity file. Creates parent directories as needed. The
    * renderer hits this for direct user edits to character locks /
    * location cards / world bible / shot prompts. The agent uses the
@@ -800,6 +936,72 @@ export const entitiesRouter = router({
       const { root } = resolveRoot(input)
       if (!root) return null
       return walkTree(root, "")
+    }),
+
+  /**
+   * Copy image/video files dragged from Finder into a project folder.
+   * The renderer only sends absolute local paths from Electron webUtils;
+   * the main process validates media extensions, keeps writes inside the
+   * active root, and suffixes duplicate filenames instead of overwriting.
+   */
+  importMediaFiles: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        targetDir: z.string().default(""),
+        files: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+
+      const resolvedRoot = resolve(root)
+      const targetDir = resolveRootRelativePath(resolvedRoot, input.targetDir)
+      const targetStat = await stat(targetDir).catch(() => null)
+      if (!targetStat?.isDirectory()) {
+        throw new Error("Drop target is not a folder.")
+      }
+
+      const imported: Array<{
+        sourcePath: string
+        path: string
+        name: string
+      }> = []
+      const rejected: Array<{ sourcePath: string; reason: string }> = []
+
+      for (const sourcePath of input.files) {
+        const source = resolve(sourcePath)
+        const sourceStat = await stat(source).catch(() => null)
+        if (!sourceStat?.isFile()) {
+          rejected.push({ sourcePath, reason: "Not a file." })
+          continue
+        }
+
+        const ext = extname(source).toLowerCase()
+        if (!IMPORTABLE_MEDIA_EXTENSIONS.has(ext)) {
+          rejected.push({ sourcePath, reason: "Not an image or video." })
+          continue
+        }
+
+        const targetName = basename(source)
+        const destination = await uniqueChildPath(targetDir, targetName)
+        if (!isInsideRoot(resolvedRoot, destination)) {
+          throw new Error("Import path escapes the root.")
+        }
+
+        await copyFile(source, destination)
+        imported.push({
+          sourcePath,
+          path: toRootRelativePath(resolvedRoot, destination),
+          name: basename(destination),
+        })
+      }
+
+      return { imported, rejected }
     }),
 
   /**
@@ -867,6 +1069,70 @@ export const entitiesRouter = router({
     }),
 
   /**
+   * Rename / move a file or folder under the project/worktree root.
+   *
+   * Both `fromPath` and `toPath` are root-relative. The mutation:
+   *
+   *  - refuses to touch the root itself or any path that escapes the
+   *    resolved root,
+   *  - refuses to overwrite an existing target (writers expect creative
+   *    work to be additive — they can delete-then-rename if they really
+   *    want to clobber),
+   *  - creates any missing parent directories for the destination so a
+   *    rename can also act as a move into a new folder,
+   *  - settles the change as one git commit when the root is a real
+   *    repo, so it lands as a single history entry and the per-hunk
+   *    review surface treats it as a rename instead of a paired
+   *    delete + add.
+   */
+  rename: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        fromPath: z.string().min(1),
+        toPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root, kind } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+      const resolvedRoot = resolve(root)
+      const fromFull = resolveRootRelativePath(resolvedRoot, input.fromPath)
+      const toFull = resolveRootRelativePath(resolvedRoot, input.toPath)
+      if (fromFull === resolvedRoot || toFull === resolvedRoot) {
+        throw new Error("Cannot rename the project root.")
+      }
+      if (fromFull === toFull) {
+        return {
+          renamed: false,
+          fromPath: input.fromPath,
+          toPath: input.toPath,
+        }
+      }
+      if (!existsSync(fromFull)) {
+        throw new Error(`Path does not exist: ${input.fromPath}`)
+      }
+      if (existsSync(toFull)) {
+        throw new Error(`A file or folder already exists at: ${input.toPath}`)
+      }
+
+      await mkdir(dirname(toFull), { recursive: true })
+      await fsRename(fromFull, toFull)
+
+      const fromRel = toRootRelativePath(resolvedRoot, fromFull)
+      const toRel = toRootRelativePath(resolvedRoot, toFull)
+
+      if (kind === "worktree" || kind === "project") {
+        await settleUserRename(resolvedRoot, fromRel, toRel)
+      }
+
+      return { renamed: true, fromPath: fromRel, toPath: toRel }
+    }),
+
+  /**
    * Delete a file or folder under the project/worktree root. Folders
    * are removed recursively. The root itself is refused (path === "")
    * so a stray empty input can't wipe the project. Anything outside
@@ -894,6 +1160,61 @@ export const entitiesRouter = router({
       }
       await rm(full, { recursive: true, force: true })
       return { deleted: true, path: input.path }
+    }),
+
+  /**
+   * Batch delete — multi-select bulk action from the file tree. Drops
+   * any path whose ancestor is also in the list (sort lex, skip prefix
+   * matches) so selecting a folder and a file inside it doesn't
+   * crash. Already-gone paths are tolerated so a duplicate call after
+   * an external delete doesn't explode. Returns a per-path summary so
+   * the renderer can flag partial failures.
+   */
+  deleteMany: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().optional(),
+        projectId: z.string().optional(),
+        paths: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { root } = resolveRoot(input)
+      if (!root) {
+        throw new Error("No worktree or project root resolved.")
+      }
+
+      const sorted = [...new Set(input.paths)].sort()
+      const kept: string[] = []
+      for (const p of sorted) {
+        const parent = kept[kept.length - 1]
+        if (parent && p.startsWith(parent + "/")) continue
+        kept.push(p)
+      }
+
+      const deleted: string[] = []
+      const errors: { path: string; error: string }[] = []
+      for (const p of kept) {
+        const full = join(root, p)
+        if (!full.startsWith(root) || full === root) {
+          errors.push({ path: p, error: "Path escapes the root." })
+          continue
+        }
+        if (!existsSync(full)) {
+          deleted.push(p)
+          continue
+        }
+        try {
+          await rm(full, { recursive: true, force: true })
+          deleted.push(p)
+        } catch (err) {
+          errors.push({
+            path: p,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+      return { deleted, errors }
     }),
 })
 

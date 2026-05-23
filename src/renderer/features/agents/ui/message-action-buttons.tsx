@@ -3,6 +3,7 @@
 import { memo, useState, useRef, useCallback, useEffect } from "react"
 import { useAtom, useSetAtom } from "jotai"
 import {
+  BranchIcon,
   CheckIcon,
   CopyIcon,
   IconSpinner,
@@ -12,6 +13,7 @@ import {
 import { cn } from "../../../lib/utils"
 import { apiFetch } from "../../../lib/api-fetch"
 import { useHaptic } from "../hooks/use-haptic"
+import { threadCreateRequestAtom } from "../atoms"
 import {
   ttsPlaybackRateAtom,
   setTtsPlaybackRateAtom,
@@ -62,6 +64,45 @@ export const CopyButton = memo(function CopyButton({
           )}
         />
       </div>
+    </button>
+  )
+})
+
+// ============================================================================
+// BRANCH BUTTON - Fork the current thread with its history (same as "+ → Branch")
+// ============================================================================
+
+interface BranchButtonProps {
+  chatId: string
+  isMobile?: boolean
+}
+
+export const BranchButton = memo(function BranchButton({
+  chatId,
+  isMobile: _isMobile = false,
+}: BranchButtonProps) {
+  const setThreadCreateRequest = useSetAtom(threadCreateRequestAtom)
+  const { trigger: triggerHaptic } = useHaptic()
+
+  const handleBranch = useCallback(() => {
+    if (!chatId) return
+    triggerHaptic("medium")
+    setThreadCreateRequest({
+      id: Date.now(),
+      chatId,
+      options: { kind: "branch" },
+    })
+  }, [chatId, setThreadCreateRequest, triggerHaptic])
+
+  return (
+    <button
+      onClick={handleBranch}
+      tabIndex={-1}
+      title="Branch this thread"
+      aria-label="Branch this thread"
+      className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent active:scale-[0.97]"
+    >
+      <BranchIcon className="w-3.5 h-3.5 text-muted-foreground" />
     </button>
   )
 })

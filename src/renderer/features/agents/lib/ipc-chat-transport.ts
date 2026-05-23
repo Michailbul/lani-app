@@ -27,6 +27,45 @@ import {
 } from "../atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
+import {
+  activeEntityAtom,
+  selectedSceneIdAtom,
+  shotlistSubmodeAtom,
+  viewModeAtom,
+} from "../../backlot/atoms"
+
+/**
+ * Active focus payload sent with each turn so the agent always knows
+ * which file the user has open in the workdesk. Read at send time from
+ * the renderer's jotai store; null when no entity is selected.
+ *
+ * Kept in this file (not in agents/atoms) because it bridges the
+ * backlot feature into the agents transport — no other consumer.
+ */
+function getActiveFocus(): {
+  path: string
+  kind: string
+  label?: string | null
+  mode?: string | null
+  submode?: string | null
+  sceneId?: string | null
+} | null {
+  const entity = appStore.get(activeEntityAtom)
+  if (!entity || !entity.path) return null
+  const mode = appStore.get(viewModeAtom)
+  const submode = mode === "shotlist" ? appStore.get(shotlistSubmodeAtom) : null
+  const sceneId = appStore.get(selectedSceneIdAtom)
+  const label =
+    "label" in entity && typeof entity.label === "string" ? entity.label : null
+  return {
+    path: entity.path,
+    kind: entity.kind,
+    label,
+    mode,
+    submode,
+    sceneId,
+  }
+}
 
 // Error categories and their user-friendly messages
 const ERROR_TOAST_CONFIG: Record<
@@ -199,6 +238,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
     return new ReadableStream({
       start: (controller) => {
+        const activeFocus = getActiveFocus()
         const sub = trpcClient.claude.chat.subscribe(
           {
             subChatId: this.config.subChatId,
@@ -216,6 +256,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             offlineModeEnabled,
             enableTasks,
             ...(images.length > 0 && { images }),
+            ...(activeFocus && { activeFocus }),
           },
           {
             onData: (chunk: UIMessageChunk) => {
@@ -290,6 +331,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                   mcpServers: chunk.mcpServers,
                   plugins: chunk.plugins,
                   skills: chunk.skills?.length,
+                  agents: chunk.agents?.length,
                   // Debug: show all tools to check for MCP tools (format: mcp__servername__toolname)
                   allTools: chunk.tools,
                 })
@@ -298,6 +340,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                   mcpServers: chunk.mcpServers,
                   plugins: chunk.plugins,
                   skills: chunk.skills,
+                  agents: chunk.agents || [],
                 })
               }
 

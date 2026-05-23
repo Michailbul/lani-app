@@ -1952,6 +1952,9 @@ export function AgentsSidebar({
     },
   })
 
+  // Cmd+Z after a thread archive un-archives it back into its workspace.
+  const { mutate: unarchiveSubChat } = trpc.chats.unarchiveSubChat.useMutation()
+
   // Remove workspace item from stack by chatId
   const removeWorkspaceFromStack = useCallback((chatId: string) => {
     setUndoStack((prev) => {
@@ -2060,7 +2063,14 @@ export function AgentsSidebar({
             restoreChatMutation.mutate({ id: lastItem.chatId })
           }
         } else if (lastItem.type === "subchat") {
-          // Restore sub-chat tab (re-add to open tabs)
+          // Restore the archived thread, then re-open its tab.
+          unarchiveSubChat(
+            { id: lastItem.subChatId },
+            {
+              onSettled: () =>
+                utils.chats.get.invalidate({ id: lastItem.chatId }),
+            },
+          )
           const store = useAgentSubChatStore.getState()
           store.addToOpenSubChats(lastItem.subChatId)
           store.setActiveSubChat(lastItem.subChatId)
@@ -2070,7 +2080,7 @@ export function AgentsSidebar({
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [undoStack, setUndoStack, restoreChatMutation, restoreRemoteChatMutation, setSelectedChatId])
+  }, [undoStack, setUndoStack, restoreChatMutation, restoreRemoteChatMutation, setSelectedChatId, unarchiveSubChat, utils])
 
   // Batch archive mutation
   const archiveChatsBatchMutation = trpc.chats.archiveBatch.useMutation({

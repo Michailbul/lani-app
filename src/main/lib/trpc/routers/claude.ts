@@ -19,7 +19,12 @@ import { getProjectMcpServers, GLOBAL_MCP_PATH, readClaudeConfig, removeMcpServe
 import { discoverPluginMcpServers } from "../../plugins"
 import { getEnabledPlugins, getApprovedPluginMcpServers } from "./claude-settings"
 import { getExistingClaudeCredentials, refreshClaudeToken, isTokenExpired } from "../../claude-token"
-import { buildBacklotHarnessBlock } from "../../claude/harness-prompt"
+import {
+  HARNESS_OVERRIDE_PATH,
+  buildActiveFocusBlock,
+  buildBacklotHarnessBlock,
+} from "../../claude/harness-prompt"
+import { HARNESS_FOCUS_REQUEST_PATH } from "../../harness/focus-request"
 import { chats, claudeCodeCredentials, getDatabase, getDatabasePath, subChats } from "../../db"
 // Note: `ensurePrimaryArtifact` and `PRIMARY_ARTIFACT_FILENAME` were
 // removed from this router when the inline screenplay-artifact note
@@ -28,6 +33,7 @@ import { chats, claudeCodeCredentials, getDatabase, getDatabasePath, subChats } 
 import { createRollbackStash } from "../../git/stash"
 import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStatus, startMcpOAuth, type McpToolInfo } from "../../mcp-auth"
 import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
+import { parseMentions } from "../../agent-mentions"
 import { publicProcedure, router } from "../index"
 import { buildAgentsOption } from "./agent-utils"
 import { resolveBuiltinAgents } from "../../claude/builtin-agents"
@@ -65,92 +71,42 @@ function getBuiltinCanvasMcpServer(input: {
   }
 }
 
-/**
- * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
- * Returns the cleaned prompt and lists of mentioned agents/skills/MCP servers
- *
- * File mention formats:
- * - @[file:local:relative/path] - file inside project (relative path)
- * - @[file:external:/absolute/path] - file outside project (absolute path)
- * - @[file:owner/repo:path] - legacy web format (repo:path)
- * - @[folder:local:path] or @[folder:external:path] - folder mentions
- */
-function parseMentions(prompt: string): {
-  cleanedPrompt: string
-  agentMentions: string[]
-  skillMentions: string[]
-  fileMentions: string[]
-  folderMentions: string[]
-  toolMentions: string[]
-} {
-  const agentMentions: string[] = []
-  const skillMentions: string[] = []
-  const fileMentions: string[] = []
-  const folderMentions: string[] = []
-  const toolMentions: string[] = []
+function getBuiltinHarnessMcpServer(): Record<string, McpServerConfig> {
+  const serverPath = app.isPackaged
+    ? path.join(process.resourcesPath, "mcp", "harness", "index.mjs")
+    : path.join(__dirname, "../../mcp/harness/index.mjs")
 
-  // Match @[prefix:name] pattern
-  const mentionRegex = /@\[(file|folder|skill|agent|tool):([^\]]+)\]/g
-  let match
-
-  while ((match = mentionRegex.exec(prompt)) !== null) {
-    const [, type, name] = match
-    switch (type) {
-      case "agent":
-        agentMentions.push(name)
-        break
-      case "skill":
-        skillMentions.push(name)
-        break
-      case "file":
-        fileMentions.push(name)
-        break
-      case "folder":
-        folderMentions.push(name)
-        break
-      case "tool":
-        // Validate: server name (alphanumeric, underscore, hyphen) or full tool id (mcp__server__tool)
-        if (/^[a-zA-Z0-9_-]+$/.test(name) || /^mcp__[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+$/.test(name)) {
-          toolMentions.push(name)
-        }
-        break
-    }
+  return {
+    "backlot-harness": {
+      type: "stdio",
+      command: process.env.BACKLOT_NODE_PATH || process.execPath,
+      args: [serverPath],
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(app.isPackaged
+          ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
+          : {}),
+        BACKLOT_HARNESS_REQUEST_PATH: HARNESS_FOCUS_REQUEST_PATH,
+      },
+    },
   }
+}
 
-  // Clean agent/skill/tool mentions from prompt (they will be added as context or hints)
-  // Keep file/folder mentions as they are useful context
-  let cleanedPrompt = prompt
-    .replace(/@\[agent:[^\]]+\]/g, "")
-    .replace(/@\[skill:[^\]]+\]/g, "")
-    .replace(/@\[tool:[^\]]+\]/g, "")
-    .trim()
-
-  // Transform file mentions to readable paths for the agent
-  // @[file:local:path] -> path (relative to project)
-  // @[file:external:/abs/path] -> /abs/path (absolute)
-  cleanedPrompt = cleanedPrompt
-    .replace(/@\[file:local:([^\]]+)\]/g, "$1")
-    .replace(/@\[file:external:([^\]]+)\]/g, "$1")
-    .replace(/@\[folder:local:([^\]]+)\]/g, "$1")
-    .replace(/@\[folder:external:([^\]]+)\]/g, "$1")
-
-  // Add usage hints for mentioned MCP servers or individual tools
-  // Names are already validated to contain only safe characters
-  if (toolMentions.length > 0) {
-    const toolHints = toolMentions
-      .map((t) => {
-        if (t.startsWith("mcp__")) {
-          // Individual tool mention (from MCP widget): "Use the mcp__server__tool tool"
-          return `Use the ${t} tool for this request.`
-        }
-        // Server mention (from @ dropdown): "Use tools from the X MCP server"
-        return `Use tools from the ${t} MCP server for this request.`
-      })
-      .join(" ")
-    cleanedPrompt = `${toolHints}\n\n${cleanedPrompt}`
+function getBuiltinBacklotMcpServers(input: {
+  worktreeId: string
+  cwd: string
+}): Record<string, McpServerConfig> {
+  return {
+    ...getBuiltinCanvasMcpServer(input),
+    ...getBuiltinHarnessMcpServer(),
   }
+}
 
-  return { cleanedPrompt, agentMentions, skillMentions, fileMentions, folderMentions, toolMentions }
+function isHarnessOverridePath(filePath: string): boolean {
+  const expanded = filePath.startsWith("~/")
+    ? path.join(os.homedir(), filePath.slice(2))
+    : filePath
+  return path.resolve(expanded) === path.resolve(HARNESS_OVERRIDE_PATH)
 }
 
 function textFromMessage(message: any): string {
@@ -708,6 +664,22 @@ export const claudeRouter = router({
         historyEnabled: z.boolean().optional(),
         offlineModeEnabled: z.boolean().optional(), // Whether offline mode (Ollama) is enabled in settings
         enableTasks: z.boolean().optional(), // Enable task management tools (TodoWrite, Task agents)
+        // Ambient context describing what the user has open in the app
+        // *right now*. Composed per-turn from the renderer's active
+        // entity + workdesk mode + selected scene; appended after the
+        // harness block. Lets the agent answer "what file am I in?"
+        // without the user having to spell it out.
+        activeFocus: z
+          .object({
+            path: z.string(),
+            kind: z.string(),
+            label: z.string().nullable().optional(),
+            mode: z.string().nullable().optional(),
+            submode: z.string().nullable().optional(),
+            sceneId: z.string().nullable().optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .subscription(({ input }) => {
@@ -1017,28 +989,35 @@ export const claudeRouter = router({
             // MCP servers to pass to SDK (read from ~/.claude.json)
             let mcpServersForSdk: Record<string, any> | undefined
 
-            // Ensure the isolated config dir exists, then build the
-            // session skills directory — one symlink per preset skill,
-            // which the SDK discovers as the "user" skill source. The
-            // agent sees exactly the curated preset (see
-            // src/main/lib/skills/filter.ts), never the user's full
-            // ~/.claude/skills. CLAUDE.md is never linked in, so the
-            // user's global memory file does not bleed into sessions.
+            // Backlot skill plugin — `~/.backlot/` is loaded into the
+            // SDK as a local plugin, so skill discovery never needs the
+            // "user" setting source (which would leak ~/.claude/CLAUDE.md).
+            let backlotPluginPath: string | null = null
+            let backlotSkillsOption: "all" | string[] = "all"
+            let loadProjectClaudeMd = true
+
             try {
               await fs.mkdir(isolatedConfigDir, { recursive: true })
 
               if (!isUsingOllama) {
                 try {
-                  const { buildSessionSkillsDir } = await import(
-                    "../../skills/filter"
-                  )
-                  const linked = await buildSessionSkillsDir(isolatedConfigDir)
+                  const lib = await import("../../skills/library")
+                  await lib.ensureBacklotPlugin()
+                  backlotPluginPath = lib.getBacklotPluginPath()
+                  backlotSkillsOption = await lib.getSkillsOption()
+                  loadProjectClaudeMd = (
+                    await lib.readPreferences()
+                  ).loadProjectClaudeMd
                   console.log(
-                    `[claude] Session skills (${linked.length}): ${linked.join(", ") || "(none)"}`,
+                    `[claude] Backlot skills: ${
+                      backlotSkillsOption === "all"
+                        ? "all"
+                        : `${backlotSkillsOption.length} enabled`
+                    }`,
                   )
                 } catch (skillErr) {
                   console.warn(
-                    "[claude] Failed to build session skills dir:",
+                    "[claude] Failed to prepare Backlot skill plugin:",
                     skillErr,
                   )
                 }
@@ -1091,7 +1070,7 @@ export const claudeRouter = router({
                     }
                   }
 
-                  const builtinServers = getBuiltinCanvasMcpServer({
+                  const builtinServers = getBuiltinBacklotMcpServers({
                     worktreeId: input.chatId,
                     cwd: input.cwd,
                   })
@@ -1132,18 +1111,18 @@ export const claudeRouter = router({
               console.error(`[claude] Failed to setup isolated config dir:`, mkdirErr)
             }
 
-            // Backlot ships one trusted built-in MCP server: the canvas
-            // controller. It is present even when the user has no
-            // ~/.claude.json, and user/project MCP config can still
-            // override the same server name intentionally. The shotlist
-            // is a plain JSON file the agent edits with Read/Write — no
-            // MCP needed; the Shotlist surface polls the file directly.
-            const builtinCanvasServer = getBuiltinCanvasMcpServer({
+            // Backlot ships trusted built-in MCP servers for app-owned
+            // surfaces: Canvas controls the database-backed visual board;
+            // Harness opens the review editor instead of letting the agent
+            // patch its own system prompt silently. They are present even
+            // when the user has no ~/.claude.json, and user/project MCP
+            // config can still override the same server names intentionally.
+            const builtinBacklotServers = getBuiltinBacklotMcpServers({
               worktreeId: input.chatId,
               cwd: input.cwd,
             })
             mcpServersForSdk = {
-              ...builtinCanvasServer,
+              ...builtinBacklotServers,
               ...(mcpServersForSdk ?? {}),
             }
 
@@ -1188,6 +1167,9 @@ export const claudeRouter = router({
               }),
               // Re-enable CLAUDE_CONFIG_DIR now that we properly map MCP configs
               CLAUDE_CONFIG_DIR: isolatedConfigDir,
+              // Keep long agent turns from being torn down early — the
+              // SDK closes a long-running stream after 60s by default.
+              CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: "1800000",
             }
 
             // Get bundled Claude binary path
@@ -1324,29 +1306,6 @@ export const claudeRouter = router({
               }
             }
 
-            // Inject Backlot's in-process skills MCP server. It exposes
-            // `propose_skill_change`, which surfaces a diff modal in the
-            // renderer for any skill edit the agent suggests. We add it
-            // even when the user has zero other MCP servers configured —
-            // the tool is a Backlot product feature, not user MCP config.
-            // Skipped under Ollama (no MCP plumbing there).
-            if (!isUsingOllama) {
-              try {
-                const { buildSkillsMcpServer, SKILLS_MCP_SERVER_NAME } =
-                  await import("../../skills/mcp-server")
-                const skillsServer = buildSkillsMcpServer({ cwd: input.cwd })
-                mcpServersFiltered = {
-                  ...(mcpServersFiltered ?? {}),
-                  [SKILLS_MCP_SERVER_NAME]: skillsServer,
-                }
-              } catch (err) {
-                console.error(
-                  "[skills-mcp] Failed to build in-process skills MCP server:",
-                  err,
-                )
-              }
-            }
-
             // Log SDK configuration for debugging
             if (isUsingOllama) {
               console.log('[Ollama Debug] SDK Configuration:', {
@@ -1376,6 +1335,13 @@ export const claudeRouter = router({
             // AGENTS.md or per-project CLAUDE.md here — Backlot has one
             // universal harness, not per-project agent docs.
             const backlotHarnessBlock = buildBacklotHarnessBlock()
+
+            // Active focus — what the user has open in the app right now.
+            // Composed per-turn from the renderer's active entity so the
+            // agent always knows the file the user is exploring.
+            const activeFocusBlock = buildActiveFocusBlock(
+              input.activeFocus ?? null,
+            )
 
             // For Ollama: embed context AND history directly in prompt
             // Ollama doesn't have server-side sessions, so we must include full history
@@ -1477,7 +1443,7 @@ IMPORTANT: When using tools, use these EXACT parameter names:
 - Bash: use "command"
 [/CONTEXT]
 
-${backlotHarnessBlock}
+${backlotHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}
 
 ${historyText}[CURRENT REQUEST]
 ${prompt}
@@ -1502,7 +1468,7 @@ ${prompt}
             const systemPromptConfig = {
               type: "preset" as const,
               preset: "claude_code" as const,
-              append: `\n\n${backlotHarnessBlock}`,
+              append: `\n\n${backlotHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}`,
             }
 
             const queryOptions = {
@@ -1524,22 +1490,34 @@ ${prompt}
                   allowDangerouslySkipPermissions: true,
                 }),
                 includePartialMessages: true,
-                // Skills + memory sources. "project" loads the project
-                // CLAUDE.md and project skills; "user" loads skills from
-                // $CLAUDE_CONFIG_DIR/skills. Because CLAUDE_CONFIG_DIR is
-                // redirected to the isolated per-session dir, "user" only
-                // picks up what Backlot puts there — the curated skill
-                // preset built by buildSessionSkillsDir(). The user's
-                // global ~/.claude/CLAUDE.md is NOT linked in, so it does
-                // not bleed into Backlot sessions. (Ollama: not supported.)
+                // Skills — `~/.backlot/` is loaded as a local plugin, so
+                // the SDK discovers the Backlot skill library without any
+                // setting source. The `skills` option filters to the
+                // active set; "all" when nothing is disabled.
+                ...(!isUsingOllama && backlotPluginPath
+                  ? {
+                      plugins: [
+                        { type: "local" as const, path: backlotPluginPath },
+                      ],
+                      skills: backlotSkillsOption,
+                    }
+                  : {}),
+                // CLAUDE.md — "project" loads the project's own CLAUDE.md
+                // when the user's "Load project CLAUDE.md" preference is
+                // on; otherwise no setting sources load. "user" is never
+                // used — it would pull in ~/.claude/CLAUDE.md.
                 ...(!isUsingOllama && {
-                  settingSources: ["project" as const, "user" as const],
+                  settingSources: loadProjectClaudeMd
+                    ? ["project" as const]
+                    : [],
                 }),
                 canUseTool: async (
                   toolName: string,
                   toolInput: Record<string, unknown>,
                   options: { toolUseID: string },
-                ) => {
+                ): Promise<
+                  import("@anthropic-ai/claude-agent-sdk").PermissionResult
+                > => {
                   // Fix common parameter mistakes from Ollama models
                   // Local models often use slightly wrong parameter names
                   if (isUsingOllama) {
@@ -1595,70 +1573,16 @@ ${prompt}
                     }
                   }
 
-                  // ── Skill-edit gate ──────────────────────────────────
-                  // Any direct Edit/Write/MultiEdit on a SKILL.md must
-                  // be redirected to the in-process MCP tool
-                  // `mcp__backlot-skills__propose_skill_change`. The
-                  // tool opens a diff modal in the renderer; the user
-                  // clicks Apply or Dismiss; the file is written (or
-                  // not) on the main side. The soft nudge in the
-                  // harness prompt isn't enough — Claude defaults to
-                  // Edit on muscle memory. This is the hard floor.
-                  //
-                  // We also block Bash one-liners that target SKILL.md
-                  // (echo/cat/sed/tee redirected at a SKILL.md path) —
-                  // those would silently bypass the gate.
-                  if (
-                    toolName === "Edit" ||
-                    toolName === "Write" ||
-                    toolName === "MultiEdit"
-                  ) {
+                  if (toolName === "Edit" || toolName === "Write") {
                     const filePath =
                       typeof toolInput.file_path === "string"
                         ? toolInput.file_path
                         : ""
-                    if (/(?:^|[\\/])SKILL\.md$/i.test(filePath)) {
-                      console.log(
-                        `[skills-gate] Blocking ${toolName} on ${filePath} — redirecting to propose_skill_change`,
-                      )
+                    if (filePath && isHarnessOverridePath(filePath)) {
                       return {
                         behavior: "deny",
                         message:
-                          `Direct ${toolName} on SKILL.md is blocked. ` +
-                          `Use the \`mcp__backlot-skills__propose_skill_change\` ` +
-                          `tool instead — it shows the user a diff modal ` +
-                          `and writes the file only after they click Apply. ` +
-                          `Call it with: skill_path="${filePath}", ` +
-                          `new_content=<full proposed file content>, ` +
-                          `summary=<one-line description of the change>.`,
-                      }
-                    }
-                  }
-                  if (toolName === "Bash") {
-                    const cmd =
-                      typeof toolInput.command === "string"
-                        ? toolInput.command
-                        : ""
-                    // Match common write idioms targeting SKILL.md.
-                    // Conservative — false positives are fine here, the
-                    // user can always re-prompt.
-                    if (
-                      /SKILL\.md/i.test(cmd) &&
-                      /(>\s*|>>\s*|tee\b|sed\s+-i|perl\s+-i|awk\s+-i|cp\s+\S+\s+\S*SKILL\.md|mv\s+\S+\s+\S*SKILL\.md|rm\s+\S*SKILL\.md)/i.test(
-                        cmd,
-                      )
-                    ) {
-                      console.log(
-                        `[skills-gate] Blocking Bash write to SKILL.md: ${cmd.slice(0, 120)}`,
-                      )
-                      return {
-                        behavior: "deny",
-                        message:
-                          `Bash write to SKILL.md is blocked. ` +
-                          `Use the \`mcp__backlot-skills__propose_skill_change\` ` +
-                          `tool — it routes the change through the user's ` +
-                          `diff-and-approve modal. Pass the full proposed ` +
-                          `file content as new_content.`,
+                          "Use the harness_open_editor MCP tool so the user can review and save harness changes in Backlot.",
                       }
                     }
                   }
@@ -1757,7 +1681,10 @@ ${prompt}
                     } as UIMessageChunk)
                     return {
                       behavior: "allow",
-                      updatedInput: response.updatedInput,
+                      updatedInput:
+                        (response.updatedInput as
+                          | Record<string, unknown>
+                          | undefined) ?? toolInput,
                     }
                   }
                   return {
@@ -2576,7 +2503,7 @@ ${prompt}
       transport: z.enum(["stdio", "http"]),
       command: z.string().optional(),
       args: z.array(z.string()).optional(),
-      env: z.record(z.string()).optional(),
+      env: z.record(z.string(), z.string()).optional(),
       url: z.string().url().optional(),
       authType: z.enum(["none", "oauth", "bearer"]).optional(),
       bearerToken: z.string().optional(),
@@ -2640,7 +2567,7 @@ ${prompt}
       newName: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional(),
       command: z.string().optional(),
       args: z.array(z.string()).optional(),
-      env: z.record(z.string()).optional(),
+      env: z.record(z.string(), z.string()).optional(),
       url: z.string().url().optional(),
       authType: z.enum(["none", "oauth", "bearer"]).optional(),
       bearerToken: z.string().optional(),

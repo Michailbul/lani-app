@@ -1,0 +1,87 @@
+{
+  "search_id": "search_5463a6203d464456a0eab8d3b76a3f91",
+  "status": "ok",
+  "results": [
+    {
+      "url": "https://github.com/CopilotKit/generative-ui-playground/blob/main/CLAUDE.md",
+      "title": "generative-ui-playground/CLAUDE.md at main \u00b7 CopilotKit/generative-ui-playground \u00b7 GitHub",
+      "publish_date": null,
+      "excerpts": [
+        "# UI Protocols Demo\nGenerative UI playground showcasing three protocols for AI-powered interfaces.\n\n...\n\n## Three Protocols\n### 1. Static GenUI\nPre-built React components rendered by frontend hooks.\n* **useRenderToolCall** : Display-only rendering (WeatherCard, StockCard)\n* **useHumanInTheLoop** : Interactive approval (TaskApprovalCard)\n* **Files** : `src/app/components/static-tools/*.tsx`"
+      ]
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/52235",
+      "title": "Feature: Plugin API for custom animated UI components in tool output \u00b7 Issue #52235 \u00b7 anthropics/claude-code \u00b7 GitHub",
+      "publish_date": "2026-04-23",
+      "excerpts": [
+        "# Feature: Plugin API for custom animated UI components in tool output \\\n## Description\n[](https://github.com/HomeHeartTherapy)\n[HomeHeartTherapy](https://github.com/HomeHeartTherapy)\nopened [on Apr 23, 2026](https://github.com/anthropics/claude-code/issues/52235)\nIssue body actions\n\n## Summary\nPlugins, skills, and tools currently cannot render animated or interactive UI elements in Claude Code's output stream. All tool/Bash output is captured and displayed as static text blocks, even when it contains valid ANSI escape sequences designed for real-time animation (cursor repositioning, frame-by-frame redraws, etc.).\nMeanwhile, Claude Code's own built-in UI (the ultrathink shimmer, progress spinners, thinking indicators) demonstrates that the Ink/React rendering layer is fully capable of beautiful animated terminal output.\n\n## Feature Request\nExpose a plugin/tool API that allows custom Ink/React components to be rendered inline in the conversation output \u2014 not just static text blocks, but live-rendered elements that can animate, update, and respond to state changes.\n\n...\n\n## Proposed API Shape (Suggestion)\nSomething like a `render` tool or output type that accepts a component definition:\n```\n{\n  \"type\" : \" animated_output \" ,\n  \"component\" : \" shimmer-text \" ,\n  \"props\" : {\n    \"text\" : \" CODEX (CT-110) SESSION ESTABLISHED \" ,\n    \"color\" : \" #00FFEA \" ,\n    \"animation\" : \" wave \" ,\n    \"speed\" : 0.25 \n  }\n}\n```\nOr more flexibly, allow plugins to register custom Ink components that can be invoked by name in tool output.\n\n...\n\n## Metadata\n### Projects\nNo projects\n\n### Milestone\nNo milestone"
+      ]
+    },
+    {
+      "url": "https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk",
+      "title": "Building agents with the Claude Agent SDK | Claude",
+      "publish_date": "2026-01-28",
+      "excerpts": [
+        "# Building agents with the Claude Agent SDK\n## Verify your work\n### **Visual feedback**\nWhen using an agent to complete visual tasks, like UI generation or testing, visual feedback (in the form of screenshots or renders) can be helpful. For example, if sending an email with HTML formatting, you could screenshot the generated email and provide it back to the model for visual verification and iterative refinement. The model would then check whether the visual output matches what was requested.\nFor instance:\n* **Layout** - Are elements positioned correctly? Is spacing appropriate?\n* **Styling** - Do colors, fonts, and formatting appear as intended?\n* **Content hierarchy** - Is information presented in the right order with proper emphasis?\n* **Responsiveness** - Does it look broken or cramped? (though a single screenshot has limited viewport info)\n\n...\n\n## Acknowledgements\ncurl -fsSL https://claude.ai/install.sh | bash\nCopy command to clipboard irm https://claude.ai/install.ps1 | iex\nCopy command to clipboard\nOr read the [documentation](https://code.claude.com/docs/en/overview)\nTry Claude Code\n[Try Claude Code](https://claude.ai/code) Try Claude Code\nDeveloper docs\n[Developer docs](https://code.claude.com/docs/en/overview) Developer docs"
+      ]
+    },
+    {
+      "url": "https://github.com/vercel-labs/ai-sdk-preview-rsc-genui",
+      "title": "GitHub - vercel-labs/ai-sdk-preview-rsc-genui: Generative UI with React Server Components and Vercel AI SDK \u00b7 GitHub",
+      "publish_date": null,
+      "excerpts": [
+        "# vercel-labs/ai-sdk-preview-rsc-genui\n## History\n15 Commits\n15 Commits |\n|app |app | | |\n|components |components | | |\n|public |public | | |\n|.env.example |.env.example | | |\n|.eslintrc.json |.eslintrc.json | | |\n|.gitignore |.gitignore | | |\n|README.md |README.md | | |\n|next.config.mjs |next.config.mjs | | |\n|package-lock.json |package-lock.json | | |\n|package.json |package.json | | |\n|pnpm-lock.yaml |pnpm-lock.yaml | | |\n|postcss.config.mjs |postcss.config.mjs | | |\n|tailwind.config.ts |tailwind.config.ts | | |\n|tsconfig.json |tsconfig.json | | |\n|View all files |\n\n...\n\n# Generative UI with React Server Components and Vercel AI SDK\n> **Note** : Development of AI SDK RSC is currently paused. For more information, see [Migrating from AI SDK RSC](https://sdk.vercel.ai/docs/ai-sdk-rsc/migrating-to-ui) .\nThis example demonstrates how to use the [Vercel AI SDK](https://sdk.vercel.ai/docs) with [Next.js](https://nextjs.org/) and the `streamUI` function to create generative user interfaces by streaming React Server Components to the client.\n\n## Deploy your own\n[](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-rsc-genui&env=OPENAI_API_KEY&envDescription=API%20keys%20needed%20for%20application&envLink=platform.openai.com)\n\n...\n\n## About\nGenerative UI with React Server Components and Vercel AI SDK\n[ai-sdk-preview-rsc-genui.vercel.app](https://ai-sdk-preview-rsc-genui.vercel.app \"https://ai-sdk-preview-rsc-genui.vercel.app\")\n\n### Resources\nReadme\n\n### Uh oh!\nThere was an error while loading. Please reload this page .\nActivity\nCustom properties\n\n### Stars\n**378** stars\n\n### Watchers\n**1** watching\n\n### Forks\n**70** forks\nReport repository\n\n### Uh oh!\nThere was an error while loading. Please reload this page .\n\n## Contributors\n### Uh oh!\nThere was an error while loading. Please reload this page ."
+      ]
+    },
+    {
+      "url": "https://claudecodeui.siteboon.ai/",
+      "title": "Claude Code UI - Desktop & Mobile Interface for Claude\n  Code CLI\n",
+      "publish_date": null,
+      "excerpts": [
+        "# Claude Code UI\n## Powerful Features\n### File Explorer\nInteractive file tree with syntax\nhighlighting\nand live editing capabilities\n\n...\n\n## Cloud Version Now Available\n### Available Features:\n#### Cursor CLI Integration\nSeamless workflow with Cursor CLI tools\n\n#### Multiple CLI Tools\nSupport for various CLI integrations\n\n...\n\n## See It In Action\n### Desktop Experience\nMain interface showing\nproject overview\nand chat functionality"
+      ]
+    },
+    {
+      "url": "https://ai-sdk-preview-rsc-genui.vercel.app/",
+      "title": "Generative User Interfaces Preview - Vercel",
+      "publish_date": null,
+      "excerpts": [
+        "+\nThe streamUI function allows you to stream React Server Components along with your language model generations to integrate dynamic user interfaces into your application.\nLearn more about the [streamUI](https://sdk.vercel.ai/docs/ai-sdk-rsc/streaming-react-components) hook from Vercel AI SDK.\nView all my cameras\nShow me my smart home hub\nHow much electricity have I used this month?\nHow much water have I used this month?\n[View Source Code](https://github.com/vercel-labs/ai-sdk-preview-rsc-genui) [Deploy with Vercel](https://vercel.com/templates/next.js/rsc-genui)"
+      ]
+    },
+    {
+      "url": "https://vercel.com/templates/next.js/rsc-genui",
+      "title": "Generative UI Chatbot with React Server Components - Vercel",
+      "publish_date": null,
+      "excerpts": [
+        "# Generative UI Chatbot with React Server Components\nA Generative UI chatbot that streams React Server Components from the Server with Next.js and the Vercel AI SDK\nDeploy View Demo\n\n## Generative UI with React Server Components and Vercel AI SDK\n> Note : Development of AI SDK RSC is currently paused. For more information, see [Migrating from AI SDK RSC](https://sdk.vercel.ai/docs/ai-sdk-rsc/migrating-to-ui) .\nThis example demonstrates how to use the [Vercel AI SDK](https://sdk.vercel.ai/docs) with [Next.js](https://nextjs.org/) and the `streamUI` function to create generative user interfaces by streaming React Server Components to the client.\n\n### Deploy your own\n[](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-rsc-genui&env=OPENAI_API_KEY&envDescription=API%20keys%20needed%20for%20application&envLink=platform.openai.com)\n\n...\n\n### Learn More\nTo learn more about Vercel AI SDK or Next.js take a look at the following resources:\n* [Vercel AI SDK docs](https://sdk.vercel.ai/docs)\n* [Vercel AI Playground](https://play.vercel.ai/)\n* [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.\nGitHub Repo [vercel-labs/ai-sdk-preview-rsc-genui](https://github.com/vercel-labs/ai-sdk-preview-rsc-genui)\nUse Cases\nAI\nStack\nNext.js Tailwind Radix UI\n\n## Related Templates\n### Dynamic Model Usage with AI SDK A chatbot that allows you to dynamically set the LLM using Vercel AI SDK with Feature Flags and Edge Config\nDeploy [View Demo](https://ai-sdk-preview-rsc-genui.vercel.app)\nProducts\nAI Gateway One endpoint, all your models\nSandbox Isolated, safe code execution\nVercel Agent An agent that knows your stack\n[AI SDK The AI Toolkit for TypeScript](https://sdk.vercel.ai/)\n[v0 Build applications with AI](https://v0.app)\nCI/CD Helping teams ship 6\u00d7 faster\nContent Delivery Fast, scalable, and reliable\nFluid Compute Servers, in serverless form\nWorkflow Long-running workflows at scale\nObservability Trace every step\nBot Management Scalable bot protection\nBotID Invisible CAPTCHA\nPlatform Security DDoS Protection, Firewall\nWeb Application Firewall Granular, custom protection\nResources\nCustomers Trusted by the best teams\nBlog The latest posts and changes\nChangelog See what shipped\nPress Read the latest news\nEvents Join us at an event\nDocs Vercel documentation"
+      ]
+    },
+    {
+      "url": "https://medium.com/@anis.marrouchi/exploring-generative-ui-using-vercel-ai-sdk-26c0337aaf78",
+      "title": "Exploring Generative UI using Vercel AI SDK | by \u0650Anis Marrouchi | Medium",
+      "publish_date": "2024-03-17",
+      "excerpts": [
+        "# Exploring Generative UI using Vercel AI SDK\n\u0650Anis Marrouchi\n7 min read\n\u00b7\nMar 17, 2024\n--\nShare\nPress enter or click to view image in full size\nThe Vercel AI SDK with its latest release introduces a new approach of building interactive user interfaces using AI based generative UI, leveraging language models like GPT-3.5+. This technology allow for the creation of dynamic UIs that the LLM can decide to render allowing an enhanced user experience with AI-driven interactions.\nIn this article, we will explore how to use Vercel\u2019s AI SDK to build an interactive quiz application, highlighting the process with practical code examples and guiding you through the implementation steps. A link to the complete repo will be provided at the end of this article.\n\n...\n\n## Key Concepts:\n* **Generative UI:** Utilizes AI to generate user interfaces based on language model decisions.\n* **React Server Components and Server Actions:** These are used for seamless integration of AI capabilities into the UI, enabling\u2026\n--\n--\n\n...\n\n## No responses yet\n[](https://policy.medium.com/medium-rules-30e5502c4eb4?source=post_page---post_responses--26c0337aaf78---------------------------------------)\n[Help](https://help.medium.com/hc/en-us?source=post_page-----26c0337aaf78---------------------------------------)\n[Status](https://status.medium.com/?source=post_page-----26c0337aaf78---------------------------------------)\nAbout\nCareers\nPress\n[Blog](https://blog.medium.com/?source=post_page-----26c0337aaf78---------------------------------------)\n[Privacy](https://policy.medium.com/medium-privacy-policy-f03bf92035c9?source=post_page-----26c0337aaf78---------------------------------------)\n[Rules](https://policy.medium.com/medium-rules-30e5502c4eb4?source=post_page-----26c0337aaf78---------------------------------------)\n[Terms](https://policy.medium.com/medium-terms-of-service-9db0094a1e0f?source=post_page-----26c0337aaf78---------------------------------------)"
+      ]
+    },
+    {
+      "url": "https://shyft.ai/skills/claudecodeui",
+      "title": "claudecodeui: Manage Claude Code Sessions - Shyft",
+      "publish_date": null,
+      "excerpts": [
+        "# claudecodeui\n\ud83e\udd47 Gold\n@siteboon\nUse Claude Code, Cursor CLI or Codex on mobile and web with CloudCLI (aka Claude Code UI). CloudCLI is a free open source webui/GUI that helps you manage your Claude Code session and projects remotely\n10,016 757 0 Updated 3w ago\nIntermediate 30min to implement automation\nSaves ~45 min per use\nQuick Install [View Source](https://github.com/siteboon/claudecodeui)\n`git clone https://github.com/siteboon/claudecodeui.git`\nWorks with:\nClaude\n\n...\n\n## Requirements\n* Claude Code or compatible AI agent\n* Works with: Claude"
+      ]
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=D48I3Nd0E5U",
+      "title": "Vercel AI SDK Overview Tutorial | Generative UI, Streaming, Agentic ...",
+      "publish_date": null,
+      "excerpts": [
+        "Tap to unmute\n2x\nSearch Copy link Info Shopping\nIf playback doesn't begin shortly, try restarting your device.\n\u2022\nYou're signed out\nCancel Confirm\nShare\nInclude playlist\nAn error occurred while retrieving sharing information. Please try again later.\n0:00\n0:00 / 0:00\nLive\n\u2022\n\u2022\n\u2022\nBack\nSearch"
+      ]
+    }
+  ],
+  "warnings": null
+}

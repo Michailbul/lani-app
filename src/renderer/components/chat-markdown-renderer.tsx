@@ -117,10 +117,9 @@ function CodeBlock({
           "text-foreground",
           codeBlockTextSize[size],
           "px-4 py-3",
-          "overflow-x-auto",
-          "whitespace-pre",
-          // Force all nested elements to preserve whitespace and have no background
-          "[&_*]:whitespace-pre [&_*]:bg-transparent",
+          "whitespace-pre-wrap break-words",
+          // Force all nested elements to wrap, preserve indentation, and have no background
+          "[&_*]:whitespace-pre-wrap [&_*]:break-words [&_*]:bg-transparent",
           "[&_pre]:m-0 [&_code]:m-0",
           "[&_pre]:p-0 [&_code]:p-0",
         )}

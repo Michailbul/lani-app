@@ -19,6 +19,7 @@
  */
 
 import { memo, useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
 import {
   EditorState,
@@ -38,7 +39,16 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { Scissors } from "lucide-react"
 import { fountainDecorations } from "./fountain-decorations"
 import { cn } from "../../lib/utils"
-import type { ShotPrompt } from "../../../shared/shotlist-types"
+
+/**
+ * The minimal shape this editor needs from a "part": a stable id and the
+ * contiguous screenplay slice it owns. Both the Shotlist's `ShotPrompt`
+ * and the Multishot's ephemeral parts satisfy it.
+ */
+export interface ScreenplayPart {
+  id: string
+  scriptRef: string
+}
 
 /** The selection-isolate shortcut, rendered for the platform. */
 const ISOLATE_HOTKEY =
@@ -62,7 +72,7 @@ function sliceDoc(doc: string, dividers: number[]): string[] {
 }
 
 /** The divider offsets implied by a Parts list — cumulative slice lengths. */
-function dividerOffsets(parts: ShotPrompt[]): number[] {
+function dividerOffsets(parts: readonly ScreenplayPart[]): number[] {
   const out: number[] = []
   let acc = 0
   for (let i = 0; i < parts.length - 1; i++) {
@@ -273,7 +283,7 @@ type SplitAction =
 
 interface ShotlistScreenplayProps {
   /** The scene's Parts, in screenplay order. */
-  parts: ShotPrompt[]
+  parts: readonly ScreenplayPart[]
   /** Index of the Part whose prompt is shown in the Prompt column. */
   activeIndex: number
   /** A region was selected — bind the Prompt column to this Part. */
@@ -286,6 +296,8 @@ interface ShotlistScreenplayProps {
   onCarve: (shotId: string, start: number, end: number) => void
   /** Remove the divider after Part `dividerIndex` (0-based). */
   onMerge: (dividerIndex: number) => void
+  /** Optional controls rendered at the end of the editor's header row. */
+  headerSlot?: ReactNode
 }
 
 export const ShotlistScreenplay = memo(function ShotlistScreenplay({
@@ -296,6 +308,7 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
   onSplit,
   onCarve,
   onMerge,
+  headerSlot,
 }: ShotlistScreenplayProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -542,6 +555,7 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
           <Scissors className="h-3 w-3" />
           Split here
         </button>
+        {headerSlot}
       </div>
       <div
         ref={hostRef}

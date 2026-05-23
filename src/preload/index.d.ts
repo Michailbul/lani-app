@@ -87,7 +87,12 @@ export interface DesktopApi {
 }
 
 declare global {
+  interface WindowWebUtils {
+    getPathForFile: (file: File) => string
+  }
+
   interface Window {
     desktopApi: DesktopApi
+    webUtils?: WindowWebUtils
   }
 }

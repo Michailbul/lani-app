@@ -207,6 +207,11 @@ const SearchHistoryPopover = memo(forwardRef<SearchHistoryPopoverRef, SearchHist
         <span className="text-sm truncate flex-1">
           {subChat.name || "New Chat"}
         </span>
+        {subChat.archived && (
+          <span className="text-[10px] text-muted-foreground/70 border border-border rounded px-1 leading-4">
+            Archived
+          </span>
+        )}
         <span className="text-[10px] text-muted-foreground/70 border border-border rounded px-1 leading-4">
           {providerLabel}
         </span>
@@ -402,16 +407,48 @@ export function SubChatSelector({
     state.setActiveSubChat(subChatId)
   }, [])
 
-  const onCloseTab = useCallback((subChatId: string) => {
-    useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId)
-  }, [])
+  const utils = trpc.useUtils()
 
-  const onCloseOtherTabs = useCallback((subChatId: string) => {
-    const state = useAgentSubChatStore.getState()
-    const idsToClose = state.openSubChatIds.filter((id) => id !== subChatId)
-    idsToClose.forEach((id) => state.removeFromOpenSubChats(id))
-    state.setActiveSubChat(subChatId)
-  }, [])
+  const invalidateThreadQueries = useCallback(() => {
+    if (!parentChatId) return
+    utils.chats.get.invalidate({ id: parentChatId })
+    utils.chats.listArchivedSubChats.invalidate({ chatId: parentChatId })
+  }, [parentChatId, utils])
+
+  // "Archive" is the close action. It drops the thread from the tab
+  // strip and from the launch-time tab seed, but keeps it in the DB —
+  // recoverable from the history popover. (A plain close only hid the
+  // tab; the thread re-seeded itself as a tab on the next launch.)
+  const archiveSubChatMutation = trpc.chats.archiveSubChat.useMutation({
+    onSettled: invalidateThreadQueries,
+    onError: (err) => toast.error(err.message || "Couldn't archive thread"),
+  })
+
+  const unarchiveSubChatMutation = trpc.chats.unarchiveSubChat.useMutation({
+    onSettled: invalidateThreadQueries,
+    onError: (err) => toast.error(err.message || "Couldn't restore thread"),
+  })
+
+  const onCloseTab = useCallback(
+    (subChatId: string) => {
+      useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId)
+      archiveSubChatMutation.mutate({ id: subChatId })
+    },
+    [archiveSubChatMutation],
+  )
+
+  const onCloseOtherTabs = useCallback(
+    (subChatId: string) => {
+      const state = useAgentSubChatStore.getState()
+      const idsToClose = state.openSubChatIds.filter((id) => id !== subChatId)
+      idsToClose.forEach((id) => {
+        state.removeFromOpenSubChats(id)
+        archiveSubChatMutation.mutate({ id })
+      })
+      state.setActiveSubChat(subChatId)
+    },
+    [archiveSubChatMutation],
+  )
 
   const onCloseTabsToRight = useCallback(
     (subChatId: string, visualIndex: number) => {
@@ -419,9 +456,35 @@ export function SubChatSelector({
 
       // Use visual order from sorted openSubChats, not storage order
       const idsToClose = openSubChats.slice(visualIndex + 1).map((sc) => sc.id)
-      idsToClose.forEach((id) => state.removeFromOpenSubChats(id))
+      idsToClose.forEach((id) => {
+        state.removeFromOpenSubChats(id)
+        archiveSubChatMutation.mutate({ id })
+      })
     },
-    [openSubChats],
+    [openSubChats, archiveSubChatMutation],
+  )
+
+  // Permanent delete — destroys the thread. Gated by a confirm since,
+  // unlike archive, it can't be undone.
+  const deleteSubChatMutation = trpc.chats.deleteSubChat.useMutation({
+    onSuccess: (_data, variables) => {
+      useAgentSubChatStore.getState().removeFromOpenSubChats(variables.id)
+      invalidateThreadQueries()
+    },
+    onError: (err) => {
+      toast.error(err.message || "Couldn't delete thread")
+    },
+  })
+
+  const onDeleteThread = useCallback(
+    (subChat: SubChatMeta) => {
+      const ok = window.confirm(
+        `Permanently delete thread "${subChat.name?.trim() || "Untitled"}"?\nThis can't be undone — use Archive to keep it.`,
+      )
+      if (!ok) return
+      deleteSubChatMutation.mutate({ id: subChat.id })
+    },
+    [deleteSubChatMutation],
   )
 
   const [editingSubChatId, setEditingSubChatId] = useState<string | null>(null)
@@ -502,9 +565,13 @@ export function SubChatSelector({
 
   const handleSelectFromHistory = useCallback(
     (subChat: SubChatMeta) => {
+      // Picking an archived thread restores it back into the active set.
+      if (subChat.archived) {
+        unarchiveSubChatMutation.mutate({ id: subChat.id })
+      }
       onSwitchFromHistory(subChat.id)
     },
-    [onSwitchFromHistory],
+    [onSwitchFromHistory, unarchiveSubChatMutation],
   )
 
   // Hotkey: / to open history popover when sidebar is closed (tabs mode)
@@ -589,16 +656,23 @@ export function SubChatSelector({
     return () => resizeObserver.disconnect()
   }, [openSubChats, activeSubChatId])
 
-  // Sort sub-chats by most recent first for history
-  const sortedSubChats = useMemo(
-    () =>
-      [...allSubChats].sort((a, b) => {
-        const aT = new Date(a.updated_at || a.created_at || "0").getTime()
-        const bT = new Date(b.updated_at || b.created_at || "0").getTime()
-        return bT - aT
-      }),
-    [allSubChats],
+  // Archived threads for the history popover's restore path.
+  const { data: archivedSubChats } = trpc.chats.listArchivedSubChats.useQuery(
+    { chatId: parentChatId ?? "" },
+    { enabled: !!parentChatId },
   )
+
+  // Sort active sub-chats by most recent first for history, then append
+  // archived ones so they stay restorable from the same popover without
+  // crowding the live list.
+  const sortedSubChats = useMemo(() => {
+    const active = [...allSubChats].sort((a, b) => {
+      const aT = new Date(a.updated_at || a.created_at || "0").getTime()
+      const bT = new Date(b.updated_at || b.created_at || "0").getTime()
+      return bT - aT
+    })
+    return [...active, ...(archivedSubChats ?? [])]
+  }, [allSubChats, archivedSubChats])
 
   const hasNoChats = openSubChats.length === 0
   const hasSingleChat = openSubChats.length === 1
@@ -747,7 +821,8 @@ export function SubChatSelector({
                           }
                         }}
                         onMouseDown={(e) => {
-                          // Middle-click to close tab (like Chrome)
+                          // Middle-click to archive the thread (like a
+                          // Chrome tab close — but archive, not destroy)
                           if (e.button === 1 && openSubChats.length > 1) {
                             e.preventDefault()
                             e.stopPropagation()
@@ -911,8 +986,8 @@ export function SubChatSelector({
                                 className="relative z-20 hover:text-foreground rounded p-0.5 transition-[color,transform] duration-150 ease-out active:scale-[0.97] cursor-pointer"
                                 title={
                                   isActive && archiveAgentHotkey
-                                    ? `Close tab (${archiveAgentHotkey})`
-                                    : "Close tab"
+                                    ? `Archive thread (${archiveAgentHotkey})`
+                                    : "Archive thread"
                                 }
                               >
                                 <X className="h-3 w-3" />
@@ -933,6 +1008,7 @@ export function SubChatSelector({
                       onCloseTab={onCloseTab}
                       onCloseOtherTabs={onCloseOtherTabs}
                       onCloseTabsToRight={onCloseTabsToRight}
+                      onDeleteThread={onDeleteThread}
                       visualIndex={index}
                       hasTabsToRight={hasTabsToRight}
                       canCloseOtherTabs={openSubChats.length > 2}
@@ -1033,7 +1109,7 @@ export function SubChatSelector({
             subChatUnseenChanges={subChatUnseenChanges}
             pendingQuestionsMap={pendingQuestionsMap}
             pendingPlanApprovals={pendingPlanApprovals}
-            allSubChatsLength={allSubChats.length}
+            allSubChatsLength={sortedSubChats.length}
             onSelect={handleSelectFromHistory}
           />
         </div>

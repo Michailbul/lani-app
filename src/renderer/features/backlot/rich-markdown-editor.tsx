@@ -54,6 +54,13 @@ interface RichMarkdownEditorProps {
    * on the rendered preview, not at the end of the document.
    */
   focusPoint?: { x: number; y: number } | null
+  /**
+   * How the frontmatter strip is rendered. "entity" (default) is the
+   * compact metadata grid screenplay entities use. "skill" renders the
+   * Skill Workbench preamble card — skill name as a title, description
+   * as prose, remaining keys as a meta grid.
+   */
+  frontmatterVariant?: "entity" | "skill"
   className?: string
 }
 
@@ -171,6 +178,94 @@ function FrontmatterReadonly({
   )
 }
 
+/**
+ * The Skill Workbench preamble card. Renders a skill's frontmatter as
+ * a designed header instead of raw YAML — name as a title, description
+ * as readable prose, remaining keys as a hairline-divided meta grid.
+ */
+function SkillPreamble({
+  data,
+}: {
+  data: Record<string, unknown>
+}) {
+  const name =
+    typeof data.name === "string" && data.name.trim()
+      ? data.name.trim()
+      : null
+  const description = formatFrontmatterValue(data.description).trim()
+
+  const rest: Array<{ key: string; value: string }> = []
+  for (const [key, raw] of Object.entries(data)) {
+    if (key === "name" || key === "description") continue
+    const value = formatFrontmatterValue(raw)
+    if (!value) continue
+    rest.push({ key, value })
+  }
+
+  return (
+    <section
+      className="not-prose mb-9"
+      aria-label="Skill preamble"
+      // Clicking the preamble should not drop a cursor into the body.
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-foreground/[0.025] dark:bg-foreground/[0.045]">
+        <div className="absolute inset-y-0 left-0 w-[3px] bg-primary/70" />
+        <div className="px-5 py-4 pl-6">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+            <span
+              className="text-[10px] uppercase tracking-[0.22em] text-primary/85"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              Skill
+            </span>
+          </div>
+
+          {name && (
+            <h2
+              className="mt-2 text-[18px] font-semibold leading-tight text-foreground"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              {name}
+            </h2>
+          )}
+
+          {description && (
+            <p
+              className="mt-2 max-w-[640px] whitespace-pre-wrap break-words text-[13px] leading-[1.62] text-foreground/75"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {description}
+            </p>
+          )}
+
+          {rest.length > 0 && (
+            <dl className="mt-4 grid max-w-[640px] grid-cols-[110px_1fr] gap-x-5 gap-y-2 border-t border-border/50 pt-3">
+              {rest.map(({ key, value }) => (
+                <div key={key} className="contents">
+                  <dt
+                    className="pt-[3px] text-[10px] uppercase tracking-[0.18em] leading-[1.6] text-muted-foreground/70"
+                    style={{ fontFamily: "var(--font-mono)" }}
+                  >
+                    {key}
+                  </dt>
+                  <dd
+                    className="whitespace-pre-wrap break-words text-[12.5px] leading-[1.55] text-foreground/80"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export const RichMarkdownEditor = memo(function RichMarkdownEditor({
   value,
   onChange,
@@ -178,6 +273,7 @@ export const RichMarkdownEditor = memo(function RichMarkdownEditor({
   autoFocus,
   editable = true,
   focusPoint,
+  frontmatterVariant = "entity",
   className,
 }: RichMarkdownEditorProps) {
   // Split on every render — cheap, and we need fresh frontmatter when
@@ -223,7 +319,14 @@ export const RichMarkdownEditor = memo(function RichMarkdownEditor({
         // the edit area to 40% viewport (which felt like the page
         // was "expanding" on click). The editor grows naturally as
         // the user types.
-        class: "rich-prose focus:outline-none",
+        //
+        // The skill variant adds `rich-prose-skill`, which tints
+        // headings with the brand accent (Lime). The screenplay
+        // entity editor keeps ink-coloured headings.
+        class: cn(
+          "rich-prose focus:outline-none",
+          frontmatterVariant === "skill" && "rich-prose-skill",
+        ),
       },
     },
     onUpdate: ({ editor }) => {
@@ -293,7 +396,12 @@ export const RichMarkdownEditor = memo(function RichMarkdownEditor({
 
   return (
     <div className={cn("max-w-[720px] mx-auto px-10 pt-2 pb-24", className)}>
-      {data && <FrontmatterReadonly data={data} />}
+      {data &&
+        (frontmatterVariant === "skill" ? (
+          <SkillPreamble data={data} />
+        ) : (
+          <FrontmatterReadonly data={data} />
+        ))}
       <EditorContent editor={editor} />
     </div>
   )

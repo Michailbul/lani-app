@@ -78,40 +78,74 @@ export function TextSelectionPopover({
     }
   }, [isMouseDown, selectedText, source, selectionRect])
 
-  // Don't render if not visible or if source is file-viewer (uses context menu instead)
-  if (!isVisible || !selectedText || !source || !selectionRect || source.type === "file-viewer") {
+  // Cmd+L / Ctrl+L — keyboard shortcut for "Add to context". Equivalent
+  // to clicking the popover button; works whenever a selection exists,
+  // even if the popover is briefly hidden (e.g. while dragging). The
+  // shortcut is captured at the window level so it works regardless of
+  // which surface holds focus.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCmdL =
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.key === "l" || e.key === "L")
+      if (!isCmdL) return
+      if (!selectedText || !source) return
+      e.preventDefault()
+      e.stopPropagation()
+      handleAddToContext()
+    }
+    window.addEventListener("keydown", handleKeyDown, true)
+    return () => window.removeEventListener("keydown", handleKeyDown, true)
+  }, [selectedText, source, handleAddToContext])
+
+  // Don't render if not visible or if source is file-viewer (uses context menu instead).
+  // The canvas owns its own interactions (clicking a node to focus, drag-to-connect),
+  // so a floating popover over a selection inside a text block is wrong here.
+  const isCanvasCenterPane =
+    source?.type === "center-pane" && source.mode?.startsWith("canvas")
+  if (
+    !isVisible ||
+    !selectedText ||
+    !source ||
+    !selectionRect ||
+    source.type === "file-viewer" ||
+    isCanvasCenterPane
+  ) {
     return null
   }
 
-  // Calculate position - above the selection by default, below if not enough space
+  // Position the popover above the selection by default (below if there
+  // isn't room above). Centering is done via CSS transform — we don't
+  // know the popover's exact width yet, and a hand-rolled width estimate
+  // (the old approach) was off by 20–40px depending on what buttons
+  // happen to be rendered, which made the chip drift sideways and float
+  // over neighbouring controls.
+  const POPOVER_HEIGHT = 28
+  const EDGE_PAD = 12
   const viewportWidth = window.innerWidth
-  const popoverWidth = 120
-  const popoverHeight = 28
-  let left = selectionRect.left + selectionRect.width / 2
+  const rawCenterX = selectionRect.left + selectionRect.width / 2
+  const centerX = Math.max(
+    EDGE_PAD,
+    Math.min(rawCenterX, viewportWidth - EDGE_PAD),
+  )
 
-  // Clamp left position to prevent overflow
-  left = Math.max(popoverWidth / 2 + 8, Math.min(left, viewportWidth - popoverWidth / 2 - 8))
-
-  // Calculate actual left position accounting for centering
-  const popoverWidthEstimate = onQuickComment && (source.type === "diff" || source.type === "tool-edit") ? 160 : 100
-  const centeredLeft = left - popoverWidthEstimate / 2
-
-  // Position above by default, below if not enough space above
   const spaceAbove = selectionRect.top
-  const showAbove = spaceAbove > popoverHeight + 8
+  const showAbove = spaceAbove > POPOVER_HEIGHT + 8
 
   const top = showAbove
-    ? selectionRect.top - popoverHeight - 4
-    : selectionRect.bottom + 4
+    ? selectionRect.top - POPOVER_HEIGHT - 6
+    : selectionRect.bottom + 6
 
   const style: React.CSSProperties = {
     position: "fixed",
     top,
-    left: centeredLeft,
+    left: centerX,
+    transform: "translateX(-50%)",
     zIndex: 100000,
   }
 
-  // Animation: scale from direction of selection
   const animationClass = showAbove
     ? "animate-in fade-in-0 zoom-in-95 origin-bottom duration-100"
     : "animate-in fade-in-0 zoom-in-95 origin-top duration-100"
@@ -122,25 +156,48 @@ export function TextSelectionPopover({
       style={style}
       className={animationClass}
     >
-      <div className="flex items-center gap-0.5 rounded-md border border-border bg-popover px-0.5 py-0.5 shadow-lg">
+      <div
+        className={
+          "flex items-center gap-px whitespace-nowrap rounded-lg border border-border/80 " +
+          "bg-popover/95 px-1 py-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35),0_2px_6px_-2px_rgba(0,0,0,0.15)] " +
+          "backdrop-blur-md"
+        }
+      >
         <button
           onClick={handleAddToContext}
-          className="rounded px-1.5 py-0.5 text-xs text-popover-foreground hover:bg-white/15 transition-colors duration-100 active:scale-[0.97]"
+          className={
+            "press inline-flex items-center gap-2 rounded-md px-2 py-1 " +
+            "text-[12px] font-medium text-popover-foreground " +
+            "transition-colors duration-100 hover:bg-foreground/[0.07]"
+          }
         >
-          Add to context
+          <span>Add to context</span>
+          <kbd
+            className={
+              "rounded border border-border/60 bg-foreground/[0.05] px-1 " +
+              "font-mono text-[10px] font-medium text-popover-foreground/60"
+            }
+          >
+            ⌘L
+          </kbd>
         </button>
         {/* Quick comment button shows for diff and tool-edit selections */}
-        {onQuickComment && (source.type === "diff" || source.type === "tool-edit") && (
-          <>
-            <div className="w-px h-3 bg-border" />
-            <button
-              onClick={handleQuickComment}
-              className="rounded px-1.5 py-0.5 text-xs text-popover-foreground hover:bg-white/15 transition-colors duration-100 active:scale-[0.97]"
-            >
-              Reply
-            </button>
-          </>
-        )}
+        {onQuickComment &&
+          (source.type === "diff" || source.type === "tool-edit") && (
+            <>
+              <span aria-hidden className="mx-0.5 h-3.5 w-px bg-border/70" />
+              <button
+                onClick={handleQuickComment}
+                className={
+                  "press rounded-md px-2 py-1 text-[12px] font-medium " +
+                  "text-popover-foreground transition-colors duration-100 " +
+                  "hover:bg-foreground/[0.07]"
+                }
+              >
+                Reply
+              </button>
+            </>
+          )}
       </div>
     </div>
   )

@@ -55,6 +55,9 @@ When working in this repo, do not re-implement what 1code already provides. The 
 - **Worktrees** under `~/.backlot/worktrees/<projectSlug>/<folderName>` (renamed from 1code's `~/.21st/`). Project slug is sanitized project name.
 - **MCP tools** under `mcp/<tool-name>/` as separate Node stdio packages. Each has its own `package.json` and `index.ts`.
 - **Screenplay artifacts** default to `.fountain` extension. Markdown is allowed for treatments, character bibles, beat sheets.
+- **Scene generation artifacts** are file-backed JSON the in-app agent reads and writes directly (no MCP layer): `multishot.backlot.json` and `shotlist.backlot.json` per scene, and one project-root `queue.backlot.json`. Each has a `normalize*()` read-side safety net in `src/shared/<name>-types.ts`, a tRPC router under `routers/`, and a workdesk mode surface. Keep all four in sync when the model changes.
+- **Harness stays with schemas.** Any change to a Backlot content schema (`shotlist.backlot.json`, `multishot.backlot.json`, `queue.backlot.json`, entity frontmatter, skill-library files, canvas MCP shape) must update `src/main/lib/claude/harness-prompt.ts` in the same change so the in-app agent learns the new contract.
+- **Submission queue** (`queue.backlot.json`): a project-wide tracker. Prompts drafted in Multishot/Shotlist mode are pushed into it via "Add to queue"; an external agent reads the file to submit each prompt to a video model (Runway), flipping `status` and bumping `submissionCount`. It is a content artifact, not engineering state — per-item reference images are copied under `queue-media/<itemId>/`. The Queue workdesk mode renders it; the `queue` router is the read/write layer. Documented for the in-app agent in `harness-prompt.ts`.
 - **Commits**: focused, one concern per commit, imperative mood. Group renames and find/replace into one commit. Keep `LICENSE` + `NOTICE` intact.
 
 ## Working rules for agents

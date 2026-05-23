@@ -12,6 +12,8 @@ export interface SubChatMeta {
   updated_at?: string
   mode?: "plan" | "agent"
   provider?: "claude-code" | "codex"
+  /** Set on archived threads surfaced in history for restore. */
+  archived?: boolean
 }
 
 interface AgentSubChatStore {

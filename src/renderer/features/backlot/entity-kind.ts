@@ -33,6 +33,52 @@ export function isMultishotPath(path: string): boolean {
   )
 }
 
+export function isQueuePath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return (
+    lower === "queue.backlot.json" || lower.endsWith("/queue.backlot.json")
+  )
+}
+
+/** Extensions the AssetPreviewPane can render as a still image. */
+export const IMAGE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".avif",
+  ".bmp",
+  ".ico",
+] as const
+
+/** Extensions the AssetPreviewPane can play with a <video> element. */
+export const VIDEO_EXTENSIONS = [
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".m4v",
+  ".ogv",
+] as const
+
+function extOf(path: string): string {
+  const m = /\.[^./\\]+$/.exec(path.toLowerCase())
+  return m ? m[0] : ""
+}
+
+export function isImagePath(path: string): boolean {
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(extOf(path))
+}
+
+// dataTransfer MIME for an in-app file drag — the project file tree puts
+// a project-relative path on the payload, the canvas reads it on drop.
+export const CANVAS_DROP_MIME = "application/x-backlot-entity-path"
+
+export function isVideoPath(path: string): boolean {
+  return (VIDEO_EXTENSIONS as readonly string[]).includes(extOf(path))
+}
+
 export function activeEntityFromPath(
   path: string,
   label: string,
@@ -59,6 +105,14 @@ export function activeEntityFromPath(
   if (isMultishotPath(path)) {
     return {
       kind: "multishot",
+      label,
+      path,
+    }
+  }
+
+  if (isQueuePath(path)) {
+    return {
+      kind: "queue",
       label,
       path,
     }
@@ -134,6 +188,14 @@ export function activeEntityFromPath(
       label,
       path,
     }
+  }
+
+  // Media assets — open in the AssetPreviewPane, not a text editor.
+  if (isImagePath(path)) {
+    return { kind: "image", label, path }
+  }
+  if (isVideoPath(path)) {
+    return { kind: "video", label, path }
   }
 
   // Fall through — generic file. EntityEditor still opens it.

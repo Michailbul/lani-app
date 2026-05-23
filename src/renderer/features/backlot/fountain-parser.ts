@@ -4,8 +4,9 @@
  * Covers the blocks a working screenwriter needs to *see* typeset:
  *   • Title page    — Key: Value pairs at file top before the first blank line
  *   • Scene heading — INT./EXT./EST./I/E lines, plus `.FORCED` heading
+ *   • Shot heading  — Backlot extension: `SHOT A:` / `SHOT B: CU - push`
  *   • Action        — default paragraph
- *   • Character     — ALL-CAPS line preceded by blank, followed by non-blank
+ *   • Character     — ALL-CAPS cue, optionally with `[visible emotion]`
  *   • Parenthetical — (text) directly under a character
  *   • Dialogue      — line(s) following character/parenthetical until blank
  *   • Transition    — ALL-CAPS line ending in `TO:`, or starting with `>`
@@ -34,6 +35,7 @@
 export type FountainBlock =
   | { kind: "title-page"; entries: Array<{ key: string; value: string }> }
   | { kind: "scene-heading"; text: string }
+  | { kind: "shot-heading"; text: string }
   | { kind: "action"; text: string }
   | { kind: "character"; text: string; dual?: boolean }
   | { kind: "parenthetical"; text: string }
@@ -158,6 +160,7 @@ function stripAnnotations(source: string): string {
 
 const SCENE_HEADING_PREFIX =
   /^(?:INT|EXT|EST|INT\.\/EXT|I\/E|INT\/EXT)[\s.\-]/i
+const SHOT_HEADING_PREFIX = /^SHOT\s+[A-Z0-9][A-Z0-9-]*(?:\s*[:\-–—]\s*|\b)/
 
 /** Is this line entirely uppercase (used for character + transition heuristics)? */
 function isAllCaps(line: string): boolean {
@@ -166,6 +169,18 @@ function isAllCaps(line: string): boolean {
   if (!/[A-Z]/.test(line)) return false
   if (/[a-z]/.test(line)) return false
   return true
+}
+
+function isShotHeading(line: string): boolean {
+  return SHOT_HEADING_PREFIX.test(line.trim())
+}
+
+function isCharacterCue(line: string): boolean {
+  const cue = line
+    .replace(/\s*\^\s*$/, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .trim()
+  return isAllCaps(cue)
 }
 
 /**
@@ -320,6 +335,14 @@ export function parseFountain(source: string): FountainBlock[] {
       continue
     }
 
+    // Backlot shot heading: visible director-screenwriter structure
+    // inside a Fountain file.
+    if (isShotHeading(line)) {
+      blocks.push({ kind: "shot-heading", text: line.trim() })
+      i++
+      continue
+    }
+
     // Transition: ALL-CAPS line ending with `TO:` and bracketed by blanks.
     const trimmed = line.trim()
     if (
@@ -335,7 +358,7 @@ export function parseFountain(source: string): FountainBlock[] {
 
     // Character: ALL-CAPS line preceded by blank and followed by
     // non-blank. Strip dual-dialogue caret.
-    if (isAllCaps(trimmed) && prevIsBlank(i) && !nextIsBlank(i)) {
+    if (isCharacterCue(trimmed) && prevIsBlank(i) && !nextIsBlank(i)) {
       const dual = trimmed.endsWith("^")
       blocks.push({
         kind: "character",
@@ -371,6 +394,7 @@ export function parseFountain(source: string): FountainBlock[] {
       !/^={3,}\s*$/.test(lines[i]) &&
       !/^#{1,6}\s+/.test(lines[i]) &&
       !SCENE_HEADING_PREFIX.test(lines[i].trim()) &&
+      !isShotHeading(lines[i]) &&
       !/^\.[^.]/.test(lines[i]) &&
       !/^>/.test(lines[i])
     ) {

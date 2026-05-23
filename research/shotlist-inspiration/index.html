@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shot List / Pre-Production UI References</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0d0f;
+    color: #e8e6e2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    line-height: 1.5;
+    padding: 48px 32px 96px;
+  }
+  header { max-width: 1100px; margin: 0 auto 48px; }
+  h1 { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; }
+  .sub { color: #8a8780; font-size: 15px; margin-top: 8px; }
+  .toc { color: #8a8780; font-size: 13px; margin-top: 16px; }
+  .toc a { color: #c9856f; text-decoration: none; margin-right: 14px; }
+  .toc a:hover { text-decoration: underline; }
+  section { max-width: 1100px; margin: 0 auto 64px; }
+  h2 {
+    font-size: 19px; font-weight: 600; letter-spacing: -0.01em;
+    padding-bottom: 10px; margin-bottom: 24px;
+    border-bottom: 1px solid #26242a;
+  }
+  h2 .count { color: #6b6860; font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px;
+  }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  figure {
+    background: #161518;
+    border: 1px solid #26242a;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #1f1e22;
+  }
+  figcaption {
+    padding: 12px 16px 14px;
+    font-size: 13.5px;
+    color: #b4b1aa;
+  }
+  figcaption b { color: #e8e6e2; font-weight: 600; }
+  footer { max-width: 1100px; margin: 0 auto; color: #6b6860; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shot List &amp; Pre-Production UI References</h1>
+  <p class="sub">Product screenshots of professional shot list, storyboard, and pre-production tools — collected as design reference for Backlot.</p>
+  <p class="toc">
+    <a href="#studiobinder">StudioBinder</a>
+    <a href="#shotlister">Shot Lister</a>
+    <a href="#filmustage">Filmustage</a>
+    <a href="#milanote">Milanote</a>
+    <a href="#shotdeck">ShotDeck</a>
+    <a href="#yamdu">Yamdu</a>
+  </p>
+</header>
+
+<section id="studiobinder">
+  <h2>StudioBinder <span class="count">— web shot list &amp; storyboard builder</span></h2>
+  <div class="grid">
+    <figure><img src="studiobinder-shotlist-software-example.png" alt=""><figcaption><b>StudioBinder</b> — Shot list table: rows of shots with thumbnails, scene grouping, shot size / angle / movement columns.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-template-grid.png" alt=""><figcaption><b>StudioBinder</b> — Shot list grid view with image cards and detail columns.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-creator.png" alt=""><figcaption><b>StudioBinder</b> — Shot list creator: building a shot list with the inline editor.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-camera-setups.png" alt=""><figcaption><b>StudioBinder</b> — Organize camera setups and plan shooting order.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-customize-columns.png" alt=""><figcaption><b>StudioBinder</b> — Customize shot types and shot list columns.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-schedule.png" alt=""><figcaption><b>StudioBinder</b> — Shot list integrated with the shooting schedule.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-collaboration.png" alt=""><figcaption><b>StudioBinder</b> — Real-time collaboration on a shot list.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-realtime-edit.png" alt=""><figcaption><b>StudioBinder</b> — Editing and collaborating on shot lists in real time.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-media-library.jpg" alt=""><figcaption><b>StudioBinder</b> — Media library panel for attaching reference images to shots.</figcaption></figure>
+    <figure><img src="studiobinder-shot-tagger.png" alt=""><figcaption><b>StudioBinder</b> — Shot Tagger: lining a film script to generate shots.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-mobile-progress.png" alt=""><figcaption><b>StudioBinder</b> — Mobile app: track shot progress and check off shots on set.</figcaption></figure>
+    <figure><img src="studiobinder-shotlist-ipad.png" alt=""><figcaption><b>StudioBinder</b> — Shot list layout chooser on iPad.</figcaption></figure>
+    <figure><img src="studiobinder-storyboard-example.png" alt=""><figcaption><b>StudioBinder</b> — Storyboard creator: panel cards laid out in a board.</figcaption></figure>
+    <figure><img src="studiobinder-storyboard-frames-detail.png" alt=""><figcaption><b>StudioBinder</b> — Storyboard frame detail: aspect ratio and per-frame metadata.</figcaption></figure>
+    <figure><img src="studiobinder-storyboard-tag-shots.png" alt=""><figcaption><b>StudioBinder</b> — Tagging shots from a script to build a storyboard.</figcaption></figure>
+    <figure><img src="studiobinder-storyboard-groups.png" alt=""><figcaption><b>StudioBinder</b> — Storyboard scenes organized into groups.</figcaption></figure>
+    <figure><img src="studiobinder-storyboard-import-screenplay.png" alt=""><figcaption><b>StudioBinder</b> — Importing a screenplay into the storyboard creator.</figcaption></figure>
+  </div>
+</section>
+
+<section id="shotlister">
+  <h2>Shot Lister <span class="count">— iOS shot list app</span></h2>
+  <div class="grid">
+    <figure><img src="shotlister-shots-screen.png" alt=""><figcaption><b>Shot Lister</b> — Shots screen: scene-organized list of shots on iPhone.</figcaption></figure>
+    <figure><img src="shotlister-customize.png" alt=""><figcaption><b>Shot Lister</b> — Customize screen: shot fields and list configuration.</figcaption></figure>
+    <figure><img src="shotlister-livemode.png" alt=""><figcaption><b>Shot Lister</b> — Live Mode: on-set running of the shot list.</figcaption></figure>
+    <figure><img src="shotlister-shootday-schedule.png" alt=""><figcaption><b>Shot Lister</b> — Shoot day schedule view.</figcaption></figure>
+    <figure><img src="shotlister-prostore.png" alt=""><figcaption><b>Shot Lister</b> — Pro store / feature upgrade screen.</figcaption></figure>
+  </div>
+</section>
+
+<section id="filmustage">
+  <h2>Filmustage <span class="count">— AI script breakdown &amp; storyboard</span></h2>
+  <div class="grid">
+    <figure><img src="filmustage-storyboard-1.png" alt=""><figcaption><b>Filmustage</b> — Storyboard board with scene-linked frame cards.</figcaption></figure>
+    <figure><img src="filmustage-storyboard-2.png" alt=""><figcaption><b>Filmustage</b> — Storyboard / shot list surface with frame metadata.</figcaption></figure>
+    <figure><img src="filmustage-storyboard-3.png" alt=""><figcaption><b>Filmustage</b> — Storyboard frame detail panel.</figcaption></figure>
+  </div>
+</section>
+
+<section id="milanote">
+  <h2>Milanote <span class="count">— freeform film / storyboard boards</span></h2>
+  <div class="grid">
+    <figure><img src="milanote-storyboard-header.png" alt=""><figcaption><b>Milanote</b> — Storyboard board: panels of images, notes, and sequence.</figcaption></figure>
+    <figure><img src="milanote-film-storyboard.png" alt=""><figcaption><b>Milanote</b> — Film storyboard example laid out on an infinite canvas.</figcaption></figure>
+    <figure><img src="milanote-tvc-storyboard.png" alt=""><figcaption><b>Milanote</b> — TV commercial storyboard template.</figcaption></figure>
+    <figure><img src="milanote-photography-storyboard.png" alt=""><figcaption><b>Milanote</b> — Photography storyboard / shot planning board.</figcaption></figure>
+    <figure><img src="milanote-drag-n-drop.png" alt=""><figcaption><b>Milanote</b> — Drag-and-drop board editing interaction.</figcaption></figure>
+  </div>
+</section>
+
+<section id="shotdeck">
+  <h2>ShotDeck <span class="count">— cinematic image library / shot reference</span></h2>
+  <div class="grid">
+    <figure><img src="shotdeck-ipad-1.png" alt=""><figcaption><b>ShotDeck</b> — Discover grid: cinematic shot library browsing on iPad.</figcaption></figure>
+    <figure><img src="shotdeck-ipad-2.png" alt=""><figcaption><b>ShotDeck</b> — Shot library grid with filtering on iPad.</figcaption></figure>
+    <figure><img src="shotdeck-ipad-3.png" alt=""><figcaption><b>ShotDeck</b> — Shot detail / deck view on iPad.</figcaption></figure>
+    <figure><img src="shotdeck-iphone-1.png" alt=""><figcaption><b>ShotDeck</b> — Discover feed on iPhone.</figcaption></figure>
+  </div>
+</section>
+
+<section id="yamdu">
+  <h2>Yamdu <span class="count">— film production management</span></h2>
+  <div class="grid">
+    <figure><img src="yamdu-shotlist.jpg" alt=""><figcaption><b>Yamdu</b> — Shot list feature: shots per scene with linked characters, sets, and camera detail.</figcaption></figure>
+  </div>
+</section>
+
+<footer>
+  33 screenshots across 6 apps. Collected May 2026 from Apple App Store listings and vendor marketing pages. Reference use only.
+</footer>
+</body>
+</html>

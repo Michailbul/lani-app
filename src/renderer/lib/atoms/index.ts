@@ -206,6 +206,22 @@ export const agentsSettingsDialogOpenAtom = atom(
   }
 )
 
+export type HarnessEditorDraftRequest = {
+  id: string
+  createdAt: number
+  reason?: string | null
+  summary?: string | null
+  proposedContent?: string | null
+}
+
+export const harnessEditorDraftRequestAtom =
+  atom<HarnessEditorDraftRequest | null>(null)
+
+/** Controls the in-pane Harness editor modal. Opened by the
+ *  HarnessFocusHost when the MCP tool requests a review; closed by the
+ *  modal itself (Approve / Cancel / Close). */
+export const harnessEditorModalOpenAtom = atom<boolean>(false)
+
 export type CustomClaudeConfig = {
   model: string
   token: string
@@ -826,10 +842,14 @@ export type MCPServer = {
 }
 
 export type SessionInfo = {
+  runtime?: "acp" | "app-server"
   tools: string[]
   mcpServers: MCPServer[]
   plugins: { name: string; path: string }[]
   skills: string[]
+  agents?: string[]
+  models?: unknown[]
+  account?: unknown
 }
 
 // Session info from SDK init message

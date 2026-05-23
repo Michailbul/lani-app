@@ -458,6 +458,7 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
                 outline={outlineTree}
                 outlineFlat={outlineFlat}
                 onOpenPartHistory={onOpenPartHistory}
+                relativePath={relativePath}
               />
             </div>
             <div className="min-h-0 overflow-auto">
@@ -520,6 +521,9 @@ interface EditorSurfaceProps {
   outlineFlat?: OutlineNode[]
   /** Click handler on a node's history chevron — opens the drawer. */
   onOpenPartHistory?: (node: OutlineNode) => void
+  /** Project-relative path of the file under edit — used by the
+   *  text-selection bridge so the assistant knows what was selected. */
+  relativePath?: string
 }
 
 /**
@@ -549,6 +553,7 @@ function EditorSurface({
   outline,
   outlineFlat,
   onOpenPartHistory,
+  relativePath,
 }: EditorSurfaceProps) {
   const [value, setValue] = useState<string>(content ?? "")
   const lastTypedRef = useRef<number>(0)
@@ -585,6 +590,34 @@ function EditorSurface({
     }, 600)
   }
 
+  // Bridge textarea selections into the global text-selection state.
+  // window.getSelection() does NOT expose <textarea> content selections,
+  // so we dispatch the same `monaco-selection-change` custom event the
+  // provider already listens for. Position the popover at the bottom-
+  // center of the textarea — caret-precise positioning would require a
+  // mirror-div utility we don't have yet.
+  const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget
+    const start = ta.selectionStart ?? 0
+    const end = ta.selectionEnd ?? 0
+    const detail =
+      end > start
+        ? {
+            text: ta.value.slice(start, end),
+            source: {
+              type: "center-pane" as const,
+              filePath: relativePath ?? "screenplay.fountain",
+              mode: "screenwriting",
+            },
+            rect: ta.getBoundingClientRect(),
+          }
+        : { text: null, source: null, rect: null }
+    window.dispatchEvent(
+      new CustomEvent("monaco-selection-change", { detail }),
+    )
+  }
+
+
   if (!content && !value) {
     return <BlankCanvas />
   }
@@ -604,6 +637,7 @@ function EditorSurface({
           <textarea
             value={value}
             onChange={onChange}
+            onSelect={onSelect}
             spellCheck
             autoCorrect="off"
             autoCapitalize="off"

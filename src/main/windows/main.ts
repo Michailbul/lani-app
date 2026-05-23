@@ -178,7 +178,7 @@ function registerIpcHandlers(): void {
     (event, position: { x: number; y: number } | null) => {
       const win = getWindowFromEvent(event)
       if (win && process.platform === "darwin") {
-        win.setTrafficLightPosition(position ?? DEFAULT_TRAFFIC_LIGHT_POSITION)
+        win.setWindowButtonPosition(position ?? DEFAULT_TRAFFIC_LIGHT_POSITION)
       }
     },
   )

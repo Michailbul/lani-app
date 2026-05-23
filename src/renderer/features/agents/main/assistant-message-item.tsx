@@ -30,6 +30,7 @@ import { AgentToolRegistry, getToolStatus } from "../ui/agent-tool-registry"
 import { AgentWebFetchTool } from "../ui/agent-web-fetch-tool"
 import { AgentWebSearchCollapsible } from "../ui/agent-web-search-collapsible"
 import {
+  BranchButton,
   CopyButton,
   PlayButton,
   getMessageTextContent,
@@ -722,6 +723,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
               text={getMessageTextContent(message)}
               isMobile={isMobile}
             />
+            <BranchButton chatId={chatId} isMobile={isMobile} />
             {onRollback &&
               ((message.metadata as any)?.sdkMessageUuid ||
                 (message.metadata as any)?.rollbackCheckpointId) && (

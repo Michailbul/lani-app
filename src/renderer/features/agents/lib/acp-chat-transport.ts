@@ -20,6 +20,42 @@ import {
 import { CODEX_MODELS, type CodexThinkingLevel } from "./models"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
+import {
+  activeEntityAtom,
+  selectedSceneIdAtom,
+  shotlistSubmodeAtom,
+  viewModeAtom,
+} from "../../backlot/atoms"
+
+/**
+ * Active focus payload — see ipc-chat-transport.ts for the mirror.
+ * Read at send time so the agent sees whatever file the user has open
+ * right now, even if focus shifts mid-conversation.
+ */
+function getActiveFocus(): {
+  path: string
+  kind: string
+  label?: string | null
+  mode?: string | null
+  submode?: string | null
+  sceneId?: string | null
+} | null {
+  const entity = appStore.get(activeEntityAtom)
+  if (!entity || !entity.path) return null
+  const mode = appStore.get(viewModeAtom)
+  const submode = mode === "shotlist" ? appStore.get(shotlistSubmodeAtom) : null
+  const sceneId = appStore.get(selectedSceneIdAtom)
+  const label =
+    "label" in entity && typeof entity.label === "string" ? entity.label : null
+  return {
+    path: entity.path,
+    kind: entity.kind,
+    label,
+    mode,
+    submode,
+    sceneId,
+  }
+}
 
 type UIMessageChunk = any
 
@@ -239,6 +275,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
         }
 
         try {
+          const activeFocus = getActiveFocus()
           sub = trpcClient.codex.chat.subscribe(
             {
               subChatId: this.config.subChatId,
@@ -262,15 +299,20 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
                     },
                   }
                 : {}),
+              ...(activeFocus ? { activeFocus } : {}),
             },
             {
               onData: (chunk: UIMessageChunk) => {
                 if (chunk.type === "session-init") {
                   appStore.set(sessionInfoAtom, {
+                    runtime: chunk.runtime,
                     tools: chunk.tools || [],
                     mcpServers: chunk.mcpServers || [],
                     plugins: chunk.plugins || [],
                     skills: chunk.skills || [],
+                    agents: chunk.agents || [],
+                    models: chunk.models,
+                    account: chunk.account,
                   })
                 }
 

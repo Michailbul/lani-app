@@ -31,6 +31,8 @@ import {
   FolderTree,
   GitBranch,
   LayoutGrid,
+  LibraryBig,
+  ListChecks,
   MessageSquare,
   MessageSquarePlus,
   PanelLeft,
@@ -44,21 +46,25 @@ import { toast } from "sonner"
 import { ProjectTreeRail } from "./project-tree-rail"
 import { MultishotSurface } from "./multishot-surface"
 import { CanvasModeView } from "./canvas-mode-view"
+import { AssetPreviewPane } from "./asset-preview-pane"
 import { EntityEditor } from "./entity-editor"
 import { ShotlistSurface } from "./shotlist-surface"
+import { QueueSurface } from "./queue-surface"
+import { LibrarySurface } from "./library-surface"
 import { SkillWorkbenchView } from "./skill-workbench-view"
 import {
   activeEntityAtom,
   assistantRailOpenAtom,
   projectTreeOpenAtom,
+  shotlistSubmodeAtom,
   viewModeAtom,
+  workspaceRightInsetAtom,
 } from "./atoms"
 import {
   agentsSidebarOpenAtom,
   isDesktopAtom,
   isFullscreenAtom,
 } from "../../lib/atoms"
-import { Sparkles } from "lucide-react"
 import {
   selectedAgentChatIdAtom,
   selectedProjectAtom,
@@ -142,31 +148,37 @@ function AmbientCanvas() {
 
 // ────────────────────────────────────────────────────────────────────────
 // ModeDock — the workflow-stage switcher. A floating liquid-glass dock
-// pinned to the bottom-centre of the editor: Screenwriting · Prompts ·
-// Shotlist · Canvas. A kiwi thumb slides under the active stage; the
-// glass surface refracts the canvas through an SVG displacement filter.
+// pinned to the bottom-centre of the editor: Screenwriting · Shotlist ·
+// Skills · Canvas · Queue. A kiwi thumb slides under the active stage;
+// the glass surface refracts the canvas through an SVG displacement
+// filter.
 // ────────────────────────────────────────────────────────────────────────
 
 const WORKFLOW_MODES = [
   { id: "screenwriting", label: "Screenwriting", Icon: PenLine },
-  { id: "multishot", label: "Multishot", Icon: Sparkles },
   { id: "shotlist", label: "Shotlist", Icon: Clapperboard },
-  { id: "canvas", label: "Canvas", Icon: LayoutGrid },
   { id: "skill", label: "Skills", Icon: Wrench },
+  { id: "canvas", label: "Canvas", Icon: LayoutGrid },
+  { id: "queue", label: "Queue", Icon: ListChecks },
+  { id: "library", label: "Library", Icon: LibraryBig },
 ] as const
 
 function ModeDock() {
   const [mode, setMode] = useAtom(viewModeAtom)
+  const rightInset = useAtomValue(workspaceRightInsetAtom)
   const activeIndex = Math.max(
     0,
     WORKFLOW_MODES.findIndex((m) => m.id === mode),
   )
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center">
+    <div
+      className="pointer-events-none absolute bottom-5 left-0 z-30 flex justify-center transition-[right] duration-200 [transition-timing-function:var(--ease-natural)]"
+      style={{ right: rightInset }}
+    >
       <GlassFilter />
       <div
         className={cn(
-          "pointer-events-auto relative grid grid-cols-5 h-11 p-1 rounded-2xl",
+          "pointer-events-auto relative grid grid-cols-6 h-11 p-1 rounded-2xl",
           "border border-white/55",
           "shadow-[0_1px_2px_rgba(20,22,14,0.06),0_14px_34px_-12px_rgba(20,22,14,0.30)]",
         )}
@@ -185,7 +197,7 @@ function ModeDock() {
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
-            width: "calc((100% - 0.5rem) / 5)",
+            width: "calc((100% - 0.5rem) / 6)",
             transform: `translateX(${activeIndex * 100}%)`,
           }}
         />
@@ -227,90 +239,71 @@ interface ModeAwareCenterProps {
 
 function ModeAwareCenter({ chatId }: ModeAwareCenterProps) {
   const mode = useAtomValue(viewModeAtom)
+  const submode = useAtomValue(shotlistSubmodeAtom)
   const active = useAtomValue(activeEntityAtom)
 
-  // The mode toggle is a *workflow* shift, not a layout split — it
-  // changes what surface a given entity opens in:
-  //
-  //   Screenwriting mode  → EntityEditor (single-file textarea + autosave)
-  //                         for any markdown/fountain entity. The writer's
-  //                         default. Lands here.
-  //
-  //   Multishot mode      → MultishotSurface for scenes/shots (the scene
-  //                         screenplay paired with one multi-shot prompt).
-  //                         For other entities, falls back to EntityEditor
-  //                         since they have no dedicated prompt surface.
-  //
-  //   Shotlist mode       → ShotlistSurface, the imported shotlist and
-  //                         Runway submission tracking surface.
-  //
-  //   Canvas mode         → CanvasModeView, the agent-controllable visual
-  //                         board for prompts, references, and generation.
-  //
-  // Atomic markdown entities (brief/world/main-script/character/location/
-  // act) always land in the editor regardless of mode — the multishot UI
-  // only makes sense for scenes/shots.
+  // Wraps every center-pane surface with data attrs so the text-selection
+  // context can resolve any selection inside (textarea, preview, JSON
+  // panes, history view, etc.) back to the file the user is looking at.
+  // The textarea selection bridge lives in screenplay-pane.tsx because
+  // <textarea> selections are not exposed through window.getSelection().
+  const centerPaneAttrs = active?.path
+    ? {
+        "data-center-pane-path": active.path,
+        "data-center-pane-mode":
+          mode === "shotlist" && submode ? `${mode}:${submode}` : mode,
+      }
+    : {}
 
+  return (
+    <div className="h-full w-full" {...centerPaneAttrs}>
+      {renderModeSurface()}
+    </div>
+  )
+
+  function renderModeSurface() {
+
+  // The workflow dock is the primary navigation. Clicking a stage always
+  // lands on that stage's surface — it is never overridden by whichever
+  // entity happens to be open. Each generation surface carries its own
+  // scene selector, so it stands up on its own even when no `.backlot`
+  // file was opened first.
+  //
+  // Opening a `.backlot` file in the project tree sets the matching mode
+  // (see project-file-tree's handleOpen), so the file and the mode never
+  // disagree in practice.
   if (mode === "skill") {
     return <SkillWorkbenchView />
   }
-
   if (mode === "canvas") {
     return <CanvasModeView worktreeId={chatId} />
   }
-
-  if (mode === "shotlist" || active?.kind === "shotlist") {
-    return <ShotlistSurface />
+  if (mode === "queue") {
+    return <QueueSurface />
+  }
+  if (mode === "library") {
+    return <LibrarySurface />
+  }
+  // Shotlist mode holds two submodes the writer toggles between — the
+  // Shotlist (a scene cut into Parts) and the Multishot (one multi-shot
+  // prompt for the whole scene).
+  if (mode === "shotlist") {
+    return submode === "multishot" ? <MultishotSurface /> : <ShotlistSurface />
   }
 
-  if (active?.kind === "multishot") {
-    return <MultishotSurface />
-  }
-
-  // Atomic entities — always the file editor. Includes the generic
-  // "file" kind that the Cursor-style tree produces for arbitrary
-  // user-created files: same surface, just no schema-specific kicker.
-  if (
-    active &&
-    (active.kind === "brief" ||
-      active.kind === "world" ||
-      active.kind === "main-script" ||
-      active.kind === "character" ||
-      active.kind === "location" ||
-      active.kind === "act" ||
-      active.kind === "file")
-  ) {
-    return (
-      <div className="h-full">
-        <EntityEditor />
-      </div>
-    )
-  }
-
-  // Scene / shot — mode decides the surface.
-  if (active && (active.kind === "scene" || active.kind === "shot")) {
-    if (mode === "multishot") {
-      return <MultishotSurface />
-    }
-    return (
-      <div className="h-full">
-        <EntityEditor />
-      </div>
-    )
-  }
-
-  // Nothing selected — keep the center on the file editor's neutral
-  // placeholder. Do not mount the old single-artifact ScreenplayPane:
-  // it looks for `screenplay.fountain` and brings back the legacy
-  // Editor / Preview / Split / History toolbar.
-  if (mode === "multishot") {
-    return <MultishotSurface />
+  // Screenwriting mode — the surface follows the opened entity. Image
+  // and video assets get the liquid-glass media preview; everything
+  // else (the screenplay, brief, character notes, generic files) opens
+  // in the single-file editor.
+  if (active?.kind === "image" || active?.kind === "video") {
+    return <AssetPreviewPane />
   }
   return (
     <div className="h-full">
       <EntityEditor />
     </div>
   )
+  }
 }
 
 // Stable hash → palette index. Lets pre-migration chats with NULL

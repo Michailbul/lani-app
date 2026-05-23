@@ -13,6 +13,8 @@ import { harnessRouter } from "./harness"
 import { entitiesRouter } from "./entities"
 import { shotlistsRouter } from "./shotlists"
 import { multishotsRouter } from "./multishots"
+import { queueRouter } from "./queue"
+import { libraryRouter } from "./library"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
 import { filesRouter } from "./files"
@@ -51,6 +53,8 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     entities: entitiesRouter,
     shotlists: shotlistsRouter,
     multishots: multishotsRouter,
+    queue: queueRouter,
+    library: libraryRouter,
     terminal: terminalRouter,
     external: externalRouter,
     files: filesRouter,

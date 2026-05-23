@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useAtom } from "jotai"
 import { Check, Loader2, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
+import { harnessEditorDraftRequestAtom } from "../../../lib/atoms"
 import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
 
@@ -16,10 +18,13 @@ import { cn } from "../../../lib/utils"
 export function AgentsSystemPromptTab() {
   const harness = trpc.harness.get.useQuery()
   const utils = trpc.useUtils()
+  const [draftRequest, setDraftRequest] = useAtom(harnessEditorDraftRequestAtom)
+  const appliedRequestIdRef = useRef<string | null>(null)
 
   const save = trpc.harness.set.useMutation({
     onSuccess: () => {
       utils.harness.get.invalidate()
+      setDraftRequest(null)
       toast.success("System prompt saved", {
         description: "Takes effect on the next agent turn.",
       })
@@ -29,6 +34,7 @@ export function AgentsSystemPromptTab() {
   const reset = trpc.harness.reset.useMutation({
     onSuccess: () => {
       utils.harness.get.invalidate()
+      setDraftRequest(null)
       toast.success("Reset to the shipped default")
     },
     onError: (err) => toast.error(err.message || "Couldn't reset"),
@@ -44,12 +50,27 @@ export function AgentsSystemPromptTab() {
     }
   }, [harness.data, draft])
 
+  useEffect(() => {
+    if (!draftRequest || !harness.data) return
+    if (draftRequest.id === appliedRequestIdRef.current) return
+
+    appliedRequestIdRef.current = draftRequest.id
+    const proposedContent = draftRequest.proposedContent?.trim()
+    const hasUnsavedDraft =
+      draft !== null && draft.trim() !== harness.data.effective.trim()
+    if (hasUnsavedDraft) return
+    setDraft(proposedContent || harness.data.effective)
+  }, [draft, draftRequest, harness.data])
+
   const effective = harness.data?.effective ?? ""
   const defaultText = harness.data?.default ?? ""
   const isCustomized = harness.data?.isCustomized ?? false
   const version = harness.data?.version ?? ""
 
   const dirty = draft !== null && draft.trim() !== effective.trim()
+  const proposedContentLoaded =
+    !!draftRequest?.proposedContent?.trim() &&
+    draft?.trim() === draftRequest.proposedContent.trim()
   // "Matches default" — useful signal so the user knows saving now
   // would be equivalent to a reset.
   const matchesDefault = useMemo(
@@ -70,7 +91,7 @@ export function AgentsSystemPromptTab() {
     <div className="flex flex-col h-full min-h-0 w-full max-w-5xl mx-auto p-8 gap-5">
       {/* Header */}
       <div className="flex flex-col space-y-1.5">
-        <h3 className="text-sm font-semibold text-foreground">System Prompt</h3>
+        <h3 className="text-sm font-semibold text-foreground">Harness</h3>
         <p className="text-xs text-muted-foreground leading-relaxed">
           The Backlot harness — appended to every agent session. It tells
           the agent how Backlot projects are structured and how to behave
@@ -78,6 +99,24 @@ export function AgentsSystemPromptTab() {
           conventions). Edits take effect on the next agent turn.
         </p>
       </div>
+
+      {draftRequest && (
+        <div className="rounded-md border border-primary/25 bg-primary/8 px-3 py-2 text-xs">
+          <div className="font-medium text-foreground">
+            Harness update requested
+          </div>
+          <div className="mt-1 text-muted-foreground leading-relaxed">
+            {draftRequest.summary ||
+              draftRequest.reason ||
+              "Review the harness before saving changes."}
+            {draftRequest.proposedContent
+              ? proposedContentLoaded
+                ? " Proposed content is loaded in the editor."
+                : " Proposed content was not loaded because there are unsaved edits."
+              : ""}
+          </div>
+        </div>
+      )}
 
       {/* Status row */}
       <div className="flex items-center justify-between py-1">

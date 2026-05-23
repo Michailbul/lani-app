@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises"
 import { extname } from "node:path"
 import { homedir } from "node:os"
+import { createHash } from "node:crypto"
 import simpleGit from "simple-git"
 import { getGitRemoteInfo, isExactGitRepoRoot } from "../../git"
 import { trackProjectOpened } from "../../analytics"
@@ -138,15 +139,42 @@ async function copySourceTree(source: string, target: string): Promise<void> {
  */
 async function ensureProjectClaudeMd(
   target: string,
-  projectName: string,
+  _projectName: string,
 ): Promise<void> {
   const claudeMdPath = join(target, "CLAUDE.md")
   if (existsSync(claudeMdPath)) return
-  const starter = `# ${projectName} — project memory
+  const template = await readClaudeTemplate()
+  await mkdir(dirname(claudeMdPath), { recursive: true })
+  const { writeFile } = await import("node:fs/promises")
+  await writeFile(claudeMdPath, template, "utf-8")
+}
 
-This file is the persistent memory for this project. The agent reads
-it on every turn and updates it as facts solidify. Both you and the
-agent edit it freely.
+// ────────────────────────────────────────────────────────────────────────
+// Global CLAUDE.md template — ~/.backlot/CLAUDE.template.md
+//
+// One shared template. New projects are seeded from it verbatim;
+// existing projects whose CLAUDE.md is still an untouched scaffold are
+// refreshed when the template changes. A project whose CLAUDE.md holds
+// real content (or any wording the system has never shipped) is left
+// alone — its accumulated memory is never overwritten.
+// ────────────────────────────────────────────────────────────────────────
+
+const CLAUDE_TEMPLATE_PATH = join(homedir(), ".backlot", "CLAUDE.template.md")
+const CLAUDE_TEMPLATE_VERSIONS_PATH = join(
+  homedir(),
+  ".backlot",
+  ".claude-template-versions.json",
+)
+const BACKLOT_PROJECTS_ROOT = join(homedir(), ".backlot", "projects")
+
+/** The shipped default template — used the first time, before the user
+ *  edits it. Generic (no project name) so a project's CLAUDE.md equals
+ *  the template byte-for-byte until something edits it. */
+const DEFAULT_CLAUDE_TEMPLATE = `# Project memory
+
+This file is the persistent memory for this project. The agent reads it
+on every turn and updates it as facts solidify. Both you and the agent
+edit it freely.
 
 ## What this is
 
@@ -166,11 +194,103 @@ Once locked, copy the lock text verbatim into prompts.)
 
 (What got rejected and why. Things to avoid going forward.)
 `
-  await mkdir(dirname(claudeMdPath), { recursive: true })
-  // Use Node's fs/promises writeFile (we already import it as `fsCp`'s
-  // sibling above — but `writeFile` isn't aliased; import lazily here).
+
+function hashContent(content: string): string {
+  return createHash("sha256").update(content, "utf-8").digest("hex")
+}
+
+/** Every template version the system has shipped/saved — used to tell an
+ *  untouched scaffold from a project's real, edited memory. */
+async function readTemplateVersionHashes(): Promise<string[]> {
+  try {
+    const { readFile } = await import("node:fs/promises")
+    const data = JSON.parse(
+      await readFile(CLAUDE_TEMPLATE_VERSIONS_PATH, "utf-8"),
+    )
+    return Array.isArray(data?.hashes)
+      ? data.hashes.filter((h: unknown): h is string => typeof h === "string")
+      : []
+  } catch {
+    return []
+  }
+}
+
+async function recordTemplateVersionHash(hash: string): Promise<void> {
   const { writeFile } = await import("node:fs/promises")
-  await writeFile(claudeMdPath, starter, "utf-8")
+  const hashes = await readTemplateVersionHashes()
+  if (!hashes.includes(hash)) hashes.push(hash)
+  await mkdir(dirname(CLAUDE_TEMPLATE_VERSIONS_PATH), { recursive: true })
+  await writeFile(
+    CLAUDE_TEMPLATE_VERSIONS_PATH,
+    JSON.stringify({ hashes }, null, 2) + "\n",
+    "utf-8",
+  )
+}
+
+/** Read the global CLAUDE.md template. Seeds the default (and records
+ *  its version hash) the first time. */
+async function readClaudeTemplate(): Promise<string> {
+  const { readFile, writeFile } = await import("node:fs/promises")
+  try {
+    return await readFile(CLAUDE_TEMPLATE_PATH, "utf-8")
+  } catch {
+    await mkdir(dirname(CLAUDE_TEMPLATE_PATH), { recursive: true })
+    await writeFile(CLAUDE_TEMPLATE_PATH, DEFAULT_CLAUDE_TEMPLATE, "utf-8")
+    await recordTemplateVersionHash(hashContent(DEFAULT_CLAUDE_TEMPLATE))
+    return DEFAULT_CLAUDE_TEMPLATE
+  }
+}
+
+/**
+ * Refresh existing projects' CLAUDE.md to a new template. Only projects
+ * whose CLAUDE.md is empty, or byte-identical to a template version the
+ * system has shipped, are rewritten — a project with real memory is
+ * never touched.
+ */
+async function refreshProjectsFromTemplate(template: string): Promise<void> {
+  const { readFile, writeFile, readdir } = await import("node:fs/promises")
+  const versionHashes = new Set(await readTemplateVersionHashes())
+  let projectDirs: string[]
+  try {
+    const entries = await readdir(BACKLOT_PROJECTS_ROOT, {
+      withFileTypes: true,
+    })
+    projectDirs = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(BACKLOT_PROJECTS_ROOT, e.name))
+  } catch {
+    return
+  }
+  for (const dir of projectDirs) {
+    const claudeMdPath = join(dir, "CLAUDE.md")
+    let current = ""
+    try {
+      current = await readFile(claudeMdPath, "utf-8")
+    } catch {
+      current = ""
+    }
+    const untouched =
+      current.trim() === "" || versionHashes.has(hashContent(current))
+    if (!untouched) continue
+    try {
+      await mkdir(dirname(claudeMdPath), { recursive: true })
+      await writeFile(claudeMdPath, template, "utf-8")
+    } catch (err) {
+      console.warn(
+        `[projects] failed to refresh CLAUDE.md for ${dir}:`,
+        err,
+      )
+    }
+  }
+}
+
+/** Write the global template, record the version, and refresh projects. */
+async function writeClaudeTemplate(content: string): Promise<void> {
+  const { writeFile } = await import("node:fs/promises")
+  await mkdir(dirname(CLAUDE_TEMPLATE_PATH), { recursive: true })
+  await writeFile(CLAUDE_TEMPLATE_PATH, content, "utf-8")
+  await recordTemplateVersionHash(hashContent(content))
+  await refreshProjectsFromTemplate(content)
 }
 
 /**
@@ -434,6 +554,26 @@ export const projectsRouter = router({
           console.warn("[projects.writeClaudeMd] checkpoint skipped:", err)
         }
       }
+      return { written: true as const }
+    }),
+
+  /**
+   * Read the global CLAUDE.md template — the shared starting point that
+   * seeds every new project's CLAUDE.md.
+   */
+  readClaudeMdTemplate: publicProcedure.query(async () => {
+    return { content: await readClaudeTemplate() }
+  }),
+
+  /**
+   * Write the global CLAUDE.md template. Existing projects whose
+   * CLAUDE.md is still an untouched scaffold are refreshed to the new
+   * version; projects with real memory are left alone.
+   */
+  writeClaudeMdTemplate: publicProcedure
+    .input(z.object({ content: z.string() }))
+    .mutation(async ({ input }) => {
+      await writeClaudeTemplate(input.content)
       return { written: true as const }
     }),
 

@@ -45,6 +45,10 @@ function stripForkedSessionMetadata(messagesJson: string): string {
           sessionId: _sessionId,
           sdkMessageUuid: _sdkMessageUuid,
           shouldResume: _shouldResume,
+          threadId: _threadId,
+          appServerSessionId: _appServerSessionId,
+          providerTurnId: _providerTurnId,
+          threadConfigFingerprint: _threadConfigFingerprint,
           ...metadata
         } = message.metadata
         return {
@@ -154,10 +158,15 @@ export const chatsRouter = router({
       const chat = db.select().from(chats).where(eq(chats.id, input.id)).get()
       if (!chat) return null
 
+      // Archived threads are excluded — they no longer appear as tabs,
+      // in history, or in the launch-time tab seed. They stay in the DB
+      // and are recoverable via listArchivedSubChats / unarchiveSubChat.
       const chatSubChats = db
         .select()
         .from(subChats)
-        .where(eq(subChats.worktreeId, input.id))
+        .where(
+          and(eq(subChats.worktreeId, input.id), isNull(subChats.archivedAt)),
+        )
         .orderBy(subChats.createdAt)
         .all()
 
@@ -204,6 +213,11 @@ export const chatsRouter = router({
           .optional(),
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z.enum(["claude-code", "codex"]).optional(),
+        // Kept for API compatibility — Backlot runs every chat directly in
+        // the canonical project folder, so these are accepted but ignored.
+        useWorktree: z.boolean().optional(),
+        baseBranch: z.string().optional(),
+        branchType: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -703,6 +717,10 @@ export const chatsRouter = router({
         delete metadata.shouldResume
         if (isCodexThread) {
           delete metadata.sessionId
+          delete metadata.threadId
+          delete metadata.appServerSessionId
+          delete metadata.providerTurnId
+          delete metadata.threadConfigFingerprint
         } else if (i === truncatedMessages.length - 1) {
           metadata.shouldResume = true
         }
@@ -779,7 +797,8 @@ export const chatsRouter = router({
     }),
 
   /**
-   * Delete a sub-chat
+   * Permanently delete a sub-chat. Destructive — for a recoverable
+   * removal use archiveSubChat instead.
    */
   deleteSubChat: publicProcedure
     .input(z.object({ id: z.string() }))
@@ -790,6 +809,67 @@ export const chatsRouter = router({
         .where(eq(subChats.id, input.id))
         .returning()
         .get()
+    }),
+
+  /**
+   * Archive a sub-chat — a recoverable soft-remove. The thread drops out
+   * of the tab strip, history, and launch-time seed but stays in the DB.
+   */
+  archiveSubChat: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      db.update(subChats)
+        .set({ archivedAt: new Date() })
+        .where(eq(subChats.id, input.id))
+        .run()
+      return { id: input.id }
+    }),
+
+  /**
+   * Restore an archived sub-chat back into the active set.
+   */
+  unarchiveSubChat: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      db.update(subChats)
+        .set({ archivedAt: null })
+        .where(eq(subChats.id, input.id))
+        .run()
+      return { id: input.id }
+    }),
+
+  /**
+   * List a worktree's archived sub-chats, most recently archived first.
+   * Feeds the history popover's restore path.
+   */
+  listArchivedSubChats: publicProcedure
+    .input(z.object({ chatId: z.string() }))
+    .query(({ input }) => {
+      const db = getDatabase()
+      const rows = db
+        .select()
+        .from(subChats)
+        .where(
+          and(
+            eq(subChats.worktreeId, input.chatId),
+            isNotNull(subChats.archivedAt),
+          ),
+        )
+        .orderBy(desc(subChats.archivedAt))
+        .all()
+      return rows.map((sc) => ({
+        id: sc.id,
+        name: sc.name ?? "New Chat",
+        mode: (sc.mode as "plan" | "agent" | undefined) ?? "agent",
+        provider:
+          (sc.provider as "claude-code" | "codex" | undefined) ??
+          "claude-code",
+        created_at: sc.createdAt?.toISOString(),
+        updated_at: sc.updatedAt?.toISOString(),
+        archived: true as const,
+      }))
     }),
 
   /**

@@ -15,6 +15,7 @@ export type FountainLineKind =
   | "blank"
   | "title"
   | "scene"
+  | "shot"
   | "action"
   | "character"
   | "paren"
@@ -28,6 +29,7 @@ export type FountainLineKind =
 
 const SCENE_HEADING_PREFIX =
   /^(?:INT|EXT|EST|INT\.\/EXT|I\/E|INT\/EXT)[\s.\-]/i
+const SHOT_HEADING_PREFIX = /^SHOT\s+[A-Z0-9][A-Z0-9-]*(?:\s*[:\-–—]\s*|\b)/
 
 /** Entirely uppercase — at least one A–Z, no a–z. */
 function isAllCaps(line: string): boolean {
@@ -35,6 +37,18 @@ function isAllCaps(line: string): boolean {
   if (!/[A-Z]/.test(line)) return false
   if (/[a-z]/.test(line)) return false
   return true
+}
+
+function isShotHeading(line: string): boolean {
+  return SHOT_HEADING_PREFIX.test(line.trim())
+}
+
+function isCharacterCue(line: string): boolean {
+  const cue = line
+    .replace(/\s*\^\s*$/, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .trim()
+  return isAllCaps(cue)
 }
 
 /**
@@ -157,6 +171,11 @@ export function classifyFountainLines(source: string): FountainLineKind[] {
       i++
       continue
     }
+    if (isShotHeading(trimmed)) {
+      kinds[i] = "shot"
+      i++
+      continue
+    }
     if (
       isAllCaps(trimmed) &&
       /TO:$/.test(trimmed) &&
@@ -169,7 +188,7 @@ export function classifyFountainLines(source: string): FountainLineKind[] {
     }
     // Character — all-caps, blank above, content below. Consume the
     // dialogue / parentheticals beneath until the next blank.
-    if (isAllCaps(trimmed) && isBlank(i - 1) && !isBlank(i + 1)) {
+    if (isCharacterCue(trimmed) && isBlank(i - 1) && !isBlank(i + 1)) {
       kinds[i] = "character"
       i++
       while (i < lines.length && !isBlank(i)) {

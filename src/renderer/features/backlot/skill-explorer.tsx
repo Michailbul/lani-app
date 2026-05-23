@@ -23,7 +23,9 @@ import {
   Folder,
   FolderOpen,
   Package,
+  Plus,
 } from "lucide-react"
+import { toast } from "sonner"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { skillWorkbenchTabsAtom } from "./atoms"
@@ -33,11 +35,29 @@ interface SkillTreeNode {
   kind: "file" | "folder"
   name: string
   relPath: string
+  status?: "clean" | "modified" | "untracked" | "deleted" | "added"
+  changedDescendantCount?: number
   children?: SkillTreeNode[]
 }
 
 export function SkillExplorer() {
-  const list = trpc.skillWorkbench.list.useQuery()
+  const list = trpc.skillWorkbench.list.useQuery(undefined, {
+    refetchInterval: 2000,
+  })
+  const utils = trpc.useUtils()
+  const openFile = useOpenSkillFile()
+  const [creating, setCreating] = useState(false)
+
+  const create = trpc.skillWorkbench.create.useMutation({
+    onSuccess: ({ slug, dir }) => {
+      void utils.skillWorkbench.list.invalidate()
+      void utils.skills.library.invalidate()
+      setCreating(false)
+      openFile({ skillName: slug, skillDir: dir, relPath: "SKILL.md" })
+      toast.success(`Created skill "${slug}"`)
+    },
+    onError: (e) => toast.error(e.message || "Couldn't create the skill"),
+  })
 
   if (list.isPending) {
     return <ExplorerMessage kicker="Loading" body={null} />
@@ -51,7 +71,7 @@ export function SkillExplorer() {
     )
   }
 
-  const categories = list.data ?? []
+  const skills = list.data ?? []
 
   return (
     <div className="px-1.5 py-2">
@@ -62,26 +82,102 @@ export function SkillExplorer() {
         >
           Skills
         </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono">
+            {skills.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            title="New skill"
+            aria-label="New skill"
+            className={cn(
+              "h-4 w-4 flex items-center justify-center rounded",
+              "text-muted-foreground/55 hover:text-foreground",
+              "hover:bg-foreground/[0.06] transition-colors",
+            )}
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
       </div>
-      {categories.map((category) => (
-        <section key={category.label} className="mb-2">
-          <div className="px-2 pt-1.5 pb-0.5">
-            <span
-              className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              {category.label}
-            </span>
-          </div>
-          <ul>
-            {category.skills.map((skill) => (
-              <li key={skill.name}>
-                <SkillFolderRow skill={skill} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+      {creating && (
+        <NewSkillRow
+          busy={create.isPending}
+          onSubmit={(name) => create.mutate({ name })}
+          onCancel={() => setCreating(false)}
+        />
+      )}
+      {skills.length === 0 && !creating ? (
+        <ExplorerMessage
+          kicker="Empty"
+          body="No skills in ~/.backlot/skills yet — use + above to create one, or add some from Settings."
+        />
+      ) : (
+        <ul>
+          {skills.map((skill) => (
+            <li key={skill.name}>
+              <SkillFolderRow skill={skill} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Inline create row — type a skill name, Enter scaffolds the folder +
+ * SKILL.md, Escape (or empty blur) cancels.
+ */
+function NewSkillRow({
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  busy: boolean
+  onSubmit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState("")
+  const submit = () => {
+    if (busy) return
+    if (!name.trim()) {
+      onCancel()
+      return
+    }
+    onSubmit(name)
+  }
+  return (
+    <div className="flex items-center gap-1.5 pl-2 pr-2 py-[3px]">
+      <span className="w-3 shrink-0" />
+      <Folder className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+      <input
+        autoFocus
+        value={name}
+        disabled={busy}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            submit()
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            onCancel()
+          }
+        }}
+        onBlur={() => {
+          if (!name.trim()) onCancel()
+        }}
+        placeholder="new-skill-name"
+        spellCheck={false}
+        className={cn(
+          "flex-1 min-w-0 bg-transparent outline-none text-[12.5px]",
+          "text-foreground/90 placeholder:text-muted-foreground/45",
+          busy && "opacity-55",
+        )}
+        style={{ fontFamily: "var(--font-body)" }}
+      />
     </div>
   )
 }
@@ -89,7 +185,13 @@ export function SkillExplorer() {
 function SkillFolderRow({
   skill,
 }: {
-  skill: { name: string; dir: string; installed: boolean; description: string }
+  skill: {
+    name: string
+    dir: string
+    installed: boolean
+    description: string
+    changedDescendantCount?: number
+  }
 }) {
   const [open, setOpen] = useState(false)
 
@@ -139,6 +241,16 @@ function SkillFolderRow({
         >
           {skill.name}
         </span>
+        {skill.changedDescendantCount ? (
+          <span
+            className="ml-auto rounded-sm bg-primary/12 px-1 py-px text-[9px] font-mono text-primary"
+            title={`${skill.changedDescendantCount} changed file${
+              skill.changedDescendantCount === 1 ? "" : "s"
+            }`}
+          >
+            {skill.changedDescendantCount}
+          </span>
+        ) : null}
       </button>
       {open && <SkillFolderContents skill={skill} />}
     </div>
@@ -150,7 +262,10 @@ function SkillFolderContents({
 }: {
   skill: { name: string; dir: string }
 }) {
-  const tree = trpc.skillWorkbench.tree.useQuery({ skillDir: skill.dir })
+  const tree = trpc.skillWorkbench.tree.useQuery(
+    { skillDir: skill.dir },
+    { refetchInterval: 2000 },
+  )
 
   if (tree.isPending) {
     return <LeafMessage depth={1} text="Loading…" />
@@ -244,6 +359,16 @@ function SkillSubFolder({
         >
           {node.name}
         </span>
+        {node.changedDescendantCount ? (
+          <span
+            className="ml-auto rounded-sm bg-primary/10 px-1 py-px text-[9px] font-mono text-primary/85"
+            title={`${node.changedDescendantCount} changed file${
+              node.changedDescendantCount === 1 ? "" : "s"
+            }`}
+          >
+            {node.changedDescendantCount}
+          </span>
+        ) : null}
       </button>
       {open && node.children && (
         <SkillTreeLevel
@@ -273,6 +398,7 @@ function SkillFileRow({
   const tabId = `${skillName}::${node.relPath}`
   const isOpen = tabs.some((t) => t.id === tabId)
   const Icon = node.name.toLowerCase().endsWith(".md") ? FileText : File
+  const status = node.status && node.status !== "clean" ? node.status : null
 
   return (
     <button
@@ -302,6 +428,7 @@ function SkillFileRow({
       >
         {node.name}
       </span>
+      {status ? <FileStatusBadge status={status} /> : null}
     </button>
   )
 }
@@ -312,6 +439,44 @@ function SkillFileRow({
 
 function indentFor(depth: number): number {
   return 12 + depth * 12
+}
+
+function FileStatusBadge({
+  status,
+}: {
+  status: "modified" | "untracked" | "deleted" | "added"
+}) {
+  const label =
+    status === "untracked"
+      ? "U"
+      : status === "deleted"
+        ? "D"
+        : status === "added"
+          ? "A"
+          : "M"
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-sm px-1 py-px text-[9px] font-mono",
+        status === "deleted"
+          ? "bg-rose-500/10 text-rose-500"
+          : status === "untracked" || status === "added"
+            ? "bg-primary/12 text-primary"
+            : "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+      )}
+      title={
+        status === "untracked"
+          ? "Untracked"
+          : status === "deleted"
+            ? "Deleted"
+            : status === "added"
+              ? "Added"
+              : "Modified"
+      }
+    >
+      {label}
+    </span>
+  )
 }
 
 function ExplorerMessage({

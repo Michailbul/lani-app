@@ -2426,6 +2426,11 @@ const ChatViewInner = memo(function ChatViewInner({
     } else if (source.type === "file-viewer") {
       // File viewer selections are treated as code selections
       addDiffTextContext(text, source.filePath)
+    } else if (source.type === "center-pane") {
+      // Selection from the Backlot workdesk center pane (screenplay
+      // editor, preview, entity files, JSON surfaces). Carries the
+      // file path so the agent knows where the selection came from.
+      addDiffTextContext(text, source.filePath)
     }
   }, [addTextContextOriginal, addDiffTextContext])
 
@@ -6210,6 +6215,16 @@ Make sure to preserve all functionality from both branches when resolving confli
   const isSubChatMultiSelectMode = useAtomValue(isSubChatMultiSelectModeAtom)
   const clearSubChatSelection = useSetAtom(clearSubChatSelectionAtom)
 
+  // ⌘W archives the active thread — a recoverable soft-remove. The
+  // archived thread leaves the tab strip and no longer re-seeds itself
+  // on the next launch; Cmd+Z (within 10s) or the history popover
+  // restore it.
+  const { mutate: archiveActiveSubChat } = trpc.chats.archiveSubChat.useMutation({
+    onSettled: () => {
+      if (chatId) trpcUtils.chats.get.invalidate({ id: chatId })
+    },
+  })
+
   // Helper to add sub-chat to undo stack
   const addSubChatToUndoStack = useCallback((subChatId: string) => {
     const timeoutId = setTimeout(() => {
@@ -6260,6 +6275,7 @@ Make sure to preserve all functionality from both branches when resolving confli
           if (remainingOpenIds.length > 0) {
             idsToClose.forEach((id) => {
               store.removeFromOpenSubChats(id)
+              archiveActiveSubChat({ id })
               addSubChatToUndoStack(id)
             })
           }
@@ -6275,6 +6291,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         // removeFromOpenSubChats automatically switches to the last remaining tab
         if (activeId && openIds.length > 1) {
           store.removeFromOpenSubChats(activeId)
+          archiveActiveSubChat({ id: activeId })
           addSubChatToUndoStack(activeId)
         }
       }
@@ -6282,7 +6299,7 @@ Make sure to preserve all functionality from both branches when resolving confli
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [isSubChatMultiSelectMode, selectedSubChatIds, clearSubChatSelection, addSubChatToUndoStack])
+  }, [isSubChatMultiSelectMode, selectedSubChatIds, clearSubChatSelection, addSubChatToUndoStack, archiveActiveSubChat])
 
   // Keyboard shortcut: Navigate between sub-chats
   // Web: Opt+Cmd+[ and Opt+Cmd+] (browser uses Cmd+[ for back)

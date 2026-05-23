@@ -7,6 +7,10 @@ import {
   HARNESS_OVERRIDE_PATH,
   getDefaultHarnessBlock,
 } from "../../claude/harness-prompt"
+import {
+  consumeHarnessFocusRequest,
+  writeHarnessFocusRequest,
+} from "../../harness/focus-request"
 import { publicProcedure, router } from "../index"
 
 /**
@@ -82,6 +86,27 @@ export const harnessRouter = router({
     }
     return { reset: true }
   }),
+
+  /**
+   * The Harness MCP writes a small request file when the agent needs
+   * the user to review a harness change. The renderer polls this and
+   * opens Settings → Harness when a request is present.
+   */
+  consumeFocusRequest: publicProcedure.query(async () => {
+    return consumeHarnessFocusRequest()
+  }),
+
+  requestFocus: publicProcedure
+    .input(
+      z.object({
+        reason: z.string().nullable().optional(),
+        summary: z.string().nullable().optional(),
+        proposedContent: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return writeHarnessFocusRequest(input)
+    }),
 })
 
 export type HarnessRouter = typeof harnessRouter

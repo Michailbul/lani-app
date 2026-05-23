@@ -94,6 +94,7 @@ export const agentThreads = sqliteTable("agent_threads", {
   mode: text("mode").notNull().default("agent"), // "plan" | "agent"
   provider: text("provider").notNull().default("claude-code"), // "claude-code" | "codex"
   messages: text("messages").notNull().default("[]"), // JSON array
+  archivedAt: integer("archived_at", { mode: "timestamp" }), // soft-archive — hidden from tabs/history, recoverable
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date(),
   ),
@@ -137,7 +138,7 @@ export const canvasAssets = sqliteTable("canvas_assets", {
   worktreeId: text("worktree_id")
     .notNull()
     .references(() => worktrees.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull().default("imported"), // "imported" | "generated"
+  kind: text("kind").notNull().default("imported"), // "imported" | "generated" | "stitched"
   projectRelativePath: text("project_relative_path").notNull(),
   sourcePath: text("source_path"),
   mimeType: text("mime_type").notNull(),
@@ -160,7 +161,7 @@ export const canvasNodes = sqliteTable("canvas_nodes", {
   canvasId: text("canvas_id")
     .notNull()
     .references(() => canvasDocuments.id, { onDelete: "cascade" }),
-  type: text("type").notNull(), // "prompt" | "image" | "imageGeneration"
+  type: text("type").notNull(), // "image" | "imageGeneration" | "textBlock" | "description" | "group" (plus legacy "prompt")
   x: integer("x").notNull().default(0),
   y: integer("y").notNull().default(0),
   width: integer("width").notNull().default(360),

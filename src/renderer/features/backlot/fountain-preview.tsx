@@ -10,6 +10,7 @@
  *     for legibility (small enough to feel pro, large enough to read on
  *     a 27" display).
  *   • Scene headings in caps, hairline above + a touch of breathing room
+ *   • Shot headings: Backlot's visible `SHOT A:` director-screenwriter blocks
  *   • Character names indented ~3.7" from the page left edge (caps)
  *   • Parentheticals indented ~3.1" (italic, in parens)
  *   • Dialogue indented ~2.5", wrapped to ~3.5" wide
@@ -65,6 +66,39 @@ function InlineText({ text }: { text: string }) {
             return <span key={i}>{seg.text}</span>
         }
       })}
+    </>
+  )
+}
+
+/**
+ * Render a character cue. If the cue carries an emotion tag in
+ * brackets — `MOTHER [low, clipped, eyes on the Bentley]` — the tag
+ * stacks as its own block beneath the name, muted and italicised.
+ * The name stays the loudest element of the block.
+ */
+function CharacterCueText({ text }: { text: string }) {
+  const match = /^([^\[]+?)(\s*\[[\s\S]*\])?$/.exec(text)
+  if (!match) {
+    return <span className="uppercase">{text}</span>
+  }
+  const name = match[1]?.trimEnd() ?? text
+  const tag = match[2]?.trim() ?? ""
+  return (
+    <>
+      <span className="uppercase tracking-[0.04em]">
+        <InlineText text={name} />
+      </span>
+      {tag && (
+        <span
+          className={cn(
+            "block normal-case italic font-normal",
+            "text-[0.92em] mt-[0.05em]",
+            "text-muted-foreground/90",
+          )}
+        >
+          <InlineText text={tag} />
+        </span>
+      )}
     </>
   )
 }
@@ -132,6 +166,18 @@ function BlockRenderer({ block }: { block: FountainBlock }) {
           {block.text}
         </h2>
       )
+    case "shot-heading":
+      return (
+        <p
+          className={cn(
+            "mt-[1.35em] mb-[0.45em]",
+            "font-bold tracking-[0.03em]",
+            "text-primary/90",
+          )}
+        >
+          <InlineText text={block.text} />
+        </p>
+      )
     case "action":
       return (
         <p className="my-[0.9em] whitespace-pre-wrap break-words">
@@ -139,18 +185,19 @@ function BlockRenderer({ block }: { block: FountainBlock }) {
         </p>
       )
     case "character":
+      // Character cues collapse to a centered column under the action
+      // block above. Responsive padding-inline (clamp) keeps the column
+      // narrow on wide rails and roomy on narrow ones, instead of
+      // falling off the right edge the way a fixed em-indent does.
       return (
         <p
           className={cn(
-            "uppercase mt-[1.1em] mb-0",
-            "font-medium",
+            "mt-[1.1em] mb-0 font-bold text-center",
+            "tracking-[0.04em]",
           )}
-          // Character names sit at ~3.7" from page-left edge.
-          // With our 64px page-left padding (~1.5"), 3.7-1.5 = 2.2"
-          // of additional left indent ≈ 17em at 13px Courier.
-          style={{ paddingLeft: "17em" }}
+          style={{ paddingInline: "clamp(0.5em, 14%, 6em)" }}
         >
-          {block.text}
+          <CharacterCueText text={block.text} />
           {block.dual && (
             <span className="text-muted-foreground/60 ml-1">^</span>
           )}
@@ -159,24 +206,23 @@ function BlockRenderer({ block }: { block: FountainBlock }) {
     case "parenthetical":
       return (
         <p
-          className="italic text-foreground/85 my-0"
-          style={{
-            paddingLeft: "13em",
-            paddingRight: "8em",
-          }}
+          className="italic text-muted-foreground/95 my-0 text-center"
+          style={{ paddingInline: "clamp(0.5em, 22%, 9em)" }}
         >
           (<InlineText text={block.text} />)
         </p>
       )
     case "dialogue":
+      // Brand accent on dialogue gives the page a glanceable rhythm:
+      // olive/lime for the lines that animate, ink for the lines that
+      // describe. The block stays centered no matter the rail width.
       return (
         <p
-          className="my-0 whitespace-pre-wrap break-words"
-          style={{
-            paddingLeft: "10em",
-            paddingRight: "6em",
-            maxWidth: "100%",
-          }}
+          className={cn(
+            "my-0 whitespace-pre-wrap break-words text-center",
+            "text-[hsl(var(--accent-deep))]",
+          )}
+          style={{ paddingInline: "clamp(0.5em, 12%, 5em)" }}
         >
           <InlineText text={block.text} />
         </p>

@@ -62,6 +62,8 @@ interface SubChatContextMenuProps {
   visualIndex?: number
   hasTabsToRight?: boolean
   canCloseOtherTabs?: boolean
+  /** Hard-delete the thread from the workspace (not just close the tab). */
+  onDeleteThread?: (subChat: SubChatMeta) => void
   /** Parent chat ID for export functionality */
   chatId?: string | null
 }
@@ -84,6 +86,7 @@ export function SubChatContextMenu({
   visualIndex = 0,
   hasTabsToRight = false,
   canCloseOtherTabs = false,
+  onDeleteThread,
   chatId,
 }: SubChatContextMenuProps) {
   const closeTabShortcut = useCloseTabShortcut()
@@ -219,21 +222,32 @@ export function SubChatContextMenu({
             className="justify-between"
             disabled={isOnlyChat}
           >
-            Close chat
+            Archive chat
             {!isOnlyChat && <Kbd>{closeTabShortcut}</Kbd>}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => onCloseOtherTabs?.(subChat.id)}
             disabled={!canCloseOtherTabs}
           >
-            Close other chats
+            Archive other chats
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => onCloseTabsToRight?.(subChat.id, visualIndex)}
             disabled={!hasTabsToRight}
           >
-            Close chats to the right
+            Archive chats to the right
           </ContextMenuItem>
+          {onDeleteThread && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => onDeleteThread(subChat)}
+                className="text-destructive focus:text-destructive"
+              >
+                Delete permanently
+              </ContextMenuItem>
+            </>
+          )}
         </>
       ) : (
         <>
