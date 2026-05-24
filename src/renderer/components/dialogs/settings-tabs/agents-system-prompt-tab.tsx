@@ -7,12 +7,12 @@ import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
 
 /**
- * AgentsSystemPromptTab — view and edit the Backlot system prompt.
+ * AgentsSystemPromptTab — view and edit the Lani system prompt.
  *
- * The "system prompt" is the Backlot harness block appended to every
+ * The "system prompt" is the Lani harness block appended to every
  * agent session (see src/main/lib/claude/harness-prompt.ts). It ships
- * with a default; editing here writes ~/.backlot/harness-prompt.md,
- * which buildBacklotHarnessBlock() picks up on the next agent turn —
+ * with a default; editing here writes ~/.lani/harness-prompt.md,
+ * which buildLaniHarnessBlock() picks up on the next agent turn —
  * no app restart.
  */
 export function AgentsSystemPromptTab() {
@@ -93,8 +93,8 @@ export function AgentsSystemPromptTab() {
       <div className="flex flex-col space-y-1.5">
         <h3 className="text-sm font-semibold text-foreground">Harness</h3>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          The Backlot harness — appended to every agent session. It tells
-          the agent how Backlot projects are structured and how to behave
+          The Lani harness — appended to every agent session. It tells
+          the agent how Lani projects are structured and how to behave
           (edit files in place, keep chat replies short, Fountain
           conventions). Edits take effect on the next agent turn.
         </p>
@@ -169,7 +169,7 @@ export function AgentsSystemPromptTab() {
               "outline-none border-0",
               "selection:bg-primary/25 caret-primary",
             )}
-            placeholder="The Backlot harness prompt…"
+            placeholder="The Lani harness prompt…"
           />
         )}
       </div>

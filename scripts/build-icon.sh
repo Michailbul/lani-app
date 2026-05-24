@@ -18,33 +18,36 @@ python3 - <<'PY'
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
-build = Path(__file__).resolve().parent.parent / "build" if False else None
 out = Path("build/icon.png")
 out.parent.mkdir(parents=True, exist_ok=True)
 
 SIZE = 1024
-BG = (201, 227, 75, 255)       # Lime #C9E34B — Backlot --primary
+BG = (201, 227, 75, 255)       # Lime #C9E34B — Lani --primary
 FG = (31, 34, 8, 255)           # Accent ink — derived from --primary-foreground
 
 img = Image.new("RGBA", (SIZE, SIZE), BG)
 draw = ImageDraw.Draw(img)
 
+# Italic grotesque "L" mark. Helvetica Neue Bold Italic is index 3 of the
+# system .ttc — solid grotesque letterform with enough slant to read as a
+# logo. Falls back through other italic faces if the Bold Italic index
+# isn't available on the host machine.
 font = None
-for candidate in (
-    "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Georgia Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-    "/Library/Fonts/Georgia.ttf",
+for path, index, size in (
+    ("/System/Library/Fonts/HelveticaNeue.ttc", 3, 820),   # Bold Italic
+    ("/System/Library/Fonts/HelveticaNeue.ttc", 11, 820),  # Medium Italic
+    ("/System/Library/Fonts/HelveticaNeue.ttc", 2, 820),   # Italic
+    ("/System/Library/Fonts/Helvetica.ttc", 0, 820),       # any Helvetica
 ):
     try:
-        font = ImageFont.truetype(candidate, 720)
+        font = ImageFont.truetype(path, size, index=index)
         break
-    except OSError:
+    except (OSError, ValueError):
         continue
 if font is None:
     font = ImageFont.load_default()
 
-text = "B"
+text = "L"
 bbox = draw.textbbox((0, 0), text, font=font)
 tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 x = (SIZE - tw) // 2 - bbox[0]

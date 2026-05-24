@@ -10,7 +10,7 @@
  * name, dimensions, and quick actions. Expand blows it up to a
  * full-window lightbox.
  *
- * Media streams off disk over the `backlot-asset://` protocol — no
+ * Media streams off disk over the `lani-asset://` protocol — no
  * base64, no size cap — so a 40 MB clip scrubs smoothly.
  */
 
@@ -44,9 +44,9 @@ const liquidGlassStyle: CSSProperties = {
   WebkitBackdropFilter: "url(#bl-glass-displace) blur(8px) saturate(160%)",
 }
 
-/** Build a streaming URL for the backlot-asset:// protocol. */
+/** Build a streaming URL for the lani-asset:// protocol. */
 function assetUrl(absPath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+  return `lani-asset://asset/?p=${encodeURIComponent(absPath)}`
 }
 
 function formatDuration(seconds: number): string {
@@ -158,7 +158,7 @@ function AssetPreviewInner({
         ) : failed ? (
           <CenteredState
             label="Could not load"
-            body={`Backlot couldn't open ${fileName}.`}
+            body={`Lani couldn't open ${fileName}.`}
             icon={<AlertCircle className="h-9 w-9 text-muted-foreground/70" />}
           />
         ) : (

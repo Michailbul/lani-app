@@ -2427,7 +2427,7 @@ const ChatViewInner = memo(function ChatViewInner({
       // File viewer selections are treated as code selections
       addDiffTextContext(text, source.filePath)
     } else if (source.type === "center-pane") {
-      // Selection from the Backlot workdesk center pane (screenplay
+      // Selection from the Lani workdesk center pane (screenplay
       // editor, preview, entity files, JSON surfaces). Carries the
       // file path so the agent knows where the selection came from.
       addDiffTextContext(text, source.filePath)
@@ -2468,8 +2468,8 @@ const ChatViewInner = memo(function ChatViewInner({
       editorRef.current?.setValue(next)
       editorRef.current?.focus()
     }
-    window.addEventListener("backlot-chat-compose", handler)
-    return () => window.removeEventListener("backlot-chat-compose", handler)
+    window.addEventListener("lani-chat-compose", handler)
+    return () => window.removeEventListener("lani-chat-compose", handler)
   }, [])
 
   // Handler for quick comment trigger from popover

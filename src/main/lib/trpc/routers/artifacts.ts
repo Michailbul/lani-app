@@ -14,13 +14,13 @@ import { publicProcedure, router } from "../index"
 const execFileAsync = promisify(execFile)
 
 /**
- * Backlot artifact router.
+ * Lani artifact router.
  *
  * The "artifact" is whatever screenplay file the agent edits in place.
  * Convention: each chat (= direction = git worktree) has a primary
  * artifact at <worktreePath>/screenplay.fountain. The agent is steered
  * (via system prompt in claude.ts) to use Edit/Write on this file
- * instead of pasting screenplay content into chat. Backlot's editor
+ * instead of pasting screenplay content into chat. Lani's editor
  * pane reads the file and renders the result.
  *
  * Future: support multiple artifacts per direction (act files, character
@@ -229,7 +229,7 @@ export const artifactsRouter = router({
       await git.add([PRIMARY_ARTIFACT])
       const result = await git.commit(
         input.message?.trim() ||
-          `Backlot: accept screenplay edit (${new Date().toISOString()})`,
+          `Lani: accept screenplay edit (${new Date().toISOString()})`,
         [PRIMARY_ARTIFACT],
         ["--allow-empty"],
       )
@@ -297,7 +297,7 @@ export const artifactsRouter = router({
         lookup.worktreePath,
         input.hunkIndex,
       )
-      const tmp = join(tmpdir(), `backlot-hunk-${randomUUID()}.patch`)
+      const tmp = join(tmpdir(), `lani-hunk-${randomUUID()}.patch`)
       await writeFile(tmp, patch, "utf-8")
       try {
         await execFileAsync("git", ["apply", "--cached", "--whitespace=nowarn", tmp], {
@@ -305,7 +305,7 @@ export const artifactsRouter = router({
         })
         const git = simpleGit(lookup.worktreePath)
         const result = await git.commit(
-          `Backlot: accept hunk ${input.hunkIndex + 1} (${new Date().toISOString()})`,
+          `Lani: accept hunk ${input.hunkIndex + 1} (${new Date().toISOString()})`,
           [PRIMARY_ARTIFACT],
         )
         return { commitHash: result.commit }
@@ -333,7 +333,7 @@ export const artifactsRouter = router({
         lookup.worktreePath,
         input.hunkIndex,
       )
-      const tmp = join(tmpdir(), `backlot-hunk-${randomUUID()}.patch`)
+      const tmp = join(tmpdir(), `lani-hunk-${randomUUID()}.patch`)
       await writeFile(tmp, patch, "utf-8")
       try {
         await execFileAsync(
@@ -401,15 +401,15 @@ export const artifactsRouter = router({
             "log",
             "--follow",
             "--numstat",
-            "--format=__BACKLOT_COMMIT__:%H",
+            "--format=__LANI_COMMIT__:%H",
             `-${input.limit}`,
             "--",
             PRIMARY_ARTIFACT,
           ])
           let currentHash = ""
           for (const line of numstat.split("\n")) {
-            if (line.startsWith("__BACKLOT_COMMIT__:")) {
-              currentHash = line.slice("__BACKLOT_COMMIT__:".length).trim()
+            if (line.startsWith("__LANI_COMMIT__:")) {
+              currentHash = line.slice("__LANI_COMMIT__:".length).trim()
             } else {
               const m = /^(\d+|-)\s+(\d+|-)\s+/.exec(line)
               if (m && currentHash) {
@@ -1033,8 +1033,8 @@ export async function ensurePrimaryArtifact(
       // Local identity — only used when global config is missing so commits
       // don't fail. Doesn't touch the user's global gitconfig.
       try {
-        await git.raw(["config", "--local", "user.email", "backlot@local"])
-        await git.raw(["config", "--local", "user.name", "Backlot"])
+        await git.raw(["config", "--local", "user.email", "lani@local"])
+        await git.raw(["config", "--local", "user.name", "Lani"])
       } catch {
         /* ignore — identity may already exist globally */
       }
@@ -1062,8 +1062,8 @@ export async function ensurePrimaryArtifact(
       if (!hasHead || hasStaged) {
         await git.commit(
           fileExisted
-            ? "Backlot: baseline screenplay artifact"
-            : "Backlot: seed primary screenplay artifact",
+            ? "Lani: baseline screenplay artifact"
+            : "Lani: seed primary screenplay artifact",
           [PRIMARY_ARTIFACT],
           ["--allow-empty"],
         )

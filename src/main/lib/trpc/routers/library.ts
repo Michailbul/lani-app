@@ -3,7 +3,7 @@
  *
  * Each entry is a folder. There is no JSON index. The router scans
  *
- *   ~/.backlot/library/<id>/                  (studio, project-agnostic)
+ *   ~/.lani/library/<id>/                  (studio, project-agnostic)
  *   <project|worktree>/library-media/<id>/    (project-scoped)
  *
  * Reads each folder's `workflow.md`, parses the YAML frontmatter for
@@ -60,10 +60,10 @@ type RootInput = {
 }
 
 // Absolute filesystem location of the studio (global) library.
-const STUDIO_LIBRARY_DIR = join(homedir(), ".backlot", "library")
+const STUDIO_LIBRARY_DIR = join(homedir(), ".lani", "library")
 // Absolute filesystem location of the global skill library used by
 // the "promote to skill" flow.
-const SKILLS_DIR = join(homedir(), ".backlot", "skills")
+const SKILLS_DIR = join(homedir(), ".lani", "skills")
 
 function resolveProjectRoot(input: RootInput): {
   root: string | null
@@ -244,7 +244,7 @@ async function settleProjectEdit(
     const porcelain = await git.raw(["status", "--porcelain", "--", ...paths])
     if (!porcelain.trim()) return
     await git.add(paths)
-    await git.commit("Backlot: update library", paths)
+    await git.commit("Lani: update library", paths)
   } catch (err) {
     console.warn("[library] edit settlement skipped:", err)
   }
@@ -790,7 +790,7 @@ export const libraryRouter = router({
 
   /**
    * Promote a library entry into the user's skill library at
-   * `~/.backlot/skills/<slug>/SKILL.md`. The entry's workflow.md
+   * `~/.lani/skills/<slug>/SKILL.md`. The entry's workflow.md
    * becomes the skill body; reference images come along. A minimal
    * skill frontmatter is generated from the entry's metadata — the
    * user (or the agent) tunes the description-trigger afterwards.

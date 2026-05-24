@@ -4,7 +4,7 @@
  * Covers the blocks a working screenwriter needs to *see* typeset:
  *   • Title page    — Key: Value pairs at file top before the first blank line
  *   • Scene heading — INT./EXT./EST./I/E lines, plus `.FORCED` heading
- *   • Shot heading  — Backlot extension: `SHOT A:` / `SHOT B: CU - push`
+ *   • Shot heading  — Lani extension: `SHOT A:` / `SHOT B: CU - push`
  *   • Action        — default paragraph
  *   • Character     — ALL-CAPS cue, optionally with `[visible emotion]`
  *   • Parenthetical — (text) directly under a character
@@ -335,7 +335,7 @@ export function parseFountain(source: string): FountainBlock[] {
       continue
     }
 
-    // Backlot shot heading: visible director-screenwriter structure
+    // Lani shot heading: visible director-screenwriter structure
     // inside a Fountain file.
     if (isShotHeading(line)) {
       blocks.push({ kind: "shot-heading", text: line.trim() })

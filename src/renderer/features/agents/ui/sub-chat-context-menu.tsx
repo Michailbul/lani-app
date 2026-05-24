@@ -15,7 +15,7 @@ import { isDesktopApp } from "../../../lib/utils/platform"
 import type { SubChatMeta } from "../stores/sub-chat-store"
 import { useResolvedHotkeyDisplay } from "../../../lib/hotkeys"
 import { exportChat, copyChat, type ExportFormat } from "../lib/export-chat"
-import { threadColorsAtom } from "../../backlot/atoms"
+import { threadColorsAtom } from "../../lani/atoms"
 
 // Curated thread-accent palette — the studio's warm set plus the kiwi
 // app accent. Picked from the tab context menu; see threadColorsAtom.

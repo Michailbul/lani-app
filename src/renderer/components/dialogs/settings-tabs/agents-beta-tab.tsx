@@ -104,7 +104,7 @@ export function AgentsBetaTab() {
     }
   }
 
-  // Backlot: Ollama integration stripped — settings panel still renders the
+  // Lani: Ollama integration stripped — settings panel still renders the
   // offline-mode section but the status is permanently "not running".
   const ollamaStatus: undefined | {
     internet: { online: boolean }

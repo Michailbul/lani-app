@@ -55,7 +55,7 @@ import {
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu"
 import { InlineEdit } from "./inline-edit"
-import { threadColorsAtom, threadStripHeightAtom } from "../../backlot/atoms"
+import { threadColorsAtom, threadStripHeightAtom } from "../../lani/atoms"
 
 // Drag handle under the thread tab strip — a thin bar with a small grip
 // pill. Dragging it vertically resizes the strip so more thread rows
@@ -759,7 +759,7 @@ export function SubChatSelector({
         </Button>
       )}
 
-      {/* Open-sidebar button removed — Backlot has no sub-chats sidebar;
+      {/* Open-sidebar button removed — Lani has no sub-chats sidebar;
           switching to "sidebar" mode only reserves dead layout space. */}
 
       <div

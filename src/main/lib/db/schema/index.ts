@@ -52,7 +52,7 @@ export const worktrees = sqliteTable("worktrees", {
   // PR tracking fields
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
-  // ── Backlot Worktree tree (forking) ──────────────────────────────
+  // ── Lani Worktree tree (forking) ──────────────────────────────
   // The worktree this one was forked from. NULL means a root worktree
   // (the "main draft"). The tree is built by walking parentWorktreeId chains
   // up to a NULL parent.

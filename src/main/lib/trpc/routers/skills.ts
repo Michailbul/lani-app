@@ -4,10 +4,10 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import matter from "gray-matter"
 import {
-  BACKLOT_SKILLS_DIR,
+  LANI_SKILLS_DIR,
   importAllSkills,
   importSkill,
-  listBacklotSkills,
+  listLaniSkills,
   listImportableSkills,
   publishSkillToUserLibrary,
   readDisabledSkills,
@@ -15,7 +15,7 @@ import {
   removeSkill,
   writeDisabledSkills,
   writePreferences,
-  type BacklotPreferences,
+  type LaniPreferences,
 } from "../../skills/library"
 
 /** Skill shape used by the @-mention picker and legacy callers. */
@@ -89,11 +89,11 @@ function slugify(name: string): string {
 }
 
 /**
- * Read the Backlot skill library as FileSkill records — used by the
+ * Read the Lani skill library as FileSkill records — used by the
  * @-mention picker. `onlyEnabled` filters to the active set.
  */
 async function readLibraryFileSkills(onlyEnabled: boolean): Promise<FileSkill[]> {
-  const skills = await listBacklotSkills()
+  const skills = await listLaniSkills()
   const out: FileSkill[] = []
   for (const skill of skills) {
     if (onlyEnabled && !skill.enabled) continue
@@ -116,18 +116,18 @@ async function readLibraryFileSkills(onlyEnabled: boolean): Promise<FileSkill[]>
 }
 
 export const skillsRouter = router({
-  /** All skills in the Backlot library — @-mention picker + legacy. */
+  /** All skills in the Lani library — @-mention picker + legacy. */
   list: publicProcedure.query(() => readLibraryFileSkills(false)),
 
   /** Active (enabled) skills only — used by the @-mention picker. */
   listEnabled: publicProcedure.query(() => readLibraryFileSkills(true)),
 
   /**
-   * The Backlot skill library for the Settings page — every skill with
+   * The Lani skill library for the Settings page — every skill with
    * its on/off and import state. Flat, alphabetical.
    */
   library: publicProcedure.query(async () => {
-    const skills = await listBacklotSkills()
+    const skills = await listLaniSkills()
     return skills.sort((a, b) => a.slug.localeCompare(b.slug))
   }),
 
@@ -142,10 +142,10 @@ export const skillsRouter = router({
       return { success: true as const }
     }),
 
-  /** Skills in the user's library not yet imported into Backlot. */
+  /** Skills in the user's library not yet imported into Lani. */
   importable: publicProcedure.query(() => listImportableSkills()),
 
-  /** Symlink one user-library skill into the Backlot library. */
+  /** Symlink one user-library skill into the Lani library. */
   import: publicProcedure
     .input(z.object({ slug: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -159,7 +159,7 @@ export const skillsRouter = router({
     return { count }
   }),
 
-  /** Remove a skill from the Backlot library. */
+  /** Remove a skill from the Lani library. */
   remove: publicProcedure
     .input(z.object({ slug: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -167,7 +167,7 @@ export const skillsRouter = router({
       return { success: true as const }
     }),
 
-  /** Read the Backlot skill/CLAUDE.md preferences. */
+  /** Read the Lani skill/CLAUDE.md preferences. */
   getPreferences: publicProcedure.query(() => readPreferences()),
 
   /** Persist the preferences (CLAUDE.md toggle, publish toggle). */
@@ -179,7 +179,7 @@ export const skillsRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const prefs: BacklotPreferences = {
+      const prefs: LaniPreferences = {
         loadProjectClaudeMd: input.loadProjectClaudeMd,
         publishCreatedSkills: input.publishCreatedSkills,
       }
@@ -187,7 +187,7 @@ export const skillsRouter = router({
       return prefs
     }),
 
-  /** Create a new skill folder in the Backlot library. */
+  /** Create a new skill folder in the Lani library. */
   create: publicProcedure
     .input(
       z.object({
@@ -199,7 +199,7 @@ export const skillsRouter = router({
     .mutation(async ({ input }) => {
       const slug = slugify(input.name)
       if (!slug) throw new Error("Skill name must contain letters or digits")
-      const skillDir = path.join(BACKLOT_SKILLS_DIR, slug)
+      const skillDir = path.join(LANI_SKILLS_DIR, slug)
       const skillMd = path.join(skillDir, "SKILL.md")
       try {
         await fs.access(skillMd)

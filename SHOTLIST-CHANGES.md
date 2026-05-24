@@ -40,7 +40,7 @@ Added one read-only query, `shotlists.readScript`, that returns a scene's
 `resolveRoot` / `resolveInside` path-safety helpers. The shotlist surface never
 writes the screenplay.
 
-### 3. `src/renderer/features/backlot/shotlist-surface.tsx` — Split Desk rewrite
+### 3. `src/renderer/features/lani/shotlist-surface.tsx` — Split Desk rewrite
 
 Rebuilt the surface into three stacked, cardless regions:
 
@@ -64,11 +64,11 @@ Rebuilt the surface into three stacked, cardless regions:
     scrollable, with a soft lime band over the lines the active Part's
     `scriptRef` covers (best-effort substring match).
 
-Autosave behavior is unchanged — a 600ms debounce to `shotlist.backlot.json`,
+Autosave behavior is unchanged — a 600ms debounce to `shotlist.lani.json`,
 which settles as a creative checkpoint via the existing write router.
 
 The split fraction persists to `localStorage` under
-`backlot:shotlist:prompt-fraction:v1`.
+`lani:shotlist:prompt-fraction:v1`.
 
 ---
 
@@ -97,7 +97,7 @@ The split fraction persists to `localStorage` under
 
 ## Test plan
 
-- Open Shotlist mode on a scene with an existing `shotlist.backlot.json` —
+- Open Shotlist mode on a scene with an existing `shotlist.lani.json` —
   shots load, single version each.
 - Add a Part, edit its title and status from the strip chip.
 - Add `v2` / `v3` versions, switch between them, confirm `text` follows the
@@ -111,5 +111,5 @@ The split fraction persists to `localStorage` under
 ```
 src/shared/shotlist-types.ts                       +14 / -2
 src/main/lib/trpc/routers/shotlists.ts             +19
-src/renderer/features/backlot/shotlist-surface.tsx  rewrite
+src/renderer/features/lani/shotlist-surface.tsx  rewrite
 ```

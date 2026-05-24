@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * ScreenplayPane — Backlot's center surface.
+ * ScreenplayPane — Lani's center surface.
  *
  * v1 reads the primary screenplay artifact (<worktree>/screenplay.fountain)
  * via the artifacts tRPC router and renders it as preformatted text. The
@@ -280,7 +280,7 @@ export function ScreenplayPane({ chatId, directionName }: ScreenplayPaneProps) {
           </span>
         </div>
         <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/60">
-          Backlot
+          Lani
         </div>
       </div>
 

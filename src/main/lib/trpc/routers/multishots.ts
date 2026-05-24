@@ -83,7 +83,7 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     const porcelain = await git.raw(["status", "--porcelain", "--", relPath])
     if (!porcelain.trim()) return
     await git.add([relPath])
-    await git.commit(`Backlot: update multishot (${relPath})`, [relPath])
+    await git.commit(`Lani: update multishot (${relPath})`, [relPath])
   } catch (err) {
     console.warn("[multishots.write] user edit settlement skipped:", err)
   }
@@ -118,7 +118,7 @@ function uniqueDestination(dir: string, fileName: string): string {
 }
 
 export const multishotsRouter = router({
-  /** Read a scene's multishot file. `relPath` points at multishot.backlot.json. */
+  /** Read a scene's multishot file. `relPath` points at multishot.lani.json. */
   read: publicProcedure
     .input(z.object({ ...rootInput, relPath: z.string().min(1) }))
     .query(async ({ input }) => {
@@ -180,7 +180,7 @@ export const multishotsRouter = router({
    * Open a native picker, copy the chosen images into the scene's
    * `references/` folder, and return their project-relative paths. The
    * Multishot surface appends these to the doc's `referenceImages`.
-   * `relPath` points at the scene's `multishot.backlot.json`.
+   * `relPath` points at the scene's `multishot.lani.json`.
    */
   addReferenceImages: publicProcedure
     .input(z.object({ ...rootInput, relPath: z.string().min(1) }))

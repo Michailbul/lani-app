@@ -93,13 +93,13 @@ interface TreeNode {
 }
 
 /**
- * The filesystem root the tree is reading from. Backlot's two browse
+ * The filesystem root the tree is reading from. Lani's two browse
  * modes share one component:
  *
  *   - `chatId` mode: the chat's worktree (forked, agent + user write
  *     here together).
  *   - `projectId` mode: the canonical project root at
- *     `~/.backlot/projects/<slug>/`. Active when no chat is selected
+ *     `~/.lani/projects/<slug>/`. Active when no chat is selected
  *     yet but the user is viewing the project itself.
  *
  * Exactly one is set at a time. The renderer threads `EntityRoot`
@@ -689,7 +689,7 @@ function useMediaDropImport({
         toast.message("Drop image or video files", {
           description:
             allFiles.length > 0
-              ? "Backlot only imports media into the file tree."
+              ? "Lani only imports media into the file tree."
               : "No local files were found in that drop.",
         })
         return
@@ -1165,7 +1165,7 @@ function RowContextMenu({
   })
 
   const repository =
-    selectedProject?.id ?? entityRoot.projectId ?? entityRoot.chatId ?? "backlot"
+    selectedProject?.id ?? entityRoot.projectId ?? entityRoot.chatId ?? "lani"
 
   const handleAddToContext = () => {
     if (!activeChatId) {
@@ -1572,7 +1572,7 @@ function ActionIcon({
 
 /**
  * Pick an icon for a file based on filename + path. Recognises the
- * canonical Backlot kinds; everything else gets the generic file icon.
+ * canonical Lani kinds; everything else gets the generic file icon.
  */
 function iconForFile(name: string, path: string): typeof File {
   const lower = name.toLowerCase()

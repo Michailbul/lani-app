@@ -26,7 +26,7 @@ function initAutoUpdaterConfig() {
 }
 
 // CDN base URL for updates
-const CDN_BASE = "https://cdn.backlot.app/releases/desktop"
+const CDN_BASE = "https://cdn.lani.app/releases/desktop"
 
 // Minimum interval between update checks (prevent spam on rapid focus/blur)
 const MIN_CHECK_INTERVAL = 60 * 1000 // 1 minute

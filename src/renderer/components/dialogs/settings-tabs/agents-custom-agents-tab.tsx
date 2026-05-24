@@ -137,8 +137,8 @@ function AgentDetail({
           <div className="flex items-center justify-between gap-3 rounded-md border border-input bg-muted/40 px-3 py-2">
             <p className="text-[11px] text-muted-foreground">
               {agent.overridden
-                ? "Edited — your changes override the version that ships with Backlot."
-                : "Ships with Backlot. Editing saves a personal copy that overrides the default."}
+                ? "Edited — your changes override the version that ships with Lani."
+                : "Ships with Lani. Editing saves a personal copy that overrides the default."}
             </p>
             {agent.overridden && onReset && (
               <Button

@@ -42,7 +42,7 @@ function isExecutableFile(filePath: string | undefined): filePath is string {
 
 function findInstalledClaudeBinary(): string | null {
   const explicitPath =
-    process.env.BACKLOT_CLAUDE_CODE_EXECUTABLE ||
+    process.env.LANI_CLAUDE_CODE_EXECUTABLE ||
     process.env.CLAUDE_CODE_EXECUTABLE ||
     process.env.CLAUDE_CODE_EXECUTABLE_PATH
 

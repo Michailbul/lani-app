@@ -963,9 +963,9 @@ const ChatListSection = React.memo(function ChatListSection({
           const isFocused = focusedChatIndex === globalIndex && focusedChatIndex >= 0
 
           // For remote chats, get repo info from meta; for local, from projectsMap.
-          // The Backlot project NAME ("daddy issues") is the identity the writer
+          // The Lani project NAME ("daddy issues") is the identity the writer
           // recognises, so it titles the row. gitRepo is a last-resort fallback
-          // for projects with no Backlot name yet.
+          // for projects with no Lani name yet.
           const project = chat.projectId ? projectsMap.get(chat.projectId) : null
           const projectName = chat.isRemote
             ? chat.meta?.repository
@@ -1782,7 +1782,7 @@ export function AgentsSidebar({
   const remoteSandboxEnabled = selectedChatIsRemote && chatSourceMode === "sandbox"
 
   // Fetch remote sandbox data only when the user is actually in sandbox mode.
-  // Backlot's local-first workflow should not hit 21st.dev on startup with a
+  // Lani's local-first workflow should not hit 21st.dev on startup with a
   // stale cached team id.
   useUserTeams(remoteSandboxEnabled)
   const { data: remoteChats } = useRemoteChats(remoteSandboxEnabled)

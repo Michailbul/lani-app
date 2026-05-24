@@ -7,8 +7,8 @@ import { cn } from "../../../lib/utils"
 /**
  * AgentsProjectMemoryTab — edit the global CLAUDE.md template.
  *
- * Backlot keeps one shared CLAUDE.md template at
- * `~/.backlot/CLAUDE.template.md`. Every new project's CLAUDE.md is
+ * Lani keeps one shared CLAUDE.md template at
+ * `~/.lani/CLAUDE.template.md`. Every new project's CLAUDE.md is
  * seeded from it; when the template changes, existing projects whose
  * CLAUDE.md is still an untouched scaffold are refreshed to the new
  * version (projects with real memory are left alone).
@@ -68,7 +68,7 @@ export function AgentsProjectMemoryTab() {
       <div className="flex items-center gap-2 py-1">
         <FileText className="h-4 w-4 text-muted-foreground/60 shrink-0" />
         <span className="text-xs text-muted-foreground font-mono">
-          ~/.backlot/CLAUDE.template.md
+          ~/.lani/CLAUDE.template.md
         </span>
       </div>
 

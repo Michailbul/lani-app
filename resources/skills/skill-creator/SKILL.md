@@ -1,20 +1,20 @@
 ---
 name: skill-creator
-description: Create, edit, and improve Agent Skills inside Backlot. Use this whenever the user asks to make a new skill, capture a workflow as a skill, refine or rewrite an existing skill, or fix a skill's triggering. Trigger on "create a skill", "turn this into a skill", "save this as a skill", "make a skill that…", "edit the X skill", "improve this skill", or any request to author or change a SKILL.md — even if the user does not say the word "skill" explicitly but is clearly describing a reusable workflow they want to keep.
+description: Create, edit, and improve Agent Skills inside Lani. Use this whenever the user asks to make a new skill, capture a workflow as a skill, refine or rewrite an existing skill, or fix a skill's triggering. Trigger on "create a skill", "turn this into a skill", "save this as a skill", "make a skill that…", "edit the X skill", "improve this skill", or any request to author or change a SKILL.md — even if the user does not say the word "skill" explicitly but is clearly describing a reusable workflow they want to keep.
 ---
 
-# Skill Creator — Backlot
+# Skill Creator — Lani
 
-Author and improve Agent Skills inside Backlot. This is the Backlot-adapted
+Author and improve Agent Skills inside Lani. This is the Lani-adapted
 guide: it keeps the craft of writing a good skill and drops the standalone
-benchmark/eval apparatus, which Backlot does not use.
+benchmark/eval apparatus, which Lani does not use.
 
 ## Where skills live — read this first
 
-Every skill Backlot can use is a folder under:
+Every skill Lani can use is a folder under:
 
 ```
-~/.backlot/skills/<slug>/
+~/.lani/skills/<slug>/
 ```
 
 That directory is the single source of truth. **It is not `~/.claude/skills`.**
@@ -27,8 +27,8 @@ Edit `SKILL.md` files directly with `Read`, `Edit`, and `Write`, the same as
 any other file — the user watches your changes land live.
 
 - **Editing** an existing skill → `Edit` (or `Write`)
-  `~/.backlot/skills/<slug>/SKILL.md`.
-- **Creating** a new skill → `Write` `~/.backlot/skills/<new-slug>/SKILL.md`;
+  `~/.lani/skills/<slug>/SKILL.md`.
+- **Creating** a new skill → `Write` `~/.lani/skills/<new-slug>/SKILL.md`;
   the folder is created along with it.
 
 Write the best draft you can, then tell the user briefly what you changed.
@@ -107,7 +107,7 @@ description: <what it does + WHEN to use it>
   `references/` by variant so the agent reads only the one it needs.
 
 To add resources to a skill, create the files under
-`~/.backlot/skills/<slug>/` directly with the normal file tools.
+`~/.lani/skills/<slug>/` directly with the normal file tools.
 
 ## Don't surprise the user
 
@@ -117,10 +117,10 @@ requests to build deceptive or malicious skills.
 
 ## After it's written
 
-A skill created here lands in `~/.backlot/skills/<slug>/` and is on by default —
+A skill created here lands in `~/.lani/skills/<slug>/` and is on by default —
 available to the next session. The user can toggle it off, edit it, or delete it
-from Backlot's Settings → Skills page. If "Publish agent-created skills" is on,
-Backlot also links it into the user's `~/.claude/skills` so their other tools
+from Lani's Settings → Skills page. If "Publish agent-created skills" is on,
+Lani also links it into the user's `~/.claude/skills` so their other tools
 see it.
 
 Offer to refine the `description` if the skill isn't triggering reliably — a

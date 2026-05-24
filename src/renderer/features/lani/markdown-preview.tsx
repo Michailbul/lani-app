@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * MarkdownPreview — the rendered surface for a Backlot markdown file.
+ * MarkdownPreview — the rendered surface for a Lani markdown file.
  *
  * Two parts:
  *

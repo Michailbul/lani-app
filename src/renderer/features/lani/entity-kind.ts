@@ -17,9 +17,9 @@ import type { ActiveEntity } from "./atoms"
 export function isShotlistPath(path: string): boolean {
   const lower = path.toLowerCase()
   return (
-    lower.endsWith("/shotlist/shotlist.backlot.json") ||
-    lower === "shotlist.backlot.json" ||
-    lower.endsWith("/shotlist.backlot.json") ||
+    lower.endsWith("/shotlist/shotlist.lani.json") ||
+    lower === "shotlist.lani.json" ||
+    lower.endsWith("/shotlist.lani.json") ||
     lower.endsWith(".shotlist") ||
     lower.endsWith(".shotlist.json")
   )
@@ -28,15 +28,15 @@ export function isShotlistPath(path: string): boolean {
 export function isMultishotPath(path: string): boolean {
   const lower = path.toLowerCase()
   return (
-    lower === "multishot.backlot.json" ||
-    lower.endsWith("/multishot.backlot.json")
+    lower === "multishot.lani.json" ||
+    lower.endsWith("/multishot.lani.json")
   )
 }
 
 export function isQueuePath(path: string): boolean {
   const lower = path.toLowerCase()
   return (
-    lower === "queue.backlot.json" || lower.endsWith("/queue.backlot.json")
+    lower === "queue.lani.json" || lower.endsWith("/queue.lani.json")
   )
 }
 
@@ -73,7 +73,7 @@ export function isImagePath(path: string): boolean {
 
 // dataTransfer MIME for an in-app file drag — the project file tree puts
 // a project-relative path on the payload, the canvas reads it on drop.
-export const CANVAS_DROP_MIME = "application/x-backlot-entity-path"
+export const CANVAS_DROP_MIME = "application/x-lani-entity-path"
 
 export function isVideoPath(path: string): boolean {
   return (VIDEO_EXTENSIONS as readonly string[]).includes(extOf(path))

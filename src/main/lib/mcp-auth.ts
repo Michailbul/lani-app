@@ -52,7 +52,7 @@ export async function fetchMcpTools(
 
   try {
     client = new Client({
-      name: 'backlot',
+      name: 'lani',
       version: '1.0.0',
     }, {
       // Tool discovery should not fail because a third-party MCP server returns
@@ -123,7 +123,7 @@ export async function fetchMcpToolsStdio(config: {
 
   try {
     const client = new Client({
-      name: 'backlot',
+      name: 'lani',
       version: '1.0.0',
     }, {
       jsonSchemaValidator: lenientJsonSchemaValidator,

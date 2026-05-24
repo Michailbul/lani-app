@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Seed a Backlot project's library with example workflows so the
+ * Seed a Lani project's library with example workflows so the
  * Library mode renders with realistic content. Idempotent — running it
  * twice replaces the file but never duplicates entries.
  *
@@ -8,7 +8,7 @@
  *   node scripts/seed-library.mjs <project-path>  # → arbitrary project root
  *
  * Copies the chosen source images into `library-media/<id>/` and
- * writes `library.backlot.json` at the project root.
+ * writes `library.lani.json` at the project root.
  */
 
 import {
@@ -25,7 +25,7 @@ import { homedir } from "node:os"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const projectRoot =
-  process.argv[2] ?? join(homedir(), ".backlot/projects/daddy-issues")
+  process.argv[2] ?? join(homedir(), ".lani/projects/daddy-issues")
 
 if (!existsSync(projectRoot)) {
   console.error(`No project at: ${projectRoot}`)
@@ -270,7 +270,7 @@ for (const entry of ENTRIES) {
 
 // Remove the stale JSON index — the new router scans folders and
 // the file would just confuse a reader poking around the project.
-const staleJson = join(projectRoot, "library.backlot.json")
+const staleJson = join(projectRoot, "library.lani.json")
 if (existsSync(staleJson)) {
   rmSync(staleJson)
   console.log(`✓ Removed orphaned ${basename(staleJson)}`)
@@ -278,5 +278,5 @@ if (existsSync(staleJson)) {
 
 console.log(`✓ Wrote ${written} workflow.md files under library-media/`)
 console.log(`✓ Copied ${copied} reference images`)
-console.log(`\nOpen Backlot, switch to the daddy-issues project, and click the`)
+console.log(`\nOpen Lani, switch to the daddy-issues project, and click the`)
 console.log(`Library mode button (6th from the left in the dock).`)

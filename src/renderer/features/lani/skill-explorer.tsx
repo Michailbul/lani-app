@@ -4,7 +4,7 @@
  * SkillExplorer — the left-rail navigator for Skill Workbench mode.
  *
  * Replaces the project file tree while the workbench is in view. It
- * lists the curated skills Backlot surfaces in Settings, grouped by
+ * lists the curated skills Lani surfaces in Settings, grouped by
  * category. A skill is a folder — expanding it walks the real
  * directory (`~/.claude/skills/<name>/`) so reference docs and scripts
  * shipped alongside `SKILL.md` are all reachable.
@@ -111,7 +111,7 @@ export function SkillExplorer() {
       {skills.length === 0 && !creating ? (
         <ExplorerMessage
           kicker="Empty"
-          body="No skills in ~/.backlot/skills yet — use + above to create one, or add some from Settings."
+          body="No skills in ~/.lani/skills yet — use + above to create one, or add some from Settings."
         />
       ) : (
         <ul>

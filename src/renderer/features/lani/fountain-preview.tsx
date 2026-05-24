@@ -10,7 +10,7 @@
  *     for legibility (small enough to feel pro, large enough to read on
  *     a 27" display).
  *   • Scene headings in caps, hairline above + a touch of breathing room
- *   • Shot headings: Backlot's visible `SHOT A:` director-screenwriter blocks
+ *   • Shot headings: Lani's visible `SHOT A:` director-screenwriter blocks
  *   • Character names indented ~3.7" from the page left edge (caps)
  *   • Parentheticals indented ~3.1" (italic, in parens)
  *   • Dialogue indented ~2.5", wrapped to ~3.5" wide

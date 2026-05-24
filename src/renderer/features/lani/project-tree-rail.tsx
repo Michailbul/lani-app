@@ -188,7 +188,7 @@ function ProjectTreeContent({
   const viewMode = useAtomValue(viewModeAtom)
 
   // Skill Workbench mode swaps the project file tree for the skill
-  // explorer — the rail then browses the skills Backlot can edit,
+  // explorer — the rail then browses the skills Lani can edit,
   // not the writer's worktree.
   if (viewMode === "skill") {
     return <SkillExplorer />

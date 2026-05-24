@@ -92,9 +92,9 @@ const DEFAULT_THEMES: shiki.BundledTheme[] = [
  * Only themes WITHOUT tokenColors need mapping - themes with tokenColors use their own
  */
 const THEME_TO_SHIKI_MAP: Record<string, shiki.BundledTheme> = {
-  // Backlot themes use GitHub themes (no tokenColors)
-  "backlot-dark": "github-dark",
-  "backlot-light": "github-light",
+  // Lani themes use GitHub themes (no tokenColors)
+  "lani-dark": "github-dark",
+  "lani-light": "github-light",
   // Claude themes use GitHub themes (no tokenColors)
   "claude-dark": "github-dark",
   "claude-light": "github-light",

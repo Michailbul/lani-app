@@ -8,7 +8,7 @@ import {
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { cn } from "../../lib/utils"
-import { assistantRailOpenAtom, projectTreeOpenAtom } from "../backlot/atoms"
+import { assistantRailOpenAtom, projectTreeOpenAtom } from "../lani/atoms"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
 import {
@@ -41,8 +41,8 @@ import { QueueProcessor } from "../agents/components/queue-processor"
 import { SettingsSidebar } from "../settings/settings-sidebar"
 import { ChatView } from "../agents/main/active-chat"
 import { NoChatAssistantPanel } from "../agents/ui/no-chat-assistant-panel"
-import { AssistantRail } from "../backlot/assistant-rail"
-import { AppTopBar } from "../backlot/screenplay-workspace"
+import { AssistantRail } from "../lani/assistant-rail"
+import { AppTopBar } from "../lani/screenplay-workspace"
 
 // ============================================================================
 // Constants
@@ -104,7 +104,7 @@ export function AgentsLayout() {
   // Check for updates on mount and periodically
   useUpdateChecker()
 
-  // Backlot never mounts the upstream sub-chats sidebar — the project
+  // Lani never mounts the upstream sub-chats sidebar — the project
   // tree rail is the navigator. Pin sub-chat display to inline tabs:
   // "sidebar" mode reserves dead vertical space in the chat header and
   // above the title for a pane that isn't there.

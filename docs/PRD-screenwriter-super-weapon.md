@@ -1,14 +1,14 @@
-# PRD — Backlot: The AI Screenwriter Super-Weapon
+# PRD — Lani: The AI Screenwriter Super-Weapon
 
 **Status:** vision doc · captured 2026-05-05 · revisit before Phase E begins
 **Owner:** Michael
-**Audience:** future Backlot builders + this conversation's continuation
+**Audience:** future Lani builders + this conversation's continuation
 
 ---
 
 ## Vision
 
-Backlot is the desktop workspace where an AI-native filmmaker builds the **entire** visual narrative pipeline — from idea to shot list — with the AI agent as a creative collaborator at every layer.
+Lani is the desktop workspace where an AI-native filmmaker builds the **entire** visual narrative pipeline — from idea to shot list — with the AI agent as a creative collaborator at every layer.
 
 It is **not** "a screenplay editor with AI bolted on." It is a structured project workspace where the agent understands the relationships between locations, characters, scenes, and shots, and can write/rewrite/expand any of them in their proper context — automatically respecting identity locks, world art-direction, and continuity.
 
@@ -17,7 +17,7 @@ It is **not** "a screenplay editor with AI bolted on." It is a structured projec
 - Midjourney + Nano Banana Pro + Runway + Seedance + Kling handle pixels
 - *Nothing* handles the connective tissue — the structured project that knows "this character looks like X, in this location, in scene 3, shot 4 — generate a starting frame prompt that respects all of that"
 
-That gap is Backlot.
+That gap is Lani.
 
 ---
 
@@ -71,7 +71,7 @@ That prompt depends on:
 
 **Today:** you re-paste these into every prompt by hand. Or you maintain `_kb/` and `lock.md` files in a markdown workspace and copy-paste manually. (This is exactly what the laniameda-hq AI Creatorship workspace already does in markdown form.)
 
-**Backlot:** the agent automatically composes them when you ask for a shot prompt. The structured project is the agent's working memory.
+**Lani:** the agent automatically composes them when you ask for a shot prompt. The structured project is the agent's working memory.
 
 ---
 
@@ -165,13 +165,13 @@ The writer / AI creator's daily question is *"what prompt do I need next?"* — 
 - Drag-drop reference images onto any prompt
 - Walk version history per prompt independently
 
-This is the killer surface that makes Backlot **the super-weapon** — it eliminates the manual lock-pasting step that is currently the single biggest friction point in AI-filmmaking workflows.
+This is the killer surface that makes Lani **the super-weapon** — it eliminates the manual lock-pasting step that is currently the single biggest friction point in AI-filmmaking workflows.
 
 ---
 
 ## What we already have (re-framed against this vision)
 
-| Current Backlot feature | New role under this vision |
+| Current Lani feature | New role under this vision |
 |---|---|
 | Screenplay artifact + Edit/Write/diff/accept | Edit surface for Script (master) **and** Scene scripts. Same flow, applied at multiple levels. |
 | Fountain outline parser | Basis for auto-detecting scenes from the master script. |
@@ -238,7 +238,7 @@ This is the killer surface that makes Backlot **the super-weapon** — it elimin
 
 ## Sequencing — what this PRD does NOT change
 
-The current Backlot work-in-flight (forking sidetabs phase 3, breadcrumb phase 4, canvas phase 5) operates at the simpler "one screenplay per project" model.
+The current Lani work-in-flight (forking sidetabs phase 3, breadcrumb phase 4, canvas phase 5) operates at the simpler "one screenplay per project" model.
 
 **Do not pause it.** Ship those phases. Build the muscle memory of forking + the canvas with the simple data model first. Every piece of UI shipped applies to the multi-entity world too.
 
@@ -248,8 +248,8 @@ Phase E (project hierarchy) starts as a **separate track** after Phase 5 lands. 
 
 ## Why this matters strategically
 
-If Backlot ships only as "AI-assisted screenplay editor," it competes with Final Draft + ChatGPT-as-plugin. That's a crowded mid-market.
+If Lani ships only as "AI-assisted screenplay editor," it competes with Final Draft + ChatGPT-as-plugin. That's a crowded mid-market.
 
-If Backlot ships as "the structured AI-filmmaking project workspace where every entity is composable and forkable," it has no direct competitor. It becomes the tool an AI creator opens **first** when starting a new project — the spine of their entire workflow.
+If Lani ships as "the structured AI-filmmaking project workspace where every entity is composable and forkable," it has no direct competitor. It becomes the tool an AI creator opens **first** when starting a new project — the spine of their entire workflow.
 
 The forking + canvas + chat-history-as-state we're building is the **scaffolding** for that. The hierarchy described in this PRD is the **content** that lives on the scaffolding.

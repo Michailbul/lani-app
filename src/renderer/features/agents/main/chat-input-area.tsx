@@ -120,16 +120,16 @@ type AvailableModels = {
   hasOllama: boolean
 }
 
-function getBacklotOllamaStatus(): OllamaStatus | undefined {
+function getLaniOllamaStatus(): OllamaStatus | undefined {
   return undefined
 }
 
-// Hook to get available models. Backlot: Ollama integration stripped, so the
+// Hook to get available models. Lani: Ollama integration stripped, so the
 // offline-models branch is unreachable. Kept structurally to minimise diff against
 // the upstream useAvailableModels hook.
 function useAvailableModels(): AvailableModels {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const ollamaStatus = getBacklotOllamaStatus()
+  const ollamaStatus = getLaniOllamaStatus()
 
   const baseModels = CLAUDE_MODELS
 

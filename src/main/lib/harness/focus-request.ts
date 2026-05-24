@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto"
 import { z } from "zod"
 
 export const HARNESS_FOCUS_REQUEST_PATH =
-  process.env.BACKLOT_HARNESS_REQUEST_PATH ||
-  join(homedir(), ".backlot", "harness-open-request.json")
+  process.env.LANI_HARNESS_REQUEST_PATH ||
+  join(homedir(), ".lani", "harness-open-request.json")
 
 export const harnessFocusRequestSchema = z.object({
   id: z.string().min(1),

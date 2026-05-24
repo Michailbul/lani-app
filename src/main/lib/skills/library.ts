@@ -1,16 +1,16 @@
 /**
- * Backlot skill library — `~/.backlot/skills/`.
+ * Lani skill library — `~/.lani/skills/`.
  *
- * One directory holds every skill the Backlot agent can use, one folder
- * each. `~/.backlot/` is registered with the Claude Agent SDK as a
+ * One directory holds every skill the Lani agent can use, one folder
+ * each. `~/.lani/` is registered with the Claude Agent SDK as a
  * local plugin (`.claude-plugin/plugin.json`), so skill discovery is
- * independent of `settingSources` — that lets Backlot load skills
+ * independent of `settingSources` — that lets Lani load skills
  * without ever enabling the `"user"` source (which would leak
  * `~/.claude/CLAUDE.md`).
  *
  * Skill sources:
  *   - Factory  — shipped in the app bundle (`resources/skills/`), copied
- *                into `~/.backlot/skills/` on first launch.
+ *                into `~/.lani/skills/` on first launch.
  *   - Imported — symlinked in from the user's `~/.claude/skills` /
  *                `~/.agents/skills` via the Settings import panel.
  *   - Created  — written here by the agent (reviewed) or the user.
@@ -39,30 +39,30 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import matter from "gray-matter"
 
-const BACKLOT_DIR = join(homedir(), ".backlot")
-export const BACKLOT_SKILLS_DIR = join(BACKLOT_DIR, "skills")
-const PLUGIN_DIR = join(BACKLOT_DIR, ".claude-plugin")
+const LANI_DIR = join(homedir(), ".lani")
+export const LANI_SKILLS_DIR = join(LANI_DIR, "skills")
+const PLUGIN_DIR = join(LANI_DIR, ".claude-plugin")
 const PLUGIN_MANIFEST = join(PLUGIN_DIR, "plugin.json")
-const CODEX_PLUGIN_DIR = join(BACKLOT_DIR, ".codex-plugin")
+const CODEX_PLUGIN_DIR = join(LANI_DIR, ".codex-plugin")
 const CODEX_PLUGIN_MANIFEST = join(CODEX_PLUGIN_DIR, "plugin.json")
-const CODEX_MARKETPLACE_DIR = join(BACKLOT_DIR, ".agents", "plugins")
+const CODEX_MARKETPLACE_DIR = join(LANI_DIR, ".agents", "plugins")
 const CODEX_MARKETPLACE_MANIFEST = join(CODEX_MARKETPLACE_DIR, "marketplace.json")
-const DISABLED_PATH = join(BACKLOT_DIR, "skills-disabled.json")
-const FACTORY_MANIFEST = join(BACKLOT_DIR, ".factory-manifest.json")
-const PREFS_PATH = join(BACKLOT_DIR, "preferences.json")
+const DISABLED_PATH = join(LANI_DIR, "skills-disabled.json")
+const FACTORY_MANIFEST = join(LANI_DIR, ".factory-manifest.json")
+const PREFS_PATH = join(LANI_DIR, "preferences.json")
 const USER_CLAUDE_SKILLS = join(homedir(), ".claude", "skills")
 const USER_AGENTS_SKILLS = join(homedir(), ".agents", "skills")
 
-/** Plugin name — plugin skills are namespaced `backlot:<slug>`. */
-export const BACKLOT_PLUGIN_NAME = "backlot"
+/** Plugin name — plugin skills are namespaced `lani:<slug>`. */
+export const LANI_PLUGIN_NAME = "lani"
 
 /** The plugin root passed to the SDK `plugins` option. */
-export function getBacklotPluginPath(): string {
-  return BACKLOT_DIR
+export function getLaniPluginPath(): string {
+  return LANI_DIR
 }
 
-export function getBacklotCodexPluginKey(): string {
-  return `${BACKLOT_PLUGIN_NAME}@backlot`
+export function getLaniCodexPluginKey(): string {
+  return `${LANI_PLUGIN_NAME}@lani`
 }
 
 /** Where factory skills ship — repo `resources/skills/` in dev, the
@@ -134,12 +134,12 @@ async function readFrontmatter(
 // ─────────────────────────────────────────────────── plugin + seeding
 
 /**
- * Ensure `~/.backlot/` is a valid local plugin and the factory skills
+ * Ensure `~/.lani/` is a valid local plugin and the factory skills
  * are seeded. Idempotent — safe to call on every app start and before
  * every session.
  */
-export async function ensureBacklotPlugin(): Promise<void> {
-  await mkdir(BACKLOT_SKILLS_DIR, { recursive: true })
+export async function ensureLaniPlugin(): Promise<void> {
+  await mkdir(LANI_SKILLS_DIR, { recursive: true })
   await mkdir(PLUGIN_DIR, { recursive: true })
   await mkdir(CODEX_PLUGIN_DIR, { recursive: true })
   await mkdir(CODEX_MARKETPLACE_DIR, { recursive: true })
@@ -148,9 +148,9 @@ export async function ensureBacklotPlugin(): Promise<void> {
       PLUGIN_MANIFEST,
       JSON.stringify(
         {
-          name: BACKLOT_PLUGIN_NAME,
+          name: LANI_PLUGIN_NAME,
           version: "1.0.0",
-          description: "Backlot skill library",
+          description: "Lani skill library",
         },
         null,
         2,
@@ -163,9 +163,9 @@ export async function ensureBacklotPlugin(): Promise<void> {
       CODEX_PLUGIN_MANIFEST,
       JSON.stringify(
         {
-          name: BACKLOT_PLUGIN_NAME,
+          name: LANI_PLUGIN_NAME,
           version: "1.0.0",
-          description: "Backlot skill library",
+          description: "Lani skill library",
         },
         null,
         2,
@@ -177,10 +177,10 @@ export async function ensureBacklotPlugin(): Promise<void> {
     CODEX_MARKETPLACE_MANIFEST,
     JSON.stringify(
       {
-        name: "backlot",
+        name: "lani",
         plugins: [
           {
-            name: BACKLOT_PLUGIN_NAME,
+            name: LANI_PLUGIN_NAME,
             source: {
               source: "local",
               path: "../..",
@@ -197,7 +197,7 @@ export async function ensureBacklotPlugin(): Promise<void> {
 }
 
 /**
- * Copy factory skills from the app bundle into `~/.backlot/skills/`.
+ * Copy factory skills from the app bundle into `~/.lani/skills/`.
  *  - missing skill          → copy in
  *  - present, untouched,
  *    new version shipped    → refresh to the shipped version
@@ -215,7 +215,7 @@ async function seedFactorySkills(): Promise<void> {
 
   for (const slug of factorySlugs) {
     const src = join(bundle, slug)
-    const dst = join(BACKLOT_SKILLS_DIR, slug)
+    const dst = join(LANI_SKILLS_DIR, slug)
     const bundledHash = await sha256(join(src, "SKILL.md"))
 
     if (!existsSync(dst)) {
@@ -271,7 +271,7 @@ export async function readDisabledSkills(): Promise<string[]> {
 }
 
 export async function writeDisabledSkills(disabled: string[]): Promise<void> {
-  await mkdir(BACKLOT_DIR, { recursive: true })
+  await mkdir(LANI_DIR, { recursive: true })
   await writeFile(
     DISABLED_PATH,
     JSON.stringify({ disabled: [...new Set(disabled)] }, null, 2) + "\n",
@@ -280,39 +280,39 @@ export async function writeDisabledSkills(disabled: string[]): Promise<void> {
 }
 
 /** Slugs of every skill folder in the library. */
-export async function listBacklotSkillSlugs(): Promise<string[]> {
-  return listSkillDirs(BACKLOT_SKILLS_DIR)
+export async function listLaniSkillSlugs(): Promise<string[]> {
+  return listSkillDirs(LANI_SKILLS_DIR)
 }
 
 /** Slugs that are active (in the library, not in the disabled set). */
 export async function getEnabledSkillSlugs(): Promise<string[]> {
-  const all = await listBacklotSkillSlugs()
+  const all = await listLaniSkillSlugs()
   const disabled = new Set(await readDisabledSkills())
   return all.filter((s) => !disabled.has(s))
 }
 
 /**
  * Value for the SDK `skills` option. `"all"` when nothing is disabled;
- * otherwise the enabled set, namespaced for the plugin (`backlot:<slug>`).
+ * otherwise the enabled set, namespaced for the plugin (`lani:<slug>`).
  */
 export async function getSkillsOption(): Promise<"all" | string[]> {
-  const all = await listBacklotSkillSlugs()
+  const all = await listLaniSkillSlugs()
   const enabled = await getEnabledSkillSlugs()
   if (all.length === 0 || enabled.length === all.length) return "all"
-  return enabled.map((slug) => `${BACKLOT_PLUGIN_NAME}:${slug}`)
+  return enabled.map((slug) => `${LANI_PLUGIN_NAME}:${slug}`)
 }
 
 // ─────────────────────────────────────────────────────── preferences
 
-export interface BacklotPreferences {
+export interface LaniPreferences {
   /** Load the project's CLAUDE.md (`settingSources: ["project"]`). */
   loadProjectClaudeMd: boolean
   /** Symlink agent-created skills into `~/.claude/skills`. */
   publishCreatedSkills: boolean
 }
 
-export async function readPreferences(): Promise<BacklotPreferences> {
-  const p = await readJson<Partial<BacklotPreferences>>(PREFS_PATH, {})
+export async function readPreferences(): Promise<LaniPreferences> {
+  const p = await readJson<Partial<LaniPreferences>>(PREFS_PATH, {})
   return {
     loadProjectClaudeMd:
       typeof p.loadProjectClaudeMd === "boolean" ? p.loadProjectClaudeMd : true,
@@ -324,15 +324,15 @@ export async function readPreferences(): Promise<BacklotPreferences> {
 }
 
 export async function writePreferences(
-  prefs: BacklotPreferences,
+  prefs: LaniPreferences,
 ): Promise<void> {
-  await mkdir(BACKLOT_DIR, { recursive: true })
+  await mkdir(LANI_DIR, { recursive: true })
   await writeFile(PREFS_PATH, JSON.stringify(prefs, null, 2) + "\n", "utf-8")
 }
 
 // ───────────────────────────────────────────────────── skill listing
 
-export interface BacklotSkill {
+export interface LaniSkill {
   slug: string
   name: string
   description: string
@@ -344,12 +344,12 @@ export interface BacklotSkill {
 }
 
 /** Every skill in the library, with on/off + import state. */
-export async function listBacklotSkills(): Promise<BacklotSkill[]> {
-  const slugs = await listBacklotSkillSlugs()
+export async function listLaniSkills(): Promise<LaniSkill[]> {
+  const slugs = await listLaniSkillSlugs()
   const disabled = new Set(await readDisabledSkills())
-  const out: BacklotSkill[] = []
+  const out: LaniSkill[] = []
   for (const slug of slugs) {
-    const dir = join(BACKLOT_SKILLS_DIR, slug)
+    const dir = join(LANI_SKILLS_DIR, slug)
     const fm = await readFrontmatter(join(dir, "SKILL.md"))
     let imported = false
     try {
@@ -380,10 +380,10 @@ export interface ImportableSkill {
 
 /**
  * Skills in the user's `~/.claude/skills` + `~/.agents/skills` that are
- * not yet in the Backlot library. Deduped by slug (first source wins).
+ * not yet in the Lani library. Deduped by slug (first source wins).
  */
 export async function listImportableSkills(): Promise<ImportableSkill[]> {
-  const have = new Set(await listBacklotSkillSlugs())
+  const have = new Set(await listLaniSkillSlugs())
   const seen = new Set<string>()
   const out: ImportableSkill[] = []
   const sources: Array<[string, "claude" | "agents"]> = [
@@ -401,14 +401,14 @@ export async function listImportableSkills(): Promise<ImportableSkill[]> {
   return out.sort((a, b) => a.slug.localeCompare(b.slug))
 }
 
-/** Symlink one user-library skill into `~/.backlot/skills/`. */
+/** Symlink one user-library skill into `~/.lani/skills/`. */
 export async function importSkill(slug: string): Promise<void> {
   for (const dir of [USER_CLAUDE_SKILLS, USER_AGENTS_SKILLS]) {
     const src = join(dir, slug)
     if (existsSync(join(src, "SKILL.md"))) {
-      const dst = join(BACKLOT_SKILLS_DIR, slug)
+      const dst = join(LANI_SKILLS_DIR, slug)
       if (existsSync(dst)) return
-      await mkdir(BACKLOT_SKILLS_DIR, { recursive: true })
+      await mkdir(LANI_SKILLS_DIR, { recursive: true })
       await symlink(src, dst)
       return
     }
@@ -443,7 +443,7 @@ export function slugifySkillName(name: string): string {
 }
 
 /**
- * Scaffold a brand-new skill: a folder under `~/.backlot/skills/` with a
+ * Scaffold a brand-new skill: a folder under `~/.lani/skills/` with a
  * starter `SKILL.md`. Rejects an empty or already-taken slug. Published
  * into the user library per preference, same as an agent-created skill.
  */
@@ -454,7 +454,7 @@ export async function createSkill(
   if (!slug) {
     throw new Error("Give the skill a name with letters or numbers.")
   }
-  const dir = join(BACKLOT_SKILLS_DIR, slug)
+  const dir = join(LANI_SKILLS_DIR, slug)
   if (existsSync(dir)) {
     throw new Error(`A skill called "${slug}" already exists.`)
   }
@@ -479,13 +479,13 @@ to follow, and any resources it relies on.
 }
 
 /**
- * Remove a skill from the Backlot library. An imported skill loses just
+ * Remove a skill from the Lani library. An imported skill loses just
  * its symlink (the user's real skill survives); a factory/created skill
  * has its folder removed. A published `~/.claude/skills` symlink that
  * points back into the library is also removed.
  */
 export async function removeSkill(slug: string): Promise<void> {
-  const dir = join(BACKLOT_SKILLS_DIR, slug)
+  const dir = join(LANI_SKILLS_DIR, slug)
   try {
     const st = await lstat(dir)
     if (st.isSymbolicLink()) await unlink(dir)
@@ -498,7 +498,7 @@ export async function removeSkill(slug: string): Promise<void> {
     const st = await lstat(published)
     if (st.isSymbolicLink()) {
       const target = await readlink(published)
-      if (target === dir || target.startsWith(BACKLOT_SKILLS_DIR)) {
+      if (target === dir || target.startsWith(LANI_SKILLS_DIR)) {
         await unlink(published)
       }
     }
@@ -515,7 +515,7 @@ export async function removeSkill(slug: string): Promise<void> {
 export async function publishSkillToUserLibrary(slug: string): Promise<void> {
   const prefs = await readPreferences()
   if (!prefs.publishCreatedSkills) return
-  const src = join(BACKLOT_SKILLS_DIR, slug)
+  const src = join(LANI_SKILLS_DIR, slug)
   const dst = join(USER_CLAUDE_SKILLS, slug)
   if (!existsSync(src) || existsSync(dst)) return
   try {

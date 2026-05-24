@@ -76,9 +76,9 @@ function registerIpcHandlers(): void {
     } else if (process.platform === "win32" && win) {
       // Windows: Update title with count as fallback
       if (count !== null && count > 0) {
-        win.setTitle(`Backlot (${count})`)
+        win.setTitle(`Lani (${count})`)
       } else {
-        win.setTitle("Backlot")
+        win.setTitle("Lani")
         win.setOverlayIcon(null, "")
       }
     }
@@ -215,7 +215,7 @@ function registerIpcHandlers(): void {
     const win = getWindowFromEvent(event)
     if (win) {
       // Show just the title, or default app name if empty
-      win.setTitle(title || "Backlot")
+      win.setTitle(title || "Lani")
     }
   })
 
@@ -300,7 +300,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("auth:start-flow", async (event) => {
     if (!validateSender(event)) return
     const win = getWindowFromEvent(event)
-    // Backlot: ensure the credential poller is armed for the duration of
+    // Lani: ensure the credential poller is armed for the duration of
     // the sign-in flow. The poller is idempotent — re-arm is a no-op if
     // it was already running.
     const { startClaudeCredentialPolling } = await import("../index")
@@ -553,7 +553,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     minWidth: 500, // Allow narrow mobile-like mode
     minHeight: 600,
     show: false,
-    title: "Backlot",
+    title: "Lani",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff",
     // hiddenInset shows native traffic lights inset in the window
     // hiddenInset hides the native title bar but keeps traffic lights visible

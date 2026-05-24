@@ -3,7 +3,7 @@
 /**
  * SkillWorkbenchView — the center surface of Skill Workbench mode.
  *
- * A multi-tab editor over the files of the skills Backlot surfaces in
+ * A multi-tab editor over the files of the skills Lani surfaces in
  * Settings. Each tab is one file inside one skill folder. Tabs can sit
  * on the left or right pane; when any tab is on the right the editor
  * splits side-by-side so the user can hold two skill files (or a skill

@@ -63,8 +63,8 @@ export class WindowsPlatformProvider extends BasePlatformProvider {
     const home = this.getHome()
 
     return {
-      installPath: path.join(home, ".local", "bin", "backlot.cmd"),
-      scriptName: "backlot.cmd",
+      installPath: path.join(home, ".local", "bin", "lani.cmd"),
+      scriptName: "lani.cmd",
       requiresAdmin: false, // Install to user directory, no admin needed
     }
   }
@@ -136,7 +136,7 @@ export class WindowsPlatformProvider extends BasePlatformProvider {
       // For terminal usage, users can manually add to PATH:
       // $env:Path += ";${installDir}"
 
-      console.log("[CLI] Installed backlot command to", installPath)
+      console.log("[CLI] Installed lani command to", installPath)
       console.log(
         "[CLI] To use from terminal, add to PATH:",
         `$env:Path += ";${installDir}"`
@@ -144,7 +144,7 @@ export class WindowsPlatformProvider extends BasePlatformProvider {
 
       return {
         success: true,
-        pathHint: `To use backlot from terminal, add to your PATH: ${installDir}`,
+        pathHint: `To use lani from terminal, add to your PATH: ${installDir}`,
       }
     } catch (error: unknown) {
       const errorMessage =
@@ -173,7 +173,7 @@ export class WindowsPlatformProvider extends BasePlatformProvider {
         // Directory not empty or other error, that's okay
       }
 
-      console.log("[CLI] Uninstalled backlot command")
+      console.log("[CLI] Uninstalled lani command")
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =

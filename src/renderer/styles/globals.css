@@ -9,7 +9,7 @@
 @source "../../../node_modules/streamdown/dist/*.js";
 
 /* ═══════════════════════════════════════════════════════
-   BACKLOT — Tailwind / shadcn token layer mapped to the
+   LANI — Tailwind / shadcn token layer mapped to the
    Laniameda Studio brand palette. Source of truth lives at
    ~/work/laniameda/laniameda-hq/studio/brand/tokens.css
 
@@ -30,7 +30,7 @@
    ═══════════════════════════════════════════════════════ */
 
 @layer base {
-  /* Light theme — Backlot's primary surface. Paper-white canvas,
+  /* Light theme — Lani's primary surface. Paper-white canvas,
      Lime accent (#C9E34B), liquid-glass panels. Editorial, bright,
      modern. The accent is bright, so it carries dark "accent ink"
      for text/icons that sit on top of it. */
@@ -72,7 +72,7 @@
 
   /* Dark theme — Obsidian surface, Lime accent. Kept in sync with the
      light theme's accent so brand colour is consistent across modes;
-     light is Backlot's primary target. */
+     light is Lani's primary target. */
   .dark {
     --background: 24 33% 3%;            /* Obsidian */
     --foreground: 27 100% 96%;          /* Linen */
@@ -216,7 +216,7 @@
 /* ═══════════════════════════════════════════════════════
    Panel surfaces — clean / minimal.
 
-   Backlot's shell is flat and crisp: solid panels, hairline
+   Lani's shell is flat and crisp: solid panels, hairline
    edges, no blur, no texture. The `.bl-glass*` class names
    are kept so existing markup stays valid, but the treatment
    is now a plain card surface — the Linear / Cal.com register
@@ -650,8 +650,8 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────
- * Backlot rich-prose editor (TipTap / ProseMirror). Mirrors the
- * editorialComponents typography in src/renderer/features/backlot/
+ * Lani rich-prose editor (TipTap / ProseMirror). Mirrors the
+ * editorialComponents typography in src/renderer/features/lani/
  * markdown-preview.tsx so click-to-edit doesn't visually jolt.
  *
  * Sizing scale (font-size / line-height) — keep in lockstep with
@@ -915,7 +915,7 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────
- * Backlot Fountain styled-source editor (CodeMirror 6).
+ * Lani Fountain styled-source editor (CodeMirror 6).
  *
  * The buffer is raw Fountain; these rules decorate each `.cm-line` so
  * it reads like a typeset screenplay leaf. Vertical rhythm is the
@@ -946,7 +946,7 @@
   letter-spacing: 0.02em;
 }
 
-/* Shot heading — Backlot extension: SHOT A: / SHOT B: CU - push. */
+/* Shot heading — Lani extension: SHOT A: / SHOT B: CU - push. */
 .cm-content .cm-fountain-shot {
   color: hsl(var(--primary) / 0.92);
   font-weight: 700;

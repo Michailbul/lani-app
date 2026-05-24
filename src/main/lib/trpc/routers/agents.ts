@@ -76,7 +76,7 @@ const listAgentsProcedure = publicProcedure
           source: "builtin" as const,
           path: override
             ? `~/.claude/agents/${name}.md`
-            : "Built-in (ships with Backlot)",
+            : "Built-in (ships with Lani)",
           enabled: !disabledBuiltins.includes(name),
           overridden: !!override,
         }

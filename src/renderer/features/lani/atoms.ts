@@ -1,7 +1,7 @@
 /**
- * Backlot-specific renderer atoms.
+ * Lani-specific renderer atoms.
  *
- * Kept in their own file so multiple Backlot surfaces (workspace,
+ * Kept in their own file so multiple Lani surfaces (workspace,
  * pane, project-tree) can subscribe without cyclic imports.
  */
 
@@ -86,7 +86,7 @@ export type ActiveEntity =
       path: string
     }
   | {
-      // The project's submission queue (queue.backlot.json). Opens in
+      // The project's submission queue (queue.lani.json). Opens in
       // the Queue workdesk surface, not a text editor.
       kind: "queue"
       label: string
@@ -119,7 +119,7 @@ export type ActiveEntity =
 // Remembered per project, so switching projects and back restores the
 // surface the writer had open. Keyed by project id.
 const activeEntityByProjectAtom = atomWithStorage<Record<string, ActiveEntity>>(
-  "backlot:active-entity-by-project",
+  "lani:active-entity-by-project",
   {},
 )
 
@@ -132,7 +132,7 @@ export const activeEntityAtom = atom(
     if (typeof stored.path !== "string" || !stored.path) return null
     // A persisted entity freezes whatever `kind` the path heuristic
     // produced when it was first opened. Once the recognition rules
-    // grow — e.g. multishot.backlot.json gaining its own surface — an
+    // grow — e.g. multishot.lani.json gaining its own surface — an
     // entity saved earlier as a generic "file" would stay "file" and
     // open as raw JSON until re-clicked. Re-derive `kind` from the
     // stored path so classification is always current; the legacy
@@ -162,7 +162,7 @@ export const activeEntityAtom = atom(
 // ────────────────────────────────────────────────────────────────────────
 
 export const projectTreeOpenAtom = atomWithStorage<boolean>(
-  "backlot:project-tree-open",
+  "lani:project-tree-open",
   true,
 )
 
@@ -193,7 +193,7 @@ export type ViewMode =
 
 // Remembered per project — each project keeps its own pipeline stage.
 const viewModeByProjectAtom = atomWithStorage<Record<string, ViewMode>>(
-  "backlot:view-mode-by-project",
+  "lani:view-mode-by-project",
   {},
 )
 
@@ -232,7 +232,7 @@ export type ShotlistSubmode = "shotlist" | "multishot"
 
 const shotlistSubmodeByProjectAtom = atomWithStorage<
   Record<string, ShotlistSubmode>
->("backlot:shotlist-submode-by-project", {})
+>("lani:shotlist-submode-by-project", {})
 
 export const shotlistSubmodeAtom = atom(
   (get) => {
@@ -258,7 +258,7 @@ export const shotlistSubmodeAtom = atom(
 // ────────────────────────────────────────────────────────────────────────
 
 const selectedSceneByProjectAtom = atomWithStorage<Record<string, string>>(
-  "backlot:selected-scene-by-project",
+  "lani:selected-scene-by-project",
   {},
 )
 
@@ -280,7 +280,7 @@ export const selectedSceneIdAtom = atom(
 
 // ────────────────────────────────────────────────────────────────────────
 // Skill Workbench — the mode for inspecting and editing the Agent SDK
-// skills Backlot has access to. The left rail becomes a skill explorer
+// skills Lani has access to. The left rail becomes a skill explorer
 // (registry skills, each a folder that may hold more than SKILL.md), the
 // center is a multi-tab editor with an optional side-by-side split, and
 // the assistant rail stays put so the user can ask the agent to adapt
@@ -308,7 +308,7 @@ type SkillWorkbenchTabsUpdate =
   | ((current: SkillWorkbenchTab[]) => SkillWorkbenchTab[])
 
 const rawSkillWorkbenchTabsAtom = atomWithStorage<unknown[]>(
-  "backlot:skill-workbench-tabs",
+  "lani:skill-workbench-tabs",
   [],
 )
 
@@ -365,11 +365,11 @@ export const skillWorkbenchTabsAtom = atom(
 export const skillWorkbenchActiveAtom = atomWithStorage<{
   left: string | null
   right: string | null
-}>("backlot:skill-workbench-active", { left: null, right: null })
+}>("lani:skill-workbench-active", { left: null, right: null })
 
 /** Fraction of the editor width given to the left pane when split. */
 export const skillWorkbenchSplitAtom = atomWithStorage<number>(
-  "backlot:skill-workbench-split",
+  "lani:skill-workbench-split",
   0.5,
 )
 
@@ -378,7 +378,7 @@ export const skillWorkbenchSplitAtom = atomWithStorage<number>(
 // ────────────────────────────────────────────────────────────────────────
 
 export const projectTreeWidthAtom = atomWithStorage<number>(
-  "backlot:project-tree-width",
+  "lani:project-tree-width",
   260,
 )
 
@@ -389,13 +389,13 @@ export const projectTreeWidthAtom = atomWithStorage<number>(
  * width is added on top in the workspace, leaving this base untouched).
  */
 export const assistantRailWidthAtom = atomWithStorage<number>(
-  "backlot:assistant-rail-width",
+  "lani:assistant-rail-width",
   420,
 )
 
 /** Assistant rail — open/closed. The toggle lives in the AppTopBar. */
 export const assistantRailOpenAtom = atomWithStorage<boolean>(
-  "backlot:assistant-rail-open",
+  "lani:assistant-rail-open",
   true,
 )
 
@@ -407,7 +407,7 @@ export const assistantRailOpenAtom = atomWithStorage<boolean>(
 // ────────────────────────────────────────────────────────────────────────
 
 export const threadColorsAtom = atomWithStorage<Record<string, string>>(
-  "backlot:thread-colors",
+  "lani:thread-colors",
   {},
 )
 
@@ -416,7 +416,7 @@ export const threadColorsAtom = atomWithStorage<Record<string, string>>(
  * below the strip to grow it and see more thread rows at once.
  */
 export const threadStripHeightAtom = atomWithStorage<number>(
-  "backlot:thread-strip-height",
+  "lani:thread-strip-height",
   60,
 )
 
@@ -427,7 +427,7 @@ export const threadStripHeightAtom = atomWithStorage<number>(
  * always has a sensible amount of room beside it.
  */
 export const libraryPanelWidthAtom = atomWithStorage<number>(
-  "backlot:library-panel-width",
+  "lani:library-panel-width",
   520,
 )
 
@@ -441,7 +441,7 @@ export const libraryPanelWidthAtom = atomWithStorage<number>(
  * persisted. Clamped in the surface so the body always has room.
  */
 export const libraryHeroHeightAtom = atomWithStorage<number>(
-  "backlot:library-hero-height",
+  "lani:library-hero-height",
   0,
 )
 

@@ -1,6 +1,6 @@
 /**
- * CLI command support for Backlot
- * Allows users to open Backlot from terminal with: backlot . or backlot /path/to/project
+ * CLI command support for Lani
+ * Allows users to open Lani from terminal with: lani . or lani /path/to/project
  *
  * Adapted from the upstream CLI installer.
  */
@@ -10,7 +10,7 @@ import { join } from "path"
 import { existsSync, lstatSync } from "fs"
 import { platform } from "./platform"
 
-// Launch directory from CLI (e.g., `backlot /path/to/project`)
+// Launch directory from CLI (e.g., `lani /path/to/project`)
 let launchDirectory: string | null = null
 
 /**
@@ -24,7 +24,7 @@ export function getLaunchDirectory(): string | null {
 
 /**
  * Parse CLI arguments to find a directory argument
- * Called on app startup to handle `backlot .` or `backlot /path/to/project`
+ * Called on app startup to handle `lani .` or `lani /path/to/project`
  */
 export function parseLaunchDirectory(): void {
   // Look for a directory argument in argv

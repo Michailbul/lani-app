@@ -1,8 +1,8 @@
 /**
  * Skill Workbench router — backs the Skill Workbench mode.
  *
- * The workbench browses and edits the Backlot skill library at
- * `~/.backlot/skills/`. A skill is a folder (SKILL.md + optional
+ * The workbench browses and edits the Lani skill library at
+ * `~/.lani/skills/`. A skill is a folder (SKILL.md + optional
  * resources), so this router exposes the folder tree, not just
  * SKILL.md. Path containment is enforced on every read/write: a
  * resolved path must stay inside the library root.
@@ -15,9 +15,9 @@ import { promisify } from "node:util"
 import { z } from "zod"
 import { publicProcedure, router } from "../index"
 import {
-  BACKLOT_SKILLS_DIR,
+  LANI_SKILLS_DIR,
   createSkill,
-  listBacklotSkills,
+  listLaniSkills,
 } from "../../skills/library"
 
 const execFileAsync = promisify(execFile)
@@ -43,8 +43,8 @@ interface SkillReviewHunk {
 /** Resolve a skill directory and assert it lives under the library root. */
 function resolveSkillDir(skillDir: string): string {
   const resolved = path.resolve(skillDir)
-  if (path.dirname(resolved) !== BACKLOT_SKILLS_DIR) {
-    throw new Error("Skill directory must live under ~/.backlot/skills")
+  if (path.dirname(resolved) !== LANI_SKILLS_DIR) {
+    throw new Error("Skill directory must live under ~/.lani/skills")
   }
   return resolved
 }
@@ -63,7 +63,7 @@ function toGitPath(absOrRel: string): string {
 }
 
 function relToLibrary(abs: string): string {
-  const rel = path.relative(BACKLOT_SKILLS_DIR, abs)
+  const rel = path.relative(LANI_SKILLS_DIR, abs)
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error("File path escapes the skill library")
   }
@@ -76,7 +76,7 @@ async function git(
 ): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", args, {
-      cwd: BACKLOT_SKILLS_DIR,
+      cwd: LANI_SKILLS_DIR,
       maxBuffer: 20 * 1024 * 1024,
     })
     return stdout
@@ -106,7 +106,7 @@ async function hasCommit(): Promise<boolean> {
 
 /**
  * Git is the review ledger for skills. First use creates a local repo
- * in `~/.backlot/skills` and commits the current library as the baseline;
+ * in `~/.lani/skills` and commits the current library as the baseline;
  * subsequent edits stay visible as pending changes until the user saves
  * or discards them from Skill Workbench.
  *
@@ -117,19 +117,19 @@ async function hasCommit(): Promise<boolean> {
 let skillsRepoReady: Promise<void> | null = null
 
 async function initSkillsGitRepo(): Promise<void> {
-  await fs.mkdir(BACKLOT_SKILLS_DIR, { recursive: true })
+  await fs.mkdir(LANI_SKILLS_DIR, { recursive: true })
   try {
     await git(["rev-parse", "--is-inside-work-tree"])
   } catch {
     await git(["init", "-b", "main"])
   }
   const name = (await git(["config", "user.name"], { allowFailure: true })).trim()
-  if (name !== "Backlot") {
-    await git(["config", "user.name", "Backlot"])
+  if (name !== "Lani") {
+    await git(["config", "user.name", "Lani"])
   }
   const email = (await git(["config", "user.email"], { allowFailure: true })).trim()
-  if (email !== "backlot@local") {
-    await git(["config", "user.email", "backlot@local"])
+  if (email !== "lani@local") {
+    await git(["config", "user.email", "lani@local"])
   }
   if (await hasCommit()) return
 
@@ -233,7 +233,7 @@ async function diffForPath(relPath: string): Promise<string> {
         "--no-index",
         "--",
         "/dev/null",
-        path.join(BACKLOT_SKILLS_DIR, relPath),
+        path.join(LANI_SKILLS_DIR, relPath),
       ],
       { allowFailure: true },
     )
@@ -296,11 +296,11 @@ async function walkSkillTree(
 
 export const skillWorkbenchRouter = router({
   /**
-   * The Backlot skill library — a flat, alphabetical list. Each entry
+   * The Lani skill library — a flat, alphabetical list. Each entry
    * carries its absolute folder path and on/off state.
    */
   list: publicProcedure.query(async () => {
-    const skills = await listBacklotSkills()
+    const skills = await listLaniSkills()
     const statusMap = await readStatusMap()
     return skills
       .slice()

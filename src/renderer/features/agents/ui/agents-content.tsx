@@ -38,7 +38,7 @@ import { NewChatForm } from "../main/new-chat-form"
 import { KanbanView } from "../../kanban"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
-import { ScreenplayWorkspace } from "../../backlot"
+import { ScreenplayWorkspace } from "../../lani"
 import { NoChatAssistantPanel } from "./no-chat-assistant-panel"
 import { api } from "../../../lib/mock-api"
 import { trpc } from "../../../lib/trpc"
@@ -65,8 +65,8 @@ import { AgentsQuickSwitchDialog } from "../components/agents-quick-switch-dialo
 import { SubChatsQuickSwitchDialog } from "../components/subchats-quick-switch-dialog"
 import { isDesktopApp } from "../../../lib/utils/platform"
 import { SettingsContent } from "../../settings/settings-content"
-import { HarnessFocusHost } from "../../backlot/harness-focus-host"
-import { HarnessEditorModal } from "../../backlot/harness-editor-modal"
+import { HarnessFocusHost } from "../../lani/harness-focus-host"
+import { HarnessEditorModal } from "../../lani/harness-editor-modal"
 // Desktop mock
 const useIsAdmin = () => false
 
@@ -81,7 +81,7 @@ export function AgentsContent() {
   const showNewChatForm = useAtomValue(showNewChatFormAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
 
-  // Picking a project now lands on the Backlot project surface. Sessions are
+  // Picking a project now lands on the Lani project surface. Sessions are
   // started explicitly from the assistant rail so the user chooses Claude or
   // Codex before any agent state is created.
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
@@ -931,7 +931,7 @@ export function AgentsContent() {
     <>
       <HarnessFocusHost />
       <div className="flex h-full">
-        {/* Sub-chats sidebar — hidden in Backlot. The ProjectTreeRail
+        {/* Sub-chats sidebar — hidden in Lani. The ProjectTreeRail
             (rendered by ScreenplayWorkspace) is the project's primary
             navigator; a separate "Chats" sub-sidebar is redundant for
             the one-project-one-main-chat model. The component is left
@@ -953,7 +953,7 @@ export function AgentsContent() {
           ) : betaAutomationsEnabled && desktopView === "inbox" ? (
             <InboxView />
           ) : selectedChatId ? (
-            // Backlot screenwriter shape: the screenplay artifact owns the
+            // Lani screenwriter shape: the screenplay artifact owns the
             // canvas. The assistant rail (with the existing <ChatView />)
             // is rendered by AgentsLayout so it can span the full window
             // height beside the macOS chrome strip.

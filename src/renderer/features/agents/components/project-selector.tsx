@@ -51,11 +51,11 @@ export function ProjectSelector() {
   // Get tRPC utils for cache management
   const utils = trpc.useUtils()
 
-  // Backlot-style import. Replaces the old `openFolder` flow which only
+  // Lani-style import. Replaces the old `openFolder` flow which only
   // registered the source path as a project — that path could be a
   // subfolder of a parent git repo, which broke `git worktree add` (it
   // would mirror the parent repo's contents instead). The import flow
-  // copies the chosen folder to ~/.backlot/projects/<slug>/, runs
+  // copies the chosen folder to ~/.lani/projects/<slug>/, runs
   // `git init` + a baseline commit there, and registers the COPY. The
   // user's original folder is never touched.
   const pickAndImport = trpc.projects.pickAndImport.useMutation({

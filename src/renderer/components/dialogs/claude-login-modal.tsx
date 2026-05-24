@@ -154,17 +154,17 @@ export function ClaudeLoginModal() {
       setUrlOpened(true)
       openOAuthUrlMutation.mutate(flowState.oauthUrl)
     } else if (flowState.step === "error" || flowState.step === "idle") {
-      // Backlot: startAuth runs `claude setup-token` directly via the
+      // Lani: startAuth runs `claude setup-token` directly via the
       // bundled binary. On success the keychain has fresh credentials and
-      // the mutation returns BACKLOT_DIRECT sentinels — close the modal
+      // the mutation returns LANI_DIRECT sentinels — close the modal
       // and trigger the chat retry immediately.
       urlOpenedRef.current = false
       setUrlOpened(false)
       setFlowState({ step: "starting" })
       try {
         const result = await startAuthMutation.mutateAsync()
-        if (result.sandboxId === "BACKLOT_DIRECT") {
-          // Backlot opened a Terminal window with `claude /login`. The user
+        if (result.sandboxId === "LANI_DIRECT") {
+          // Lani opened a Terminal window with `claude /login`. The user
           // needs to complete sign-in there before retrying the message —
           // do NOT call triggerAuthRetry, that would resend before the
           // keychain has fresh credentials and bounce us right back into
@@ -298,7 +298,7 @@ export function ClaudeLoginModal() {
                 Refresh Claude credentials
               </h1>
               <p className="text-sm text-muted-foreground">
-                Your Claude session expired. Click below — Backlot opens Terminal with <code className="px-1 py-0.5 rounded bg-muted text-xs">claude /login</code> ready to run. Sign in there, come back, and send your message again.
+                Your Claude session expired. Click below — Lani opens Terminal with <code className="px-1 py-0.5 rounded bg-muted text-xs">claude /login</code> ready to run. Sign in there, come back, and send your message again.
               </p>
             </div>
           </div>

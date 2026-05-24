@@ -1,4 +1,4 @@
-# CLAUDE.md — Backlot
+# CLAUDE.md — Lani
 
 > Project-specific instructions for Claude Code agents working in this repo. Read first.
 
@@ -12,11 +12,11 @@ Read **PRD.md** for the spec, **PLAN.md** for the build sequence and current sta
 
 ## Two layers — code vs. creative artifacts
 
-Backlot has **two distinct populations of files**, and they carry different rules. Confusing them is the most common way an engineering-trained agent ships the wrong feature.
+Lani has **two distinct populations of files**, and they carry different rules. Confusing them is the most common way an engineering-trained agent ships the wrong feature.
 
 | Layer | What it is | Who edits it | Rules |
 |---|---|---|---|
-| **Backlot codebase** (this repo) | The Electron/React/tRPC app | Engineering agents (you, when working in `src/`) | Normal software hygiene: typecheck, focused commits, code review, no half-finished work, follow upstream patterns from 1code. |
+| **Lani codebase** (this repo) | The Electron/React/tRPC app | Engineering agents (you, when working in `src/`) | Normal software hygiene: typecheck, focused commits, code review, no half-finished work, follow upstream patterns from 1code. |
 | **User content** (writer's project worktree) | `.fountain` screenplays, `.md` briefs/characters/locations/scenes/shots, prompt drafts | The writer + their in-app agent | Creative versioning. Auto-commits are cheap and encouraged. Forks ("Directions") are alternate creative paths, not engineering branches. Per-hunk Approve/Dismiss is a writer's revision tool, not a code-review gate. |
 
 **Practical implications when designing features:**
@@ -26,13 +26,13 @@ Backlot has **two distinct populations of files**, and they carry different rule
 - **Forking a Direction is cheap.** It's how a writer says "let me try a different version of this scene." Treat fork operations as low-stakes and frequent — like Notion duplicating a page, not like git branching off main.
 - **Optimize the writer's surfaces for creative legibility.** Clear history, easy diff review, easy time-travel between drafts. Hide engineering scaffolding (commit hashes, branch names, technical git output) unless the user explicitly asks for it.
 - **User-facing copy is product copy, not commit copy.** "Accept changes", "Restore this version", "Try another way" — never "merge", "rebase", "stash", "revert HEAD~1".
-- **The screenplay artifact and per-entity files (brief, characters, locations, scenes, shots, acts) are first-class.** When the user says "edit this file" they usually mean a content artifact in their worktree, not Backlot source code.
+- **The screenplay artifact and per-entity files (brief, characters, locations, scenes, shots, acts) are first-class.** When the user says "edit this file" they usually mean a content artifact in their worktree, not Lani source code.
 
 When you're working in this repo improving the *app itself*, you are doing software engineering — code-layer rules apply. When you are designing how the *writer's surfaces* behave, content-layer rules apply.
 
 ## Origin
 
-Forked from [1code](https://github.com/1code-app/1code) (Apache 2.0). Preserve `LICENSE` and `NOTICE`. Most of the engineering substrate (worktree management, tRPC streaming, schema, Electron scaffold, OAuth) comes from 1code. The screenwriter-specific work (editor pane, preview pane, direction tree, MCP tools) is net-new under Backlot.
+Forked from [1code](https://github.com/1code-app/1code) (Apache 2.0). Preserve `LICENSE` and `NOTICE`. Most of the engineering substrate (worktree management, tRPC streaming, schema, Electron scaffold, OAuth) comes from 1code. The screenwriter-specific work (editor pane, preview pane, direction tree, MCP tools) is net-new under Lani.
 
 When working in this repo, do not re-implement what 1code already provides. The relevant pieces are inventoried in PRD §3.
 
@@ -52,12 +52,12 @@ When working in this repo, do not re-implement what 1code already provides. The 
 - **Source layout** mirrors 1code: `src/main/`, `src/preload/`, `src/renderer/`, `src/shared/`. Don't reorganize without an explicit task.
 - **Routers** live at `src/main/lib/trpc/routers/<name>.ts`, registered in `routers/index.ts`.
 - **Database schema** at `src/main/lib/db/schema/index.ts`. Drizzle migrations go in `drizzle/`. Migrations apply on launch.
-- **Worktrees** under `~/.backlot/worktrees/<projectSlug>/<folderName>` (renamed from 1code's `~/.21st/`). Project slug is sanitized project name.
+- **Worktrees** under `~/.lani/worktrees/<projectSlug>/<folderName>` (renamed from 1code's `~/.21st/`). Project slug is sanitized project name.
 - **MCP tools** under `mcp/<tool-name>/` as separate Node stdio packages. Each has its own `package.json` and `index.ts`.
 - **Screenplay artifacts** default to `.fountain` extension. Markdown is allowed for treatments, character bibles, beat sheets.
-- **Scene generation artifacts** are file-backed JSON the in-app agent reads and writes directly (no MCP layer): `multishot.backlot.json` and `shotlist.backlot.json` per scene, and one project-root `queue.backlot.json`. Each has a `normalize*()` read-side safety net in `src/shared/<name>-types.ts`, a tRPC router under `routers/`, and a workdesk mode surface. Keep all four in sync when the model changes.
-- **Harness stays with schemas.** Any change to a Backlot content schema (`shotlist.backlot.json`, `multishot.backlot.json`, `queue.backlot.json`, entity frontmatter, skill-library files, canvas MCP shape) must update `src/main/lib/claude/harness-prompt.ts` in the same change so the in-app agent learns the new contract.
-- **Submission queue** (`queue.backlot.json`): a project-wide tracker. Prompts drafted in Multishot/Shotlist mode are pushed into it via "Add to queue"; an external agent reads the file to submit each prompt to a video model (Runway), flipping `status` and bumping `submissionCount`. It is a content artifact, not engineering state — per-item reference images are copied under `queue-media/<itemId>/`. The Queue workdesk mode renders it; the `queue` router is the read/write layer. Documented for the in-app agent in `harness-prompt.ts`.
+- **Scene generation artifacts** are file-backed JSON the in-app agent reads and writes directly (no MCP layer): `multishot.lani.json` and `shotlist.lani.json` per scene, and one project-root `queue.lani.json`. Each has a `normalize*()` read-side safety net in `src/shared/<name>-types.ts`, a tRPC router under `routers/`, and a workdesk mode surface. Keep all four in sync when the model changes.
+- **Harness stays with schemas.** Any change to a Lani content schema (`shotlist.lani.json`, `multishot.lani.json`, `queue.lani.json`, entity frontmatter, skill-library files, canvas MCP shape) must update `src/main/lib/claude/harness-prompt.ts` in the same change so the in-app agent learns the new contract.
+- **Submission queue** (`queue.lani.json`): a project-wide tracker. Prompts drafted in Multishot/Shotlist mode are pushed into it via "Add to queue"; an external agent reads the file to submit each prompt to a video model (Runway), flipping `status` and bumping `submissionCount`. It is a content artifact, not engineering state — per-item reference images are copied under `queue-media/<itemId>/`. The Queue workdesk mode renders it; the `queue` router is the read/write layer. Documented for the in-app agent in `harness-prompt.ts`.
 - **Commits**: focused, one concern per commit, imperative mood. Group renames and find/replace into one commit. Keep `LICENSE` + `NOTICE` intact.
 
 ## Working rules for agents

@@ -1,5 +1,5 @@
 /**
- * Parse Backlot editor mentions from prompt text.
+ * Parse Lani editor mentions from prompt text.
  *
  * The renderer currently serializes mentions inline, so providers that need
  * structured inputs should parse them in the main process.

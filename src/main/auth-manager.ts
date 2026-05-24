@@ -1,7 +1,7 @@
 /**
- * AuthManager — Backlot's auth surface.
+ * AuthManager — Lani's auth surface.
  *
- * Backlot does not have its own user account system. "Signed in" means
+ * Lani does not have its own user account system. "Signed in" means
  * "we have a valid Claude OAuth credential" — read directly from the
  * macOS Keychain, Windows Credential Manager, Linux Secret Service, or
  * the ~/.claude/.credentials.json fallback. The credential is created
@@ -10,7 +10,7 @@
  *
  * The upstream AuthManager brokered auth through a remote
  * backend (exchangeCode / refresh against /api/auth/desktop/*). All of
- * that is gone — Backlot talks to Anthropic directly. The public method
+ * that is gone — Lani talks to Anthropic directly. The public method
  * surface is preserved so existing routers (chats, voice, claude-code)
  * keep compiling; calls that previously hit the remote backend now return null
  * tokens and the routers' fallback paths handle that gracefully.
@@ -24,7 +24,7 @@ import {
 } from "./lib/claude-token"
 import { AuthData, AuthUser } from "./auth-store"
 
-const BACKLOT_PSEUDO_USER: AuthUser = {
+const LANI_PSEUDO_USER: AuthUser = {
   id: "claude-local",
   email: "you@claude.local",
   name: "Claude",
@@ -52,13 +52,13 @@ export class AuthManager {
 
   /**
    * Deprecated. Was the legacy deep-link auth-code exchange. The deep-link
-   * handler in main/index.ts still calls this on `backlot://auth-callback`
+   * handler in main/index.ts still calls this on `lani://auth-callback`
    * URLs; we keep the signature so it does not throw, but the flow is
    * obsolete with Anthropic-direct auth.
    */
   async exchangeCode(_code: string): Promise<AuthData> {
     throw new Error(
-      "Backlot uses direct Anthropic auth — no auth-code exchange. Run `claude /login` and the credentials will be detected automatically.",
+      "Lani uses direct Anthropic auth — no auth-code exchange. Run `claude /login` and the credentials will be detected automatically.",
     )
   }
 
@@ -82,7 +82,7 @@ export class AuthManager {
             token: refreshed.accessToken,
             refreshToken: refreshed.refreshToken,
             expiresAt: new Date(refreshed.expiresAt ?? Date.now() + 3600_000).toISOString(),
-            user: BACKLOT_PSEUDO_USER,
+            user: LANI_PSEUDO_USER,
           })
         }
         return refreshed.accessToken
@@ -112,7 +112,7 @@ export class AuthManager {
   }
 
   getUser(): AuthUser | null {
-    return this.isAuthenticated() ? BACKLOT_PSEUDO_USER : null
+    return this.isAuthenticated() ? LANI_PSEUDO_USER : null
   }
 
   getAuth(): AuthData | null {
@@ -122,12 +122,12 @@ export class AuthManager {
       token: creds.accessToken,
       refreshToken: creds.refreshToken ?? "",
       expiresAt: new Date(creds.expiresAt ?? Date.now() + 3600_000).toISOString(),
-      user: BACKLOT_PSEUDO_USER,
+      user: LANI_PSEUDO_USER,
     }
   }
 
   /**
-   * "Logout" cannot remove credentials Backlot does not own — `claude` writes
+   * "Logout" cannot remove credentials Lani does not own — `claude` writes
    * those to the OS keychain. Surface a clear message instead. The renderer
    * can decide how to present it (e.g. a dialog telling the user to run
    * `claude logout`).
@@ -139,7 +139,7 @@ export class AuthManager {
   }
 
   /**
-   * Trigger the Anthropic sign-in flow. Backlot does not run a local OAuth
+   * Trigger the Anthropic sign-in flow. Lani does not run a local OAuth
    * server — it delegates to the bundled `claude` binary's own /login,
    * which handles the full PKCE + browser redirect flow on its own.
    *
@@ -151,7 +151,7 @@ export class AuthManager {
    *     to the main UI as soon as they appear.
    *
    * This is intentionally low-tech for v1. The polished v1.5 path spawns
-   * `claude /login` in an embedded node-pty terminal inside Backlot.
+   * `claude /login` in an embedded node-pty terminal inside Lani.
    */
   async startAuthFlow(_mainWindow: BrowserWindow | null): Promise<void> {
     // Already signed in — nothing to do, the renderer will detect this on

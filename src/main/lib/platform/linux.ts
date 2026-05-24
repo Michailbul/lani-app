@@ -67,8 +67,8 @@ export class LinuxPlatformProvider extends BasePlatformProvider {
 
   getCliConfig(): CliConfig {
     return {
-      installPath: "/usr/local/bin/backlot",
-      scriptName: "backlot",
+      installPath: "/usr/local/bin/lani",
+      scriptName: "lani",
       requiresAdmin: true, // Usually needs sudo, but we try without first
     }
   }
@@ -172,7 +172,7 @@ export class LinuxPlatformProvider extends BasePlatformProvider {
         await execAsync(`sudo ln -s "${sourcePath}" ${installPath}`)
       }
 
-      console.log("[CLI] Installed backlot command to", installPath)
+      console.log("[CLI] Installed lani command to", installPath)
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =
@@ -199,7 +199,7 @@ export class LinuxPlatformProvider extends BasePlatformProvider {
         await execAsync(`sudo rm -f ${installPath}`)
       }
 
-      console.log("[CLI] Uninstalled backlot command")
+      console.log("[CLI] Uninstalled lani command")
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =

@@ -1,6 +1,6 @@
 # Shotlist — PRD
 
-> Product requirements for the shotlist — the core feature of Backlot. This
+> Product requirements for the shotlist — the core feature of Lani. This
 > document defines what to build. It supersedes the earlier functional-spec
 > draft of the same file.
 
@@ -28,7 +28,7 @@ versioned file that stays tied to the screenplay.
 
 - Template-driven or agent-authored schemas and layouts.
 - Reference-image attachments on shots.
-- Running video generation inside Backlot — prompts are handed off to an
+- Running video generation inside Lani — prompts are handed off to an
   external generator.
 - A multi-scene aggregate view — the tab works one scene at a time.
 
@@ -57,7 +57,7 @@ These are recorded in §12 and may be picked up later.
 ### Storage and data model
 
 - **FR-1** — One shotlist per scene, stored at
-  `scenes/<id>/shotlist.backlot.json` as plain JSON. No database.
+  `scenes/<id>/shotlist.lani.json` as plain JSON. No database.
 - **FR-2** — The file holds scene metadata (`sceneId`, `sceneNumber`,
   `heading`, `scriptPath`) and an ordered list of shots.
 - **FR-3** — Each shot has: `number`, `plan`, `camera`, `action`,
@@ -69,7 +69,7 @@ These are recorded in §12 and may be picked up later.
 
 ### MCP — how the agent writes the shotlist
 
-- **FR-6** — A built-in `backlot-shotlist` MCP server is injected into
+- **FR-6** — A built-in `lani-shotlist` MCP server is injected into
   every agent session, scoped to the worktree.
 - **FR-7** — Tools: `shotlist_read`, `shotlist_init`, `shotlist_add_shot`,
   `shotlist_update_shot`, `shotlist_remove_shot`. A shotlist is addressed
@@ -99,7 +99,7 @@ These are recorded in §12 and may be picked up later.
 ### The Script ↔ Shotlist connection
 
 - **FR-17** — The shot `number` is the link between the screenplay and the
-  shotlist. It appears in both files. It is a convention — Backlot does not
+  shotlist. It appears in both files. It is a convention — Lani does not
   hash or otherwise track it.
 
 ## 7. UX requirements
@@ -146,8 +146,8 @@ These are recorded in §12 and may be picked up later.
 
 Built and smoke-tested:
 
-- Per-scene `shotlist.backlot.json` and the data model (§6, FR-1–FR-5).
-- The `backlot-shotlist` MCP server (FR-6–FR-8), registered as a built-in.
+- Per-scene `shotlist.lani.json` and the data model (§6, FR-1–FR-5).
+- The `lani-shotlist` MCP server (FR-6–FR-8), registered as a built-in.
 - The Shotlist tab — scene dropdown, in-place editing, the borderless
   readable prompt, add-to-context, live polling (FR-12–FR-16, §7).
 

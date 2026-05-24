@@ -19,7 +19,7 @@ export function useAutoImport() {
   const setChatSourceMode = useSetAtom(chatSourceModeAtom)
   const utils = trpc.useUtils()
 
-  // Backlot: sandboxImport router was stripped (no codesandbox import in v1).
+  // Lani: sandboxImport router was stripped (no codesandbox import in v1).
   // Stubbing the mutation shape so the hook stays callable; remote-agent
   // affordances that call `autoImport` will surface a toast and no-op.
   void setSelectedChatId
@@ -32,7 +32,7 @@ export function useAutoImport() {
       projectId: string
       chatName: string
     }) => {
-      toast.error("Sandbox import is not available in Backlot.")
+      toast.error("Sandbox import is not available in Lani.")
     },
     isPending: false,
   }

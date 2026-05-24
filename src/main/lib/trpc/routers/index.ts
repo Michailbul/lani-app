@@ -34,7 +34,7 @@ import { BrowserWindow } from "electron"
  * Uses getter pattern to avoid stale window references
  *
  * Stripped from upstream: ollama (offline LLM fallback) and
- * sandboxImport (CodeSandbox import) — Backlot is online-only and
+ * sandboxImport (CodeSandbox import) — Lani is online-only and
  * not a sandbox-clone tool.
  */
 export function createAppRouter(getWindow: () => BrowserWindow | null) {

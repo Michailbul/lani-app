@@ -22,13 +22,13 @@ import { getExistingClaudeCredentials, refreshClaudeToken, isTokenExpired } from
 import {
   HARNESS_OVERRIDE_PATH,
   buildActiveFocusBlock,
-  buildBacklotHarnessBlock,
+  buildLaniHarnessBlock,
 } from "../../claude/harness-prompt"
 import { HARNESS_FOCUS_REQUEST_PATH } from "../../harness/focus-request"
 import { chats, claudeCodeCredentials, getDatabase, getDatabasePath, subChats } from "../../db"
 // Note: `ensurePrimaryArtifact` and `PRIMARY_ARTIFACT_FILENAME` were
 // removed from this router when the inline screenplay-artifact note
-// was replaced by the Backlot harness block. Other routers
+// was replaced by the Lani harness block. Other routers
 // (artifacts.ts itself) still consume them.
 import { createRollbackStash } from "../../git/stash"
 import { ensureMcpTokensFresh, fetchMcpTools, fetchMcpToolsStdio, getMcpAuthStatus, startMcpOAuth, type McpToolInfo } from "../../mcp-auth"
@@ -47,24 +47,24 @@ function getBuiltinCanvasMcpServer(input: {
     : path.join(__dirname, "../../mcp/canvas/index.mjs")
 
   return {
-    "backlot-canvas": {
+    "lani-canvas": {
       type: "stdio",
-      command: process.env.BACKLOT_NODE_PATH || process.execPath,
+      command: process.env.LANI_NODE_PATH || process.execPath,
       args: [serverPath],
       env: {
         ELECTRON_RUN_AS_NODE: "1",
         ...(app.isPackaged
           ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
           : {}),
-        BACKLOT_DB_PATH: getDatabasePath(),
-        BACKLOT_CANVAS_WORKTREE_ID: input.worktreeId,
-        BACKLOT_CANVAS_CHAT_ID: input.worktreeId,
-        BACKLOT_WORKTREE_PATH: input.cwd,
+        LANI_DB_PATH: getDatabasePath(),
+        LANI_CANVAS_WORKTREE_ID: input.worktreeId,
+        LANI_CANVAS_CHAT_ID: input.worktreeId,
+        LANI_WORKTREE_PATH: input.cwd,
         ...(process.env.OPENAI_API_KEY
           ? { OPENAI_API_KEY: process.env.OPENAI_API_KEY }
           : {}),
-        ...(process.env.BACKLOT_CANVAS_IMAGE_MODEL
-          ? { BACKLOT_CANVAS_IMAGE_MODEL: process.env.BACKLOT_CANVAS_IMAGE_MODEL }
+        ...(process.env.LANI_CANVAS_IMAGE_MODEL
+          ? { LANI_CANVAS_IMAGE_MODEL: process.env.LANI_CANVAS_IMAGE_MODEL }
           : {}),
       },
     },
@@ -77,22 +77,22 @@ function getBuiltinHarnessMcpServer(): Record<string, McpServerConfig> {
     : path.join(__dirname, "../../mcp/harness/index.mjs")
 
   return {
-    "backlot-harness": {
+    "lani-harness": {
       type: "stdio",
-      command: process.env.BACKLOT_NODE_PATH || process.execPath,
+      command: process.env.LANI_NODE_PATH || process.execPath,
       args: [serverPath],
       env: {
         ELECTRON_RUN_AS_NODE: "1",
         ...(app.isPackaged
           ? { NODE_PATH: path.join(process.resourcesPath, "app.asar", "node_modules") }
           : {}),
-        BACKLOT_HARNESS_REQUEST_PATH: HARNESS_FOCUS_REQUEST_PATH,
+        LANI_HARNESS_REQUEST_PATH: HARNESS_FOCUS_REQUEST_PATH,
       },
     },
   }
 }
 
-function getBuiltinBacklotMcpServers(input: {
+function getBuiltinLaniMcpServers(input: {
   worktreeId: string
   cwd: string
 }): Record<string, McpServerConfig> {
@@ -160,11 +160,11 @@ function buildLocalHistoryContext(messages: any[], currentPrompt: string): strin
     body = `...(earlier inherited messages truncated)...\n\n${body.slice(-12000)}`
   }
 
-  return `[INHERITED BACKLOT THREAD CONTEXT]
+  return `[INHERITED LANI THREAD CONTEXT]
 This thread was forked or restored without a Claude session to resume. Use this local transcript as context, but treat the current request as authoritative.
 
 ${body}
-[/INHERITED BACKLOT THREAD CONTEXT]
+[/INHERITED LANI THREAD CONTEXT]
 
 `
 }
@@ -184,7 +184,7 @@ function decryptToken(encrypted: string): string {
  * Get a Claude Code OAuth access token to feed the Claude Agent SDK as
  * CLAUDE_CODE_OAUTH_TOKEN.
  *
- * Backlot's auth model is Anthropic-direct: the bundled `claude` binary
+ * Lani's auth model is Anthropic-direct: the bundled `claude` binary
  * writes credentials to the OS keychain (macOS Keychain / Windows
  * Credential Manager / libsecret) when the user runs `claude /login`. We
  * read straight from there. Falls back to the legacy claudeCodeCredentials
@@ -871,7 +871,7 @@ export const claudeRouter = router({
             const { cleanedPrompt, agentMentions, skillMentions } = parseMentions(input.prompt)
 
             // Build agents option for SDK (proper registration via options.agents).
-            // Backlot's built-in subagents (e.g. director-verifier) are
+            // Lani's built-in subagents (e.g. director-verifier) are
             // registered automatically — minus any the user disabled in
             // Settings, plus any on-disk override. @-mentioned agents are
             // spread last so a user agent of the same name still wins.
@@ -989,11 +989,11 @@ export const claudeRouter = router({
             // MCP servers to pass to SDK (read from ~/.claude.json)
             let mcpServersForSdk: Record<string, any> | undefined
 
-            // Backlot skill plugin — `~/.backlot/` is loaded into the
+            // Lani skill plugin — `~/.lani/` is loaded into the
             // SDK as a local plugin, so skill discovery never needs the
             // "user" setting source (which would leak ~/.claude/CLAUDE.md).
-            let backlotPluginPath: string | null = null
-            let backlotSkillsOption: "all" | string[] = "all"
+            let laniPluginPath: string | null = null
+            let laniSkillsOption: "all" | string[] = "all"
             let loadProjectClaudeMd = true
 
             try {
@@ -1002,22 +1002,22 @@ export const claudeRouter = router({
               if (!isUsingOllama) {
                 try {
                   const lib = await import("../../skills/library")
-                  await lib.ensureBacklotPlugin()
-                  backlotPluginPath = lib.getBacklotPluginPath()
-                  backlotSkillsOption = await lib.getSkillsOption()
+                  await lib.ensureLaniPlugin()
+                  laniPluginPath = lib.getLaniPluginPath()
+                  laniSkillsOption = await lib.getSkillsOption()
                   loadProjectClaudeMd = (
                     await lib.readPreferences()
                   ).loadProjectClaudeMd
                   console.log(
-                    `[claude] Backlot skills: ${
-                      backlotSkillsOption === "all"
+                    `[claude] Lani skills: ${
+                      laniSkillsOption === "all"
                         ? "all"
-                        : `${backlotSkillsOption.length} enabled`
+                        : `${laniSkillsOption.length} enabled`
                     }`,
                   )
                 } catch (skillErr) {
                   console.warn(
-                    "[claude] Failed to prepare Backlot skill plugin:",
+                    "[claude] Failed to prepare Lani skill plugin:",
                     skillErr,
                   )
                 }
@@ -1070,14 +1070,14 @@ export const claudeRouter = router({
                     }
                   }
 
-                  const builtinServers = getBuiltinBacklotMcpServers({
+                  const builtinServers = getBuiltinLaniMcpServers({
                     worktreeId: input.chatId,
                     cwd: input.cwd,
                   })
 
                   // Priority: project > global > plugin > built-in. Built-ins
                   // are last so a user can deliberately override them while
-                  // Backlot still ships the canvas tools by default.
+                  // Lani still ships the canvas tools by default.
                   const allServers = { ...builtinServers, ...pluginServers, ...globalServers, ...projectServers }
 
                   // Filter to only working MCPs using scoped cache keys
@@ -1111,18 +1111,18 @@ export const claudeRouter = router({
               console.error(`[claude] Failed to setup isolated config dir:`, mkdirErr)
             }
 
-            // Backlot ships trusted built-in MCP servers for app-owned
+            // Lani ships trusted built-in MCP servers for app-owned
             // surfaces: Canvas controls the database-backed visual board;
             // Harness opens the review editor instead of letting the agent
             // patch its own system prompt silently. They are present even
             // when the user has no ~/.claude.json, and user/project MCP
             // config can still override the same server names intentionally.
-            const builtinBacklotServers = getBuiltinBacklotMcpServers({
+            const builtinLaniServers = getBuiltinLaniMcpServers({
               worktreeId: input.chatId,
               cwd: input.cwd,
             })
             mcpServersForSdk = {
-              ...builtinBacklotServers,
+              ...builtinLaniServers,
               ...(mcpServersForSdk ?? {}),
             }
 
@@ -1325,16 +1325,16 @@ export const claudeRouter = router({
               })
             }
 
-            // Backlot harness — universal system-prompt block describing
+            // Lani harness — universal system-prompt block describing
             // the canonical project schema, file conventions, and how the
-            // agent should work inside Backlot. Versioned in
+            // agent should work inside Lani. Versioned in
             // src/main/lib/claude/harness-prompt.ts. Same content shipped
             // to every project; project-specific creative direction lives
             // in the project's own files (brief.md, world.md, etc.) which
             // the agent reads on demand. We deliberately do NOT read
-            // AGENTS.md or per-project CLAUDE.md here — Backlot has one
+            // AGENTS.md or per-project CLAUDE.md here — Lani has one
             // universal harness, not per-project agent docs.
-            const backlotHarnessBlock = buildBacklotHarnessBlock()
+            const laniHarnessBlock = buildLaniHarnessBlock()
 
             // Active focus — what the user has open in the app right now.
             // Composed per-turn from the renderer's active entity so the
@@ -1427,7 +1427,7 @@ ${history}
 
               // Ollama has no server-side system prompt and no SDK
               // preset — we have to embed the harness inline. Same
-              // Backlot conventions as the Claude path; tool-name
+              // Lani conventions as the Claude path; tool-name
               // reminders specific to Ollama's looser tool use.
               const ollamaContext = `[CONTEXT]
 You are operating in OFFLINE mode (Ollama model: ${resolvedModel || 'unknown'}).
@@ -1443,7 +1443,7 @@ IMPORTANT: When using tools, use these EXACT parameter names:
 - Bash: use "command"
 [/CONTEXT]
 
-${backlotHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}
+${laniHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}
 
 ${historyText}[CURRENT REQUEST]
 ${prompt}
@@ -1453,10 +1453,10 @@ ${prompt}
             }
 
             // System prompt config — Anthropic's `claude_code` preset
-            // plus the Backlot harness block (see harness-prompt.ts).
+            // plus the Lani harness block (see harness-prompt.ts).
             // The harness describes the canonical project schema,
             // file conventions, and how the agent should work inside
-            // Backlot. Same content for every project.
+            // Lani. Same content for every project.
             //
             // We deliberately removed the legacy `ensurePrimaryArtifact`
             // seed + screenplay-artifact note here: the new harness
@@ -1468,7 +1468,7 @@ ${prompt}
             const systemPromptConfig = {
               type: "preset" as const,
               preset: "claude_code" as const,
-              append: `\n\n${backlotHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}`,
+              append: `\n\n${laniHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}`,
             }
 
             const queryOptions = {
@@ -1490,16 +1490,16 @@ ${prompt}
                   allowDangerouslySkipPermissions: true,
                 }),
                 includePartialMessages: true,
-                // Skills — `~/.backlot/` is loaded as a local plugin, so
-                // the SDK discovers the Backlot skill library without any
+                // Skills — `~/.lani/` is loaded as a local plugin, so
+                // the SDK discovers the Lani skill library without any
                 // setting source. The `skills` option filters to the
                 // active set; "all" when nothing is disabled.
-                ...(!isUsingOllama && backlotPluginPath
+                ...(!isUsingOllama && laniPluginPath
                   ? {
                       plugins: [
-                        { type: "local" as const, path: backlotPluginPath },
+                        { type: "local" as const, path: laniPluginPath },
                       ],
-                      skills: backlotSkillsOption,
+                      skills: laniSkillsOption,
                     }
                   : {}),
                 // CLAUDE.md — "project" loads the project's own CLAUDE.md
@@ -1582,7 +1582,7 @@ ${prompt}
                       return {
                         behavior: "deny",
                         message:
-                          "Use the harness_open_editor MCP tool so the user can review and save harness changes in Backlot.",
+                          "Use the harness_open_editor MCP tool so the user can review and save harness changes in Lani.",
                       }
                     }
                   }

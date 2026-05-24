@@ -1,11 +1,11 @@
 "use client"
 
 /**
- * QueueSurface — Backlot's "Queue" workflow mode.
+ * QueueSurface — Lani's "Queue" workflow mode.
  *
  * A project-wide submission tracker. Prompts drafted in the Multishot
  * or Shotlist surfaces are pushed here; an external agent reads the
- * backing `queue.backlot.json`, submits each prompt to a video model
+ * backing `queue.lani.json`, submits each prompt to a video model
  * (Runway), and writes the result back — flipping `status` and bumping
  * `submissionCount`.
  *
@@ -13,7 +13,7 @@
  * ZH) is editable in place, rows drag to reorder by priority, reference
  * images add (drop) and remove, and the result clip links by dropping
  * the video onto the row. A row can be liked, noted, and archived.
- * Every one of those is a field in `queue.backlot.json`, which the
+ * Every one of those is a field in `queue.lani.json`, which the
  * `queue` router checkpoints into git — a real, time-travelable
  * history. A Raw toggle shows the underlying JSON file.
  */
@@ -71,7 +71,7 @@ const LIVE_POLL_MS = 1500
 const AUTOSAVE_MS = 600
 
 /** dataTransfer MIME for an in-app row drag — carries the dragged id. */
-const REORDER_MIME = "application/x-backlot-queue-reorder"
+const REORDER_MIME = "application/x-lani-queue-reorder"
 
 /**
  * Two CSS-grid templates the queue table swaps between as the surrounding
@@ -120,9 +120,9 @@ type EntityRoot =
   | { chatId: string; projectId?: undefined }
   | { chatId?: undefined; projectId: string }
 
-/** Stream a project file to the renderer over the backlot-asset:// scheme. */
+/** Stream a project file to the renderer over the lani-asset:// scheme. */
 function assetUrl(absPath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+  return `lani-asset://asset/?p=${encodeURIComponent(absPath)}`
 }
 
 /**
@@ -638,8 +638,8 @@ function QueueWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
               raw
                 ? "Back to the queue"
                 : filter === "archived"
-                  ? "Show the raw queue-archive.backlot.json"
-                  : "Show the raw queue.backlot.json"
+                  ? "Show the raw queue-archive.lani.json"
+                  : "Show the raw queue.lani.json"
             }
             className={cn(
               "press flex h-7 items-center gap-1.5 rounded-lg px-2",
@@ -661,8 +661,8 @@ function QueueWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
           doc={filter === "archived" ? archiveDoc : doc}
           filename={
             filter === "archived"
-              ? "queue-archive.backlot.json"
-              : "queue.backlot.json"
+              ? "queue-archive.lani.json"
+              : "queue.lani.json"
           }
         />
       ) : empty ? (
@@ -677,7 +677,7 @@ function QueueWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
           }
           message={
             filter === "archived"
-              ? "Archive a submission from its ⋯ menu — it moves to queue-archive.backlot.json, kept as history you can always restore."
+              ? "Archive a submission from its ⋯ menu — it moves to queue-archive.lani.json, kept as history you can always restore."
               : "Switch the filter to see the rest of the queue."
           }
         />
@@ -793,7 +793,7 @@ function QueueWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
   )
 }
 
-// ── Raw view — the underlying queue.backlot.json ──────────────────────────
+// ── Raw view — the underlying queue.lani.json ──────────────────────────
 
 function RawQueueView({
   doc,

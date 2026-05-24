@@ -11,7 +11,7 @@ export interface WorktreeConfig {
   "setup-worktree"?: string[] | string
 }
 
-export type WorktreeConfigSource = "custom" | "cursor" | "backlot" | null
+export type WorktreeConfigSource = "custom" | "cursor" | "lani" | null
 
 export interface DetectedWorktreeConfig {
   config: WorktreeConfig | null
@@ -20,7 +20,7 @@ export interface DetectedWorktreeConfig {
 }
 
 const CURSOR_CONFIG_PATH = ".cursor/worktrees.json"
-const BACKLOT_CONFIG_PATH = ".backlot/worktree.json"
+const LANI_CONFIG_PATH = ".lani/worktree.json"
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -42,7 +42,7 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 
 /**
  * Detect worktree config for a project
- * Priority: custom path > .cursor/worktrees.json > .backlot/worktree.json
+ * Priority: custom path > .cursor/worktrees.json > .lani/worktree.json
  */
 export async function detectWorktreeConfig(
   projectPath: string,
@@ -68,12 +68,12 @@ export async function detectWorktreeConfig(
     }
   }
 
-  // 3. Check .backlot/worktree.json
-  const onecodePath = join(projectPath, BACKLOT_CONFIG_PATH)
+  // 3. Check .lani/worktree.json
+  const onecodePath = join(projectPath, LANI_CONFIG_PATH)
   if (await fileExists(onecodePath)) {
     const config = await readJsonFile<WorktreeConfig>(onecodePath)
     if (config) {
-      return { config, path: onecodePath, source: "backlot" }
+      return { config, path: onecodePath, source: "lani" }
     }
   }
 
@@ -91,7 +91,7 @@ export async function getAvailableConfigPaths(
   onecode: { exists: boolean; path: string }
 }> {
   const cursorPath = join(projectPath, CURSOR_CONFIG_PATH)
-  const onecodePath = join(projectPath, BACKLOT_CONFIG_PATH)
+  const onecodePath = join(projectPath, LANI_CONFIG_PATH)
 
   return {
     cursor: {
@@ -112,14 +112,14 @@ export async function getAvailableConfigPaths(
 export async function saveWorktreeConfig(
   projectPath: string,
   config: WorktreeConfig,
-  target: "cursor" | "backlot" | string = "backlot",
+  target: "cursor" | "lani" | string = "lani",
 ): Promise<{ success: boolean; path: string; error?: string }> {
   let targetPath: string
 
   if (target === "cursor") {
     targetPath = join(projectPath, CURSOR_CONFIG_PATH)
-  } else if (target === "backlot") {
-    targetPath = join(projectPath, BACKLOT_CONFIG_PATH)
+  } else if (target === "lani") {
+    targetPath = join(projectPath, LANI_CONFIG_PATH)
   } else {
     // Custom path
     targetPath = isAbsolute(target) ? target : join(projectPath, target)

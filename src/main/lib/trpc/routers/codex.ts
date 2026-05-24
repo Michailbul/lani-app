@@ -26,7 +26,7 @@ import {
   buildCodexAgentBridge,
   buildCodexAgentMentionInstruction,
 } from "../../codex/agents"
-import { buildActiveFocusBlock, buildBacklotHarnessBlock } from "../../claude/harness-prompt"
+import { buildActiveFocusBlock, buildLaniHarnessBlock } from "../../claude/harness-prompt"
 import { HARNESS_FOCUS_REQUEST_PATH } from "../../harness/focus-request"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { parseMentions } from "../../agent-mentions"
@@ -39,11 +39,11 @@ import {
 } from "../../mcp-auth"
 import { CodexAppServerClient, type CodexAppServerIncomingNotification, type CodexAppServerIncomingRequest } from "../../codex/app-server-client"
 import {
-  BACKLOT_PLUGIN_NAME,
-  ensureBacklotPlugin,
-  getBacklotCodexPluginKey,
-  getBacklotPluginPath,
-  listBacklotSkills,
+  LANI_PLUGIN_NAME,
+  ensureLaniPlugin,
+  getLaniCodexPluginKey,
+  getLaniPluginPath,
+  listLaniSkills,
 } from "../../skills/library"
 import { publicProcedure, router } from "../index"
 
@@ -126,9 +126,9 @@ function getBuiltinCanvasMcpServerForCodex(input: {
     : join(__dirname, "../../mcp/canvas/index.mjs")
 
   return {
-    name: "backlot-canvas",
+    name: "lani-canvas",
     type: "stdio",
-    command: process.env.BACKLOT_NODE_PATH || process.execPath,
+    command: process.env.LANI_NODE_PATH || process.execPath,
     args: [serverPath],
     env: [
       { name: "ELECTRON_RUN_AS_NODE", value: "1" },
@@ -140,18 +140,18 @@ function getBuiltinCanvasMcpServerForCodex(input: {
             },
           ]
         : []),
-      { name: "BACKLOT_DB_PATH", value: getDatabasePath() },
-      { name: "BACKLOT_CANVAS_WORKTREE_ID", value: input.worktreeId },
-      { name: "BACKLOT_CANVAS_CHAT_ID", value: input.worktreeId },
-      { name: "BACKLOT_WORKTREE_PATH", value: input.cwd },
+      { name: "LANI_DB_PATH", value: getDatabasePath() },
+      { name: "LANI_CANVAS_WORKTREE_ID", value: input.worktreeId },
+      { name: "LANI_CANVAS_CHAT_ID", value: input.worktreeId },
+      { name: "LANI_WORKTREE_PATH", value: input.cwd },
       ...(process.env.OPENAI_API_KEY
         ? [{ name: "OPENAI_API_KEY", value: process.env.OPENAI_API_KEY }]
         : []),
-      ...(process.env.BACKLOT_CANVAS_IMAGE_MODEL
+      ...(process.env.LANI_CANVAS_IMAGE_MODEL
         ? [
             {
-              name: "BACKLOT_CANVAS_IMAGE_MODEL",
-              value: process.env.BACKLOT_CANVAS_IMAGE_MODEL,
+              name: "LANI_CANVAS_IMAGE_MODEL",
+              value: process.env.LANI_CANVAS_IMAGE_MODEL,
             },
           ]
         : []),
@@ -165,9 +165,9 @@ function getBuiltinHarnessMcpServerForCodex(): CodexMcpServerForSession {
     : join(__dirname, "../../mcp/harness/index.mjs")
 
   return {
-    name: "backlot-harness",
+    name: "lani-harness",
     type: "stdio",
-    command: process.env.BACKLOT_NODE_PATH || process.execPath,
+    command: process.env.LANI_NODE_PATH || process.execPath,
     args: [serverPath],
     env: [
       { name: "ELECTRON_RUN_AS_NODE", value: "1" },
@@ -180,7 +180,7 @@ function getBuiltinHarnessMcpServerForCodex(): CodexMcpServerForSession {
           ]
         : []),
       {
-        name: "BACKLOT_HARNESS_REQUEST_PATH",
+        name: "LANI_HARNESS_REQUEST_PATH",
         value: HARNESS_FOCUS_REQUEST_PATH,
       },
     ],
@@ -193,7 +193,7 @@ function getBuiltinCodexMcpServers(input: {
   resolvedNames: Set<string>
 }): CodexMcpServerForSession[] {
   const servers: CodexMcpServerForSession[] = []
-  if (!input.resolvedNames.has("backlot-canvas")) {
+  if (!input.resolvedNames.has("lani-canvas")) {
     servers.push(
       getBuiltinCanvasMcpServerForCodex({
         worktreeId: input.worktreeId,
@@ -201,7 +201,7 @@ function getBuiltinCodexMcpServers(input: {
       }),
     )
   }
-  if (!input.resolvedNames.has("backlot-harness")) {
+  if (!input.resolvedNames.has("lani-harness")) {
     servers.push(getBuiltinHarnessMcpServerForCodex())
   }
   return servers
@@ -251,7 +251,7 @@ let appServerRuntime: CodexAppServerRuntime | null = null
 let didInstallAppQuitHook = false
 
 function getCodexRuntimeId(): CodexRuntimeId {
-  return process.env.BACKLOT_CODEX_RUNTIME === "app-server"
+  return process.env.LANI_CODEX_RUNTIME === "app-server"
     ? "app-server"
     : "acp"
 }
@@ -600,10 +600,10 @@ function findCodexOnPath(env: Record<string, string>): string | null {
 function resolveInstalledCodexCliPath(): string | null {
   const env = buildCodexBaseEnv()
   const explicitCandidates = [
-    process.env.BACKLOT_CODEX_EXECUTABLE,
+    process.env.LANI_CODEX_EXECUTABLE,
     process.env.CODEX_EXECUTABLE,
     process.env.CODEX_CLI_PATH,
-    env.BACKLOT_CODEX_EXECUTABLE,
+    env.LANI_CODEX_EXECUTABLE,
     env.CODEX_EXECUTABLE,
     env.CODEX_CLI_PATH,
   ]
@@ -1553,11 +1553,11 @@ function buildLocalHistoryContext(messages: any[], currentPrompt: string): strin
     body = `...(earlier inherited messages truncated)...\n\n${body.slice(-12000)}`
   }
 
-  return `[INHERITED BACKLOT CODEX THREAD CONTEXT]
+  return `[INHERITED LANI CODEX THREAD CONTEXT]
 This thread was restored without a Codex session to resume. Use this local transcript as context, but treat the current request as authoritative.
 
 ${body}
-[/INHERITED BACKLOT CODEX THREAD CONTEXT]
+[/INHERITED LANI CODEX THREAD CONTEXT]
 
 `
 }
@@ -1671,8 +1671,8 @@ async function getOrCreateCodexAppServerRuntime(params: {
 
   await client.request("initialize", {
     clientInfo: {
-      name: "backlot",
-      title: "Backlot",
+      name: "lani",
+      title: "Lani",
       version: app.getVersion(),
     },
     capabilities: {
@@ -1765,21 +1765,21 @@ function codexMcpServersToConfig(
   return config
 }
 
-async function resolveCodexBacklotSkills(skillMentions: string[]): Promise<{
+async function resolveCodexLaniSkills(skillMentions: string[]): Promise<{
   allSkillNames: string[]
   enabledSkillNames: string[]
   mentionedInputs: Array<{ type: "skill"; name: string; path: string }>
   disabledSkillConfig: Array<{ path: string; enabled: false }>
   fingerprint: string
 }> {
-  await ensureBacklotPlugin()
-  const skills = await listBacklotSkills()
+  await ensureLaniPlugin()
+  const skills = await listLaniSkills()
   const byName = new Map<string, (typeof skills)[number]>()
   for (const skill of skills) {
     byName.set(skill.slug.toLowerCase(), skill)
     byName.set(skill.name.toLowerCase(), skill)
-    byName.set(`${BACKLOT_PLUGIN_NAME}:${skill.slug}`.toLowerCase(), skill)
-    byName.set(`backlot:${skill.name}`.toLowerCase(), skill)
+    byName.set(`${LANI_PLUGIN_NAME}:${skill.slug}`.toLowerCase(), skill)
+    byName.set(`lani:${skill.name}`.toLowerCase(), skill)
   }
 
   const mentionedInputs: Array<{ type: "skill"; name: string; path: string }> = []
@@ -1833,13 +1833,13 @@ function buildCodexAppServerConfig(params: {
       plugins: true,
     },
     marketplaces: {
-      backlot: {
+      lani: {
         source_type: "local",
-        source: getBacklotPluginPath(),
+        source: getLaniPluginPath(),
       },
     },
     plugins: {
-      [getBacklotCodexPluginKey()]: {
+      [getLaniCodexPluginKey()]: {
         enabled: true,
       },
     },
@@ -2511,8 +2511,8 @@ function createCodexAppServerSubscription(input: any, emit: any) {
       }
 
       const parsedMentions = parseMentions(input.prompt)
-      const [backlotSkills, codexAgents] = await Promise.all([
-        resolveCodexBacklotSkills(parsedMentions.skillMentions),
+      const [laniSkills, codexAgents] = await Promise.all([
+        resolveCodexLaniSkills(parsedMentions.skillMentions),
         buildCodexAgentBridge({
           cwd: input.cwd,
           mentionedAgentNames: parsedMentions.agentMentions,
@@ -2551,16 +2551,16 @@ function createCodexAppServerSubscription(input: any, emit: any) {
       ]
       const appServerConfig = buildCodexAppServerConfig({
         mcpServers: sessionMcpServers,
-        disabledSkills: backlotSkills.disabledSkillConfig,
+        disabledSkills: laniSkills.disabledSkillConfig,
         agents: codexAgents.appServerConfig,
       })
-      const backlotHarnessBlock = buildBacklotHarnessBlock()
+      const laniHarnessBlock = buildLaniHarnessBlock()
       threadConfigFingerprint = createHash("sha256")
         .update(
           JSON.stringify({
-            harness: backlotHarnessBlock,
+            harness: laniHarnessBlock,
             mcp: getCodexMcpFingerprint(sessionMcpServers),
-            skills: backlotSkills.fingerprint,
+            skills: laniSkills.fingerprint,
             agents: codexAgents.fingerprint,
             config: appServerConfig,
           }),
@@ -2583,8 +2583,8 @@ function createCodexAppServerSubscription(input: any, emit: any) {
           name: server.name,
           status: "connected",
         })),
-        plugins: [{ name: BACKLOT_PLUGIN_NAME, path: getBacklotPluginPath() }],
-        skills: backlotSkills.enabledSkillNames,
+        plugins: [{ name: LANI_PLUGIN_NAME, path: getLaniPluginPath() }],
+        skills: laniSkills.enabledSkillNames,
         agents: codexAgents.registeredNames,
         models: runtime.models,
         account: runtime.account,
@@ -2611,7 +2611,7 @@ function createCodexAppServerSubscription(input: any, emit: any) {
       })
       if (agentMentionInstruction) {
         promptForModel = `${agentMentionInstruction}\n\n${
-          promptForModel || "Run the requested Backlot agent delegation."
+          promptForModel || "Run the requested Lani agent delegation."
         }`
       }
       if (!canReuseThread && existingMessages.length > 0) {
@@ -2645,11 +2645,11 @@ function createCodexAppServerSubscription(input: any, emit: any) {
             approvalPolicy: "never",
             sandbox: sandbox.threadSandbox,
             config: appServerConfig,
-            serviceName: "backlot",
+            serviceName: "lani",
             developerInstructions:
               input.mode === "plan"
-                ? `${backlotHarnessBlock}\n\nStay in planning mode. Do not edit files or run mutating commands.`
-                : backlotHarnessBlock,
+                ? `${laniHarnessBlock}\n\nStay in planning mode. Do not edit files or run mutating commands.`
+                : laniHarnessBlock,
             ephemeral: false,
             sessionStartSource: "startup",
           },
@@ -2718,7 +2718,7 @@ function createCodexAppServerSubscription(input: any, emit: any) {
       })
 
       const userInput: any[] = [
-        ...backlotSkills.mentionedInputs,
+        ...laniSkills.mentionedInputs,
         {
           type: "text",
           text: promptForModel,
@@ -3428,7 +3428,7 @@ export const codexRouter = router({
             })
             if (agentMentionInstruction) {
               promptForModel = `${agentMentionInstruction}\n\n${
-                promptForModel || "Run the requested Backlot agent delegation."
+                promptForModel || "Run the requested Lani agent delegation."
               }`
             }
             if (!latestSessionId && existingMessages.length > 0) {
@@ -3455,13 +3455,13 @@ export const codexRouter = router({
               return usagePromise
             }
 
-            const backlotHarnessBlock = buildBacklotHarnessBlock()
+            const laniHarnessBlock = buildLaniHarnessBlock()
             const activeFocusBlock = buildActiveFocusBlock(
               input.activeFocus ?? null,
             )
             const systemWithFocus = activeFocusBlock
-              ? `${backlotHarnessBlock}\n\n${activeFocusBlock}`
-              : backlotHarnessBlock
+              ? `${laniHarnessBlock}\n\n${activeFocusBlock}`
+              : laniHarnessBlock
 
             const result = streamText({
               model: provider.languageModel(selectedModelId),

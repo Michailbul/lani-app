@@ -939,7 +939,7 @@ export async function createWorktreeForChat(
 				success: false,
 				error:
 					`Project path is inside a parent git repo, not an exact repo root: ${projectPath}. ` +
-					`Import or normalize it into Backlot before creating worktrees.`,
+					`Import or normalize it into Lani before creating worktrees.`,
 			};
 		}
 
@@ -947,7 +947,7 @@ export async function createWorktreeForChat(
 		const baseBranch = selectedBaseBranch || await getDefaultBranch(projectPath);
 
 		const branch = generateBranchName();
-		const worktreesDir = join(homedir(), ".backlot", "worktrees");
+		const worktreesDir = join(homedir(), ".lani", "worktrees");
 		const projectWorktreeDir = join(worktreesDir, projectSlug);
 		const folderName = generateWorktreeFolderName(projectWorktreeDir);
 		const worktreePath = join(projectWorktreeDir, folderName);

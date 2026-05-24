@@ -19,6 +19,7 @@ import {
   setupFocusUpdateCheck,
 } from "./lib/auto-updater"
 import { closeDatabase, initDatabase } from "./lib/db"
+import { runBacklotToLaniMigration } from "./lib/migration/backlot-to-lani"
 import {
   getLaunchDirectory,
   isCliInstalled,
@@ -46,7 +47,7 @@ import { IS_DEV, AUTH_SERVER_PORT } from "./constants"
 // Use different protocol in dev to avoid conflicts with production app
 const PROTOCOL = IS_DEV ? "twentyfirst-agents-dev" : "twentyfirst-agents"
 
-// Register the backlot-asset:// media scheme as privileged. This MUST
+// Register the lani-asset:// media scheme as privileged. This MUST
 // happen before the app `ready` event, so it runs here at module load.
 registerAssetScheme()
 
@@ -100,9 +101,9 @@ export function getAuthManager(): AuthManager {
   return getAuthManagerFromModule() || authManager
 }
 
-// ─── Backlot: Anthropic-direct credential watcher ───────────────────────────
+// ─── Lani: Anthropic-direct credential watcher ───────────────────────────
 //
-// Backlot does not run its own auth backend. "Signed in" = "the bundled Claude
+// Lani does not run its own auth backend. "Signed in" = "the bundled Claude
 // binary has written credentials to the OS keychain (via `claude /login`)."
 // While the login window is up we poll auth-manager.isAuthenticated() (which
 // reads the keychain on every call) and, on the false→true transition,
@@ -383,7 +384,7 @@ const server = createServer((req, res) => {
 <head>
   <meta charset="UTF-8">
   <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
-  <title>Backlot — Authentication</title>
+  <title>Lani — Authentication</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -467,7 +468,7 @@ const server = createServer((req, res) => {
 <head>
   <meta charset="UTF-8">
   <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
-  <title>Backlot — MCP Authentication</title>
+  <title>Lani — MCP Authentication</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -644,10 +645,10 @@ if (gotTheLock) {
 
     // Set app user model ID for Windows (different in dev to avoid taskbar conflicts)
     if (process.platform === "win32") {
-      app.setAppUserModelId(IS_DEV ? "studio.laniameda.backlot.dev" : "studio.laniameda.backlot")
+      app.setAppUserModelId(IS_DEV ? "studio.laniameda.lani.dev" : "studio.laniameda.lani")
     }
 
-    console.log(`[App] Starting Backlot${IS_DEV ? " (DEV)" : ""}...`)
+    console.log(`[App] Starting Lani${IS_DEV ? " (DEV)" : ""}...`)
 
     // Verify protocol registration after app is ready
     // This helps diagnose first-install issues where the protocol isn't recognized yet
@@ -671,7 +672,7 @@ if (gotTheLock) {
 
     // Set About panel options with Claude Code version
     app.setAboutPanelOptions({
-      applicationName: "Backlot",
+      applicationName: "Lani",
       applicationVersion: app.getVersion(),
       version: `Claude Code ${claudeCodeVersion}`,
       copyright: "Copyright © 2026 Michael Buloichyk · Laniameda Studio",
@@ -691,7 +692,7 @@ if (gotTheLock) {
         {
           label: app.name,
           submenu: [
-            { role: "about", label: "About Backlot" },
+            { role: "about", label: "About Lani" },
             {
               label: updateAvailable
                 ? `Update to v${availableVersion}...`
@@ -713,8 +714,8 @@ if (gotTheLock) {
             { type: "separator" },
             {
               label: isCliInstalled()
-                ? "Uninstall 'backlot' Command..."
-                : "Install 'backlot' Command in PATH...",
+                ? "Uninstall 'lani' Command..."
+                : "Install 'lani' Command in PATH...",
               click: async () => {
                 const { dialog } = await import("electron")
                 if (isCliInstalled()) {
@@ -723,7 +724,7 @@ if (gotTheLock) {
                     dialog.showMessageBox({
                       type: "info",
                       message: "CLI command uninstalled",
-                      detail: "The 'backlot' command has been removed from your PATH.",
+                      detail: "The 'lani' command has been removed from your PATH.",
                     })
                     buildMenu()
                   } else {
@@ -736,7 +737,7 @@ if (gotTheLock) {
                       type: "info",
                       message: "CLI command installed",
                       detail:
-                        "You can now use 'backlot .' in any terminal to open Backlot in that directory.",
+                        "You can now use 'lani .' in any terminal to open Lani in that directory.",
                     })
                     buildMenu()
                   } else {
@@ -899,9 +900,9 @@ if (gotTheLock) {
         console.log("[Analytics] User identified from saved session:", user.id)
       }
     } else {
-      // Backlot: poll for Claude credentials in the background. If the user
+      // Lani: poll for Claude credentials in the background. If the user
       // already ran `claude /login` in a terminal — or runs it later from
-      // outside the app — Backlot detects the keychain entry and reloads
+      // outside the app — Lani detects the keychain entry and reloads
       // straight into the workspace.
       startClaudeCredentialPolling()
     }
@@ -930,6 +931,16 @@ if (gotTheLock) {
         console.error("[Auth] Failed to update cookie:", err)
       }
     })
+
+    // One-shot rename of legacy ~/.backlot → ~/.lani and its
+    // *.backlot.json file suffixes. Idempotent via a marker file.
+    // Must run before initDatabase() so the new path is in place when
+    // any data-dir consumer wakes up.
+    try {
+      runBacklotToLaniMigration()
+    } catch (error) {
+      console.error("[App] backlot-to-lani migration failed:", error)
+    }
 
     // Initialize database
     try {
@@ -964,16 +975,16 @@ if (gotTheLock) {
       }
     }, 3000)
 
-    // Seed the Backlot skill library (~/.backlot/skills/) from the
+    // Seed the Lani skill library (~/.lani/skills/) from the
     // bundled factory skills, and set up the plugin manifest. Idempotent
     // — runs in the background so a fresh install has its skills ready
     // before the user opens Settings or starts a chat.
     setTimeout(async () => {
       try {
-        const { ensureBacklotPlugin } = await import("./lib/skills/library")
-        await ensureBacklotPlugin()
+        const { ensureLaniPlugin } = await import("./lib/skills/library")
+        await ensureLaniPlugin()
       } catch (error) {
-        console.error("[App] Backlot skill seeding failed:", error)
+        console.error("[App] Lani skill seeding failed:", error)
       }
     }, 1000)
 

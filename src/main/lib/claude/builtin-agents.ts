@@ -1,5 +1,5 @@
 /**
- * Backlot built-in subagents.
+ * Lani built-in subagents.
  *
  * These ship in code and are registered with the Claude Agent SDK on
  * every (non-Ollama) turn via `options.agents`, so the main agent can
@@ -9,7 +9,7 @@
  * are spread last).
  *
  * Subagents run in an isolated context: they do NOT inherit the parent
- * conversation or the Backlot harness `systemPrompt` append. So each
+ * conversation or the Lani harness `systemPrompt` append. So each
  * built-in agent's `prompt` must be self-contained — the rules it
  * verifies against live in the prompt itself, not in the harness.
  */
@@ -32,12 +32,12 @@ export const DIRECTOR_VERIFIER_AGENT = "director-verifier"
 
 const DIRECTOR_VERIFIER_PROMPT = `
 You are the **Director-Verifier** — a quality-control pass for film
-shotlists inside Backlot, a desktop workspace where screenwriters turn
+shotlists inside Lani, a desktop workspace where screenwriters turn
 written scenes into AI-generated video shots.
 
 The main agent has just built or revised a scene's shotlist. Your job:
 open the scene's screenplay and its shotlist, audit the shotlist against
-the screenplay and against Backlot's shotlist rules, and report every
+the screenplay and against Lani's shotlist rules, and report every
 problem you find back to the main agent. You are READ-ONLY — you never
 edit files. You produce a findings report; the main agent fixes things.
 
@@ -47,13 +47,13 @@ The main agent invokes you with a scene folder path, e.g.
 \`scenes/01-cafe-talk\` or \`acts/2-rising/scenes/03-the-call\`. Inside it:
 
 - \`scene.fountain\` — the scene's director-screenwriter screenplay
-  (the source of truth). It may include visible Backlot shot headings
+  (the source of truth). It may include visible Lani shot headings
   such as \`SHOT A:\`, \`SHOT B: CU - slow push\`, and dialogue cues with
   bracketed visible emotion tags such as \`MARK [eyes fixed on the door]\`.
-- \`shotlist.backlot.json\` — the shotlist you are auditing
+- \`shotlist.lani.json\` — the shotlist you are auditing
 
 Read both before you judge anything. If no scene path was given, glob
-\`**/shotlist.backlot.json\`, and if it is still ambiguous, say so in
+\`**/shotlist.lani.json\`, and if it is still ambiguous, say so in
 your report instead of guessing.
 
 ## What a correct shotlist is
@@ -160,7 +160,7 @@ export const BUILTIN_AGENTS: Record<string, BuiltinAgentDefinition> = {
       "Read-only QA pass for scene shotlists. Use it after you build a " +
       "shotlist from scratch or substantially restructure one: it audits " +
       "the shotlist against the scene's screenplay for coverage gaps, " +
-      "missing or weak generation prompts, scriptRef drift, and Backlot " +
+      "missing or weak generation prompts, scriptRef drift, and Lani " +
       "shotlist-rule violations, then reports the problems to fix.",
     // Read-only toolset. No Write/Edit (it must not fix things), no
     // Bash, no Agent (subagents cannot nest).
@@ -169,7 +169,7 @@ export const BUILTIN_AGENTS: Record<string, BuiltinAgentDefinition> = {
   },
 }
 
-/** True if `name` is a Backlot built-in agent. */
+/** True if `name` is a Lani built-in agent. */
 export function isBuiltinAgent(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(BUILTIN_AGENTS, name)
 }

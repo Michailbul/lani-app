@@ -39,14 +39,14 @@ export const threadCreateRequestAtom = atom<{
 // Reset to null when "New Workspace" is clicked or chat is created
 export const selectedDraftIdAtom = atom<string | null>(null)
 
-// Show new chat form explicitly. False by default in Backlot — a project's
+// Show new chat form explicitly. False by default in Lani — a project's
 // natural landing is the ProjectHomeView (recent chats + "Start a new chat"
 // CTA), NOT a forced "What do you want to get done?" form. The form is opened
 // explicitly: by clicking the sidebar's "New Project" button, by the new-chat
 // hotkey, or by ProjectHomeView's primary action.
 //
 // Upstream defaulted this to `true` so cold-start landed in the form
-// instead of the (then-default) kanban view. Backlot inherits that wiring
+// instead of the (then-default) kanban view. Lani inherits that wiring
 // but routes the cold-start case differently — see agents-content.tsx.
 export const showNewChatFormAtom = atom<boolean>(false)
 

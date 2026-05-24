@@ -1,12 +1,12 @@
 /**
- * backlot-asset:// — a local streaming protocol for previewing media.
+ * lani-asset:// — a local streaming protocol for previewing media.
  *
  * The renderer can't load `file://` URLs (webSecurity is on), and piping
  * a 40 MB video through tRPC as base64 would buffer the whole clip in
  * memory. This privileged scheme streams a file straight off disk with
  * HTTP range support, so video scrubbing seeks instead of re-loading.
  *
- * URL shape: `backlot-asset://asset/?p=<encodeURIComponent(absolutePath)>`
+ * URL shape: `lani-asset://asset/?p=<encodeURIComponent(absolutePath)>`
  */
 
 import { createReadStream, existsSync } from "node:fs"
@@ -20,7 +20,7 @@ type AssetProtocolRegistry = Pick<
   "handle" | "isProtocolHandled"
 >
 
-export const ASSET_SCHEME = "backlot-asset"
+export const ASSET_SCHEME = "lani-asset"
 
 const MIME_BY_EXT: Record<string, string> = {
   ".mp4": "video/mp4",

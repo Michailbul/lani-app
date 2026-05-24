@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Backlot — Skill System · Implementation Spec</title>
+<title>Lani — Skill System · Implementation Spec</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -105,15 +105,15 @@
 <body>
 <div class="wrap">
 
-  <span class="kicker">Backlot · Skill System · Final Spec — 2026-05-17</span>
+  <span class="kicker">Lani · Skill System · Final Spec — 2026-05-17</span>
   <h1>Skill system —<br><span class="a">build spec</span></h1>
   <p class="lede">Decisions locked. This is what gets built: how skills are
     stored, shipped, chosen on the Settings page, passed to the agent, and
     created by the agent.</p>
 
   <div class="model">
-    <b>The model.</b> One directory — <code>~/.backlot/skills/</code> — holds
-    every skill the Backlot agent can use, one folder each. <code>~/.backlot/</code>
+    <b>The model.</b> One directory — <code>~/.lani/skills/</code> — holds
+    every skill the Lani agent can use, one folder each. <code>~/.lani/</code>
     is registered with the SDK as a <b>local plugin</b>, so skill discovery is
     independent of <code>settingSources</code>. The user controls which skills
     are active in Settings; the agent creates and edits skills through a reviewed
@@ -137,30 +137,30 @@
     <h2>Decisions</h2>
     <table>
       <tr><th>Topic</th><th>Decision</th></tr>
-      <tr><td>Library</td><td>One global <code>~/.backlot/skills/</code>; one active set across all projects.</td></tr>
-      <tr><td>Loading</td><td><code>~/.backlot/</code> is a local plugin (<code>plugins</code> option). Not <code>settingSources</code>.</td></tr>
+      <tr><td>Library</td><td>One global <code>~/.lani/skills/</code>; one active set across all projects.</td></tr>
+      <tr><td>Loading</td><td><code>~/.lani/</code> is a local plugin (<code>plugins</code> option). Not <code>settingSources</code>.</td></tr>
       <tr><td>Factory skills</td><td>Bundled in the app; seed the directory on first launch.</td></tr>
       <tr><td>App update</td><td>Copy <em class="em">new</em> factory skills; refresh <em class="em">unmodified</em> ones; never touch edited ones.</td></tr>
-      <tr><td>Import (<code>.claude</code> &rarr; <code>.backlot</code>)</td><td><strong>Symlink</strong> — one shared file, edits stay consistent across tools.</td></tr>
+      <tr><td>Import (<code>.claude</code> &rarr; <code>.lani</code>)</td><td><strong>Symlink</strong> — one shared file, edits stay consistent across tools.</td></tr>
       <tr><td>On / off</td><td>A <code>skills-disabled.json</code> off-set; active set passed to the SDK <code>skills</code> option.</td></tr>
       <tr><td>Editing</td><td><strong>Reviewed</strong> — every skill change goes through the <code>propose_skill_change</code> diff. The skills-gate enforces it.</td></tr>
-      <tr><td>Skill Workbench</td><td>Kept — repointed from the registry to <code>~/.backlot/skills/</code>.</td></tr>
+      <tr><td>Skill Workbench</td><td>Kept — repointed from the registry to <code>~/.lani/skills/</code>.</td></tr>
       <tr><td>Grouping</td><td>Flat alphabetical list in Settings and the Workbench.</td></tr>
       <tr><td>CLAUDE.md</td><td><code>"user"</code> dropped (the leak). <code>"project"</code> behind a toggle, default ON.</td></tr>
-      <tr><td>Codex</td><td>Codex loads the same <code>~/.backlot/skills/</code> library through Codex's plugin/marketplace mechanism — the Settings toggles govern both agents.</td></tr>
-      <tr><td>Removed</td><td><code>BACKLOT_SKILL_REGISTRY</code>, the old <code>skills-preset.json</code>.</td></tr>
+      <tr><td>Codex</td><td>Codex loads the same <code>~/.lani/skills/</code> library through Codex's plugin/marketplace mechanism — the Settings toggles govern both agents.</td></tr>
+      <tr><td>Removed</td><td><code>LANI_SKILL_REGISTRY</code>, the old <code>skills-preset.json</code>.</td></tr>
     </table>
 
     <h3>Copy vs. symlink — the rule</h3>
     <table>
       <tr><th>Movement</th><th>Method</th><th>Real file lives in</th></tr>
-      <tr><td>Factory &rarr; <code>~/.backlot/skills/</code></td><td>Copy (from app bundle)</td><td><code>~/.backlot</code> — Backlot-local</td></tr>
-      <tr><td>Import: <code>~/.claude</code>/<code>~/.agents</code> &rarr; <code>~/.backlot</code></td><td>Symlink</td><td><code>~/.claude</code> — shared</td></tr>
-      <tr><td>Agent creates new skill</td><td>Real in <code>~/.backlot</code> + symlink into <code>~/.claude</code></td><td><code>~/.backlot</code> — shared</td></tr>
+      <tr><td>Factory &rarr; <code>~/.lani/skills/</code></td><td>Copy (from app bundle)</td><td><code>~/.lani</code> — Lani-local</td></tr>
+      <tr><td>Import: <code>~/.claude</code>/<code>~/.agents</code> &rarr; <code>~/.lani</code></td><td>Symlink</td><td><code>~/.claude</code> — shared</td></tr>
+      <tr><td>Agent creates new skill</td><td>Real in <code>~/.lani</code> + symlink into <code>~/.claude</code></td><td><code>~/.lani</code> — shared</td></tr>
     </table>
     <p class="sub">Imported and agent-created skills are one file reachable from
       both directories — edits stay consistent everywhere. Factory skills are
-      Backlot-local copies (they have no <code>~/.claude</code> origin). Reviewed
+      Lani-local copies (they have no <code>~/.claude</code> origin). Reviewed
       editing is what makes the shared-file model safe: no change lands without
       your approval.</p>
   </section>
@@ -169,9 +169,9 @@
   <section id="factory">
     <span class="tag">A</span>
     <h2>What the factory skills are</h2>
-    <p>Factory skills are the curated set <strong>shipped inside the Backlot
+    <p>Factory skills are the curated set <strong>shipped inside the Lani
       app</strong>, in <code>resources/skills/</code>. On first launch they are
-      copied into <code>~/.backlot/skills/</code> as real, editable folders. They
+      copied into <code>~/.lani/skills/</code> as real, editable folders. They
       are the baseline every install starts with — no download, no dependency on
       the user's existing library.</p>
 
@@ -199,11 +199,11 @@
     </div>
     <div class="cat">Screenwriting</div>
     <div class="skills"><div>screenwriter</div></div>
-    <div class="cat">Skill authoring — Backlot-adapted</div>
+    <div class="cat">Skill authoring — Lani-adapted</div>
     <div class="skills">
       <div class="new">skill-creator <span style="color:var(--faint)">(adapted)</span></div>
     </div>
-    <p class="sub">22 curated skills + a <strong>Backlot-adapted
+    <p class="sub">22 curated skills + a <strong>Lani-adapted
       <code>skill-creator</code></strong> (see §Harness). On an app update, new
       factory skills are added; factory skills the user/agent hasn't modified are
       refreshed to the shipped version; modified ones are left untouched.</p>
@@ -219,13 +219,13 @@
     <div class="flow">
       <div class="fnode">
         <div class="fh">Library</div>
-        <div class="fb">~/.backlot/skills/</div>
+        <div class="fb">~/.lani/skills/</div>
         <div class="fn">Every skill, one folder each.</div>
       </div>
       <div class="farr">&rarr;</div>
       <div class="fnode">
         <div class="fh">Plugin</div>
-        <div class="fb">plugins:[{type:"local",<br>path:"~/.backlot"}]</div>
+        <div class="fb">plugins:[{type:"local",<br>path:"~/.lani"}]</div>
         <div class="fn">SDK discovers all skills here.</div>
       </div>
       <div class="farr">&rarr;</div>
@@ -240,17 +240,17 @@
 query({
   options: {
     cwd: <span class="s">"&lt;the project worktree&gt;"</span>,          <span class="c">// what the agent edits</span>
-    plugins: [{ type: <span class="s">"local"</span>, path: <span class="s">"~/.backlot"</span> }],   <span class="c">// skill source</span>
-    skills: disabledEmpty ? <span class="s">"all"</span> : enabledNames,  <span class="c">// backlot:&lt;slug&gt;</span>
+    plugins: [{ type: <span class="s">"local"</span>, path: <span class="s">"~/.lani"</span> }],   <span class="c">// skill source</span>
+    skills: disabledEmpty ? <span class="s">"all"</span> : enabledNames,  <span class="c">// lani:&lt;slug&gt;</span>
     settingSources: loadProjectClaudeMd ? [<span class="s">"project"</span>] : [],
     systemPrompt: { type:<span class="s">"preset"</span>, preset:<span class="s">"claude_code"</span>,
-                    append: backlotHarness },
+                    append: laniHarness },
   }
 })</pre>
 
     <ul>
-      <li><strong>Discovery</strong> — the <code>plugins</code> option loads every skill in <code>~/.backlot/skills/</code>. Independent of <code>settingSources</code>.</li>
-      <li><strong>Enabling</strong> — <code>skills</code> carries the active set (all minus the disabled list). Plugin skills are namespaced <code>backlot:&lt;slug&gt;</code>; the UI shows plain names.</li>
+      <li><strong>Discovery</strong> — the <code>plugins</code> option loads every skill in <code>~/.lani/skills/</code>. Independent of <code>settingSources</code>.</li>
+      <li><strong>Enabling</strong> — <code>skills</code> carries the active set (all minus the disabled list). Plugin skills are namespaced <code>lani:&lt;slug&gt;</code>; the UI shows plain names.</li>
       <li class="t"><strong>CLAUDE.md</strong> — <code>settingSources</code> only ever holds <code>"project"</code> (toggle on) or nothing (off). <code>"user"</code> is never used — that closes the <code>~/.claude/CLAUDE.md</code> leak.</li>
     </ul>
   </section>
@@ -264,10 +264,10 @@ query({
 
     <h3>1 · Active skills</h3>
     <p>A flat, alphabetical list of every skill currently in
-      <code>~/.backlot/skills/</code> — factory, imported, and agent-created
+      <code>~/.lani/skills/</code> — factory, imported, and agent-created
       together — each with an on/off toggle.</p>
     <ul>
-      <li>Toggle <strong>off</strong> &rarr; the slug is written to <code>~/.backlot/skills-disabled.json</code>. The agent stops seeing it next session.</li>
+      <li>Toggle <strong>off</strong> &rarr; the slug is written to <code>~/.lani/skills-disabled.json</code>. The agent stops seeing it next session.</li>
       <li>Toggle <strong>on</strong> &rarr; slug removed from that file.</li>
       <li class="t">Anything newly added — seeded, imported, or created — is <strong>on by default</strong> (it's simply not in the disabled list).</li>
       <li>A <strong>Remove</strong> action per skill: an imported skill drops just its symlink (your real <code>~/.claude</code> skill survives); a factory or created skill removes the folder.</li>
@@ -276,11 +276,11 @@ query({
     <h3>2 · Import from your library</h3>
     <p>This is the flag/section you described. It scans the union of
       <code>~/.claude/skills</code> + <code>~/.agents/skills</code> (deduped by
-      slug), and lists skills not yet in Backlot.</p>
+      slug), and lists skills not yet in Lani.</p>
     <ul>
-      <li><strong>Add all</strong> — symlinks every listed skill into <code>~/.backlot/skills/</code> at once.</li>
+      <li><strong>Add all</strong> — symlinks every listed skill into <code>~/.lani/skills/</code> at once.</li>
       <li><strong>Add</strong> per skill — pick individually.</li>
-      <li>"Add" = create a symlink <code>~/.backlot/skills/&lt;slug&gt;</code> &rarr; the user's skill. Instant, no file copying. Added skills appear in the Active list, on by default.</li>
+      <li>"Add" = create a symlink <code>~/.lani/skills/&lt;slug&gt;</code> &rarr; the user's skill. Instant, no file copying. Added skills appear in the Active list, on by default.</li>
     </ul>
 
     <h3>3 · Behaviour toggles</h3>
@@ -304,8 +304,8 @@ query({
         <ul><li>Editing an existing skill: a normal old-vs-new diff.</li>
         <li class="t">Creating a new skill: the full proposed <code>SKILL.md</code> shown as an all-new diff to approve.</li></ul></li>
       <li>You <strong>Approve</strong> or <strong>Dismiss</strong>.</li>
-      <li>On Approve, Backlot writes the skill into <code>~/.backlot/skills/&lt;slug&gt;/</code>.</li>
-      <li class="t">For a <em>new</em> skill, if "Publish to ~/.claude/skills" is on and the name is free there, Backlot also drops a symlink <code>~/.claude/skills/&lt;slug&gt;</code> &rarr; the new folder.</li>
+      <li>On Approve, Lani writes the skill into <code>~/.lani/skills/&lt;slug&gt;/</code>.</li>
+      <li class="t">For a <em>new</em> skill, if "Publish to ~/.claude/skills" is on and the name is free there, Lani also drops a symlink <code>~/.claude/skills/&lt;slug&gt;</code> &rarr; the new folder.</li>
     </ol>
 
     <p><strong>Delete</strong> — the agent asks; you get a plain confirm (no diff —
@@ -326,26 +326,26 @@ query({
     <span class="tag">E</span>
     <h2>Harness &amp; skill-creator changes</h2>
     <p>Yes — both need updating. The stock <code>skill-creator</code> skill is
-      generic; it doesn't know <code>~/.backlot/</code> exists and would steer the
+      generic; it doesn't know <code>~/.lani/</code> exists and would steer the
       agent toward <code>~/.claude/skills</code>. Two changes fix that:</p>
 
     <h3>1 · Harness system-prompt block</h3>
-    <p>Add a section to <code>buildBacklotHarnessBlock()</code> (the
+    <p>Add a section to <code>buildLaniHarnessBlock()</code> (the
       <code>append</code> on the <code>claude_code</code> preset):</p>
-    <pre><span class="c">Skills live in ~/.backlot/skills/ — one folder per skill.</span>
+    <pre><span class="c">Skills live in ~/.lani/skills/ — one folder per skill.</span>
 <span class="c">To create, edit, or delete a skill, call propose_skill_change —</span>
 <span class="c">never edit SKILL.md files with raw file tools. Changes are</span>
 <span class="c">reviewed by the user and apply to the next session.</span></pre>
 
-    <h3>2 · Backlot-adapted skill-creator (a factory skill)</h3>
+    <h3>2 · Lani-adapted skill-creator (a factory skill)</h3>
     <p>Ship an adapted <code>skill-creator</code> in the factory set. It keeps the
       original's <em class="em">writing guidance</em> — skill anatomy, progressive
       disclosure, frontmatter, description style — and replaces the
       environment-specific parts:</p>
     <ul>
-      <li>Target directory is <code>~/.backlot/skills/&lt;slug&gt;/</code>, stated explicitly — not <code>~/.claude/skills</code>.</li>
+      <li>Target directory is <code>~/.lani/skills/&lt;slug&gt;/</code>, stated explicitly — not <code>~/.claude/skills</code>.</li>
       <li>Writing the skill goes through <code>propose_skill_change</code>, not raw <code>Write</code>.</li>
-      <li class="t">The heavy eval / benchmark / packaging apparatus is trimmed — a Backlot writer wants to capture a workflow, not run a benchmark harness.</li>
+      <li class="t">The heavy eval / benchmark / packaging apparatus is trimmed — a Lani writer wants to capture a workflow, not run a benchmark harness.</li>
     </ul>
     <p class="sub">Harness block = the always-on rule. Adapted skill-creator =
       the how-to the agent reads when actually authoring. Belt and suspenders.</p>
@@ -356,27 +356,27 @@ query({
     <span class="tag">Build</span>
     <h2>Implementation checklist</h2>
 
-    <div class="chk">Register <code>~/.backlot/</code> as a local plugin — write <code>.claude-plugin/plugin.json</code> (name <code>backlot</code>).</div>
-    <div class="chk">Bundle factory skills in <code>resources/skills/</code> (22 + adapted skill-creator); seed <code>~/.backlot/skills/</code> on first launch.
+    <div class="chk">Register <code>~/.lani/</code> as a local plugin — write <code>.claude-plugin/plugin.json</code> (name <code>lani</code>).</div>
+    <div class="chk">Bundle factory skills in <code>resources/skills/</code> (22 + adapted skill-creator); seed <code>~/.lani/skills/</code> on first launch.
       <span class="cn">Record a factory manifest (content hashes) for the update logic.</span></div>
     <div class="chk">App-update logic — copy new factory skills; refresh unmodified ones (hash vs manifest); skip modified ones.</div>
-    <div class="chk">Session config — add <code>plugins:[~/.backlot]</code>; pass <code>skills</code> filter; <code>settingSources</code> &rarr; <code>["project"]</code>/<code>[]</code>; drop <code>"user"</code>.</div>
+    <div class="chk">Session config — add <code>plugins:[~/.lani]</code>; pass <code>skills</code> filter; <code>settingSources</code> &rarr; <code>["project"]</code>/<code>[]</code>; drop <code>"user"</code>.</div>
     <div class="chk"><code>skills-disabled.json</code> + Settings on/off toggles (flat alphabetical list).</div>
     <div class="chk">Settings — Import panel scanning <code>~/.claude/skills</code> + <code>~/.agents/skills</code> (deduped); Add all / per-skill &rarr; creates a <strong>symlink</strong>.</div>
     <div class="chk">Settings — "Load project CLAUDE.md" toggle (default ON).</div>
     <div class="chk">Settings — "Publish agent-created skills to ~/.claude/skills" toggle (default ON).</div>
-    <div class="chk">Keep + repoint <code>propose_skill_change</code> to <code>~/.backlot/skills/</code>; extend it to review skill <em>creation</em>; on approved create, publish the <code>~/.claude</code> symlink.</div>
+    <div class="chk">Keep + repoint <code>propose_skill_change</code> to <code>~/.lani/skills/</code>; extend it to review skill <em>creation</em>; on approved create, publish the <code>~/.claude</code> symlink.</div>
     <div class="chk">Keep + repoint the skills-gate (blocks raw <code>SKILL.md</code> writes, enforces the review path).</div>
     <div class="chk">Delete flow — imported skill removes its symlink only; factory/created skill removes the folder (+ its <code>~/.claude</code> symlink).</div>
-    <div class="chk">Repoint Skill Workbench + <code>skill-workbench</code> router + <code>open_skill_workbench</code> to <code>~/.backlot/skills/</code>.</div>
-    <div class="chk">Add the skills block to <code>buildBacklotHarnessBlock()</code>.</div>
-    <div class="chk">Author + bundle the Backlot-adapted <code>skill-creator</code> factory skill.</div>
-    <div class="chk">Remove <code>BACKLOT_SKILL_REGISTRY</code> / <code>registry.ts</code>; discard the old <code>skills-preset.json</code>.</div>
+    <div class="chk">Repoint Skill Workbench + <code>skill-workbench</code> router + <code>open_skill_workbench</code> to <code>~/.lani/skills/</code>.</div>
+    <div class="chk">Add the skills block to <code>buildLaniHarnessBlock()</code>.</div>
+    <div class="chk">Author + bundle the Lani-adapted <code>skill-creator</code> factory skill.</div>
+    <div class="chk">Remove <code>LANI_SKILL_REGISTRY</code> / <code>registry.ts</code>; discard the old <code>skills-preset.json</code>.</div>
   </section>
 
   <footer>
-    Backlot · Skill System · Final Implementation Spec · 2026-05-17<br>
-    one directory &nbsp;·&nbsp; ~/.backlot/skills/ &nbsp;·&nbsp; loaded as a plugin
+    Lani · Skill System · Final Implementation Spec · 2026-05-17<br>
+    one directory &nbsp;·&nbsp; ~/.lani/skills/ &nbsp;·&nbsp; loaded as a plugin
     &nbsp;·&nbsp; reviewed edits &nbsp;·&nbsp; no CLAUDE.md leak
   </footer>
 

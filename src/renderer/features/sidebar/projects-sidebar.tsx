@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * ProjectsSidebar — Backlot's left navigation column.
+ * ProjectsSidebar — Lani's left navigation column.
  *
  * The left panel is a project switcher and nothing else. Conversations
  * (chats / sub-chats) live in the assistant rail on the right; this
@@ -125,7 +125,7 @@ export function ProjectsSidebar({
   const utils = trpc.useUtils()
   const { data: projects, isLoading } = trpc.projects.list.useQuery()
 
-  // Deleting a project removes it (and its chats) from Backlot. The
+  // Deleting a project removes it (and its chats) from Lani. The
   // folder on disk is left alone — this is a "remove from the list",
   // not a destructive wipe.
   const deleteProject = trpc.projects.delete.useMutation({
@@ -355,7 +355,7 @@ export function ProjectsSidebar({
               Delete “{projectToDelete?.name}”?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the project and its chats from Backlot. The
+              This removes the project and its chats from Lani. The
               project files on disk are left untouched — you can re-import
               the folder later.
             </AlertDialogDescription>

@@ -25,7 +25,7 @@ import {
   selectedSceneIdAtom,
   shotlistSubmodeAtom,
   viewModeAtom,
-} from "../../backlot/atoms"
+} from "../../lani/atoms"
 
 /**
  * Active focus payload — see ipc-chat-transport.ts for the mirror.

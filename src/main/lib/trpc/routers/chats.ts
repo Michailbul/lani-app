@@ -89,7 +89,7 @@ function getFallbackName(userMessage: string): string {
 
 type AgentProviderId = "claude-code" | "codex"
 
-// Ollama-backed offline generation helpers were stripped. Backlot is online-only.
+// Ollama-backed offline generation helpers were stripped. Lani is online-only.
 // Procedures that previously fell back to Ollama for chat-name and commit-message
 // generation now skip the offline path entirely; the Claude-backed path remains.
 async function generateChatNameWithOllama(
@@ -213,7 +213,7 @@ export const chatsRouter = router({
           .optional(),
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z.enum(["claude-code", "codex"]).optional(),
-        // Kept for API compatibility — Backlot runs every chat directly in
+        // Kept for API compatibility — Lani runs every chat directly in
         // the canonical project folder, so these are accepted but ignored.
         useWorktree: z.boolean().optional(),
         baseBranch: z.string().optional(),
@@ -288,7 +288,7 @@ export const chatsRouter = router({
         .get()
       console.log("[chats.create] created subChat:", subChat)
 
-      // Backlot runs every chat directly in the single canonical project
+      // Lani runs every chat directly in the single canonical project
       // folder — no per-chat worktree copies. The `useWorktree`,
       // `baseBranch` and `branchType` inputs are kept on the schema for
       // API compatibility but are intentionally ignored.
@@ -1077,7 +1077,7 @@ export const chatsRouter = router({
       const additions = files.reduce((sum, f) => sum + f.additions, 0)
       const deletions = files.reduce((sum, f) => sum + f.deletions, 0)
 
-      // Backlot is online-only — Ollama offline fallback was stripped.
+      // Lani is online-only — Ollama offline fallback was stripped.
       // Reference the helper to satisfy the unused-import linter without
       // executing the (always-null) offline path.
       void generateCommitMessageWithOllama

@@ -174,15 +174,15 @@ export const claudeCodeRouter = router({
    * pre-typed. Anthropic's CLI does not expose a non-interactive login
    * command (setup-token requires existing valid auth; /login is a REPL
    * slash command). The upstream workaround is a cloud sandbox emulating a TTY
-   * — Backlot delegates to the user's real Terminal instead.
+   * — Lani delegates to the user's real Terminal instead.
    *
    * After this kicks off, the Claude binary in the spawned Terminal opens
    * its own browser, captures the OAuth redirect on a localhost callback,
    * and writes the new credential into the OS keychain. We re-arm the
-   * credential poller so the running Backlot picks it up the moment it
+   * credential poller so the running Lani picks it up the moment it
    * lands.
    *
-   * Returns BACKLOT_DIRECT sentinels so the existing modal flow closes
+   * Returns LANI_DIRECT sentinels so the existing modal flow closes
    * cleanly via the pollStatus short-circuit.
    */
   startAuth: publicProcedure.mutation(async () => {
@@ -237,9 +237,9 @@ export const claudeCodeRouter = router({
     startClaudeCredentialPolling()
 
     return {
-      sandboxId: "BACKLOT_DIRECT",
-      sandboxUrl: "BACKLOT_DIRECT",
-      sessionId: "BACKLOT_DIRECT",
+      sandboxId: "LANI_DIRECT",
+      sandboxUrl: "LANI_DIRECT",
+      sessionId: "LANI_DIRECT",
     }
   }),
 
@@ -254,10 +254,10 @@ export const claudeCodeRouter = router({
       })
     )
     .query(async ({ input }) => {
-      // Backlot direct flow: setup-token has already written credentials
+      // Lani direct flow: setup-token has already written credentials
       // to the keychain by the time the modal starts polling. Report
       // success immediately and let the modal close itself.
-      if (input.sandboxUrl === "BACKLOT_DIRECT") {
+      if (input.sandboxUrl === "LANI_DIRECT") {
         return { state: "ready" as const, oauthUrl: null, error: null }
       }
 

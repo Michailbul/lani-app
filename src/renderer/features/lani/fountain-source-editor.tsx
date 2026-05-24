@@ -1,11 +1,11 @@
 "use client"
 
 /**
- * FountainSourceEditor — Backlot's screenplay editing surface.
+ * FountainSourceEditor — Lani's screenplay editing surface.
  *
  * A CodeMirror 6 editor whose buffer is raw Fountain, decorated so it
  * reads like a typeset screenplay page: Courier on a centred "paper"
- * leaf, scene headings bold, Backlot `SHOT A:` headings marked,
+ * leaf, scene headings bold, Lani `SHOT A:` headings marked,
  * dialogue and character names indented, transitions right-aligned.
  * The text never leaves Fountain — the decorations are pure presentation.
  *

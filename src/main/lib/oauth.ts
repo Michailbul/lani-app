@@ -51,9 +51,9 @@ const CALLBACK_PATH = '/callback';
 // (RFC 7591 dynamic client registration). It is NOT the Anthropic auth flow.
 //
 // Some MCP servers (e.g. Figma) maintain hardcoded allowlists of recognised
-// agent names. If 'Backlot' is rejected by such a server, fall back to
+// agent names. If 'Lani' is rejected by such a server, fall back to
 // 'Claude Code' — most allowlists already accept the official Anthropic CLI.
-const CLIENT_NAME = 'Backlot';
+const CLIENT_NAME = 'Lani';
 const FALLBACK_CLIENT_NAME = 'Claude Code';
 
 /**
@@ -803,7 +803,7 @@ export class CraftOAuth {
       }
     } else {
       // No registration endpoint — use a default public client ID.
-      clientId = 'backlot';
+      clientId = 'lani';
     }
 
     const pkce = generatePKCE();

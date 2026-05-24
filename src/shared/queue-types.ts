@@ -1,7 +1,7 @@
 /**
  * Project submission queue.
  *
- * One project = one queue file at `queue.backlot.json` in the project
+ * One project = one queue file at `queue.lani.json` in the project
  * (or worktree) root. The queue is a tracker: prompts drafted in the
  * Multishot or Shotlist surfaces are pushed into it, and an external
  * agent reads the file, submits each prompt to a video model (Runway),
@@ -19,14 +19,14 @@
  */
 
 /** The active queue file — sits at the project/worktree root. */
-export const QUEUE_FILE_RELPATH = "queue.backlot.json"
+export const QUEUE_FILE_RELPATH = "queue.lani.json"
 
 /**
  * The archive file — kept separate from the active queue so the
  * working document stays lean. Archiving an item moves it out of
- * `queue.backlot.json` and into this file; restoring moves it back.
+ * `queue.lani.json` and into this file; restoring moves it back.
  */
-export const QUEUE_ARCHIVE_RELPATH = "queue-archive.backlot.json"
+export const QUEUE_ARCHIVE_RELPATH = "queue-archive.lani.json"
 
 /** Per-item reference images are copied under this root folder. */
 export const QUEUE_MEDIA_DIR = "queue-media"
@@ -91,7 +91,7 @@ export interface QueueItem {
 
   /**
    * ISO-8601 set when the item was archived. Present only on items
-   * that live in `queue-archive.backlot.json` — which file an item
+   * that live in `queue-archive.lani.json` — which file an item
    * sits in is the source of truth for active vs. archived; this
    * timestamp records *when* it was archived for the history view.
    */
@@ -138,7 +138,7 @@ export interface QueueItem {
  * Self-documenting field descriptions written into the queue JSON on
  * every save. Lets a human or external agent crack open the file and
  * understand each non-obvious field without needing to look at the
- * Backlot source. Keyed by field name on `QueueItem`.
+ * Lani source. Keyed by field name on `QueueItem`.
  */
 export const QUEUE_FIELD_DESCRIPTIONS: Record<string, string> = {
   customInstructions:
@@ -264,7 +264,7 @@ function normalizeItem(raw: unknown, index: number): QueueItem {
 }
 
 /**
- * Coerce raw `queue.backlot.json` into a well-formed `SubmissionQueue`.
+ * Coerce raw `queue.lani.json` into a well-formed `SubmissionQueue`.
  *
  * The external agent edits this file directly, so a read can hit a
  * near-miss shape — a missing `submissionCount`, an unknown `status`,

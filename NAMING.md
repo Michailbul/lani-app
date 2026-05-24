@@ -1,10 +1,10 @@
-# Naming: Backlot
+# Naming: Lani
 
-A film studio's backlot is a tract of land used for outdoor sets. Productions live alongside each other on it, each on its own physical world, sharing infrastructure but never colliding.
+A film studio's lani is a tract of land used for outdoor sets. Productions live alongside each other on it, each on its own physical world, sharing infrastructure but never colliding.
 
 That's the metaphor: branches of a screenplay running in parallel worktrees, each its own world, all on the same foundation, ready to be merged or struck.
 
-## Why Backlot
+## Why Lani
 
 - Film-native, immediately legible to screenwriters and AI filmmakers
 - Maps to the core mechanic: parallel directions of a script
@@ -18,15 +18,15 @@ That's the metaphor: branches of a screenplay running in parallel worktrees, eac
 - **Cutroom** — evokes editing more than branching. Strong but less expressive of the fork mechanic.
 - **Beatframe** — story beats × film frames. Slightly contrived.
 
-If Backlot doesn't land after sleeping on it, **Reel** is the strongest fallback.
+If Lani doesn't land after sleeping on it, **Reel** is the strongest fallback.
 
 ## Domain candidates
 
 Verify before brand work:
 
-- `backlot.studio` — preferred (fits the studio identity)
-- `backlot.app`
-- `getbacklot.com`
+- `lani.studio` — preferred (fits the studio identity)
+- `lani.app`
+- `getlani.com`
 
 ## Visual direction (placeholder)
 

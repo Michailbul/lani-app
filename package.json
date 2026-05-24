@@ -1,8 +1,8 @@
 {
-  "name": "backlot",
+  "name": "lani",
   "version": "0.0.1",
   "private": true,
-  "description": "Backlot — desktop app for screenwriters and AI filmmakers",
+  "description": "Lani — desktop app for screenwriters and AI filmmakers",
   "author": {
     "name": "Michael Buloichyk",
     "email": "mbuloichykai@gmail.com"
@@ -145,14 +145,14 @@
     "vite": "^6.3.4"
   },
   "build": {
-    "appId": "studio.laniameda.backlot",
-    "productName": "Backlot",
+    "appId": "studio.laniameda.lani",
+    "productName": "Lani",
     "npmRebuild": true,
     "protocols": [
       {
-        "name": "Backlot",
+        "name": "Lani",
         "schemes": [
-          "backlot"
+          "lani"
         ]
       }
     ],

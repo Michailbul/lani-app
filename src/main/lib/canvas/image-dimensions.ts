@@ -1,7 +1,7 @@
 /**
  * Read pixel dimensions straight from an image file's bytes.
  *
- * Dependency-free header parser for the four formats Backlot accepts
+ * Dependency-free header parser for the four formats Lani accepts
  * onto the canvas — PNG, JPEG, GIF, WebP. Used by `importCanvasImage`
  * so an imported image node matches its source aspect instead of
  * snapping to a default rectangle.

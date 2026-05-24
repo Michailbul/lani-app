@@ -389,7 +389,7 @@ export const pathsRouter = router({
       await git.add([input.relPath])
       const result = await git.commit(
         input.message?.trim() ||
-          `Backlot: accept ${input.relPath} (${new Date().toISOString()})`,
+          `Lani: accept ${input.relPath} (${new Date().toISOString()})`,
         [input.relPath],
         ["--allow-empty"],
       )
@@ -455,7 +455,7 @@ export const pathsRouter = router({
         input.relPath,
         input.hunkIndex,
       )
-      const tmp = join(tmpdir(), `backlot-pathhunk-${randomUUID()}.patch`)
+      const tmp = join(tmpdir(), `lani-pathhunk-${randomUUID()}.patch`)
       await writeFile(tmp, patch, "utf-8")
       try {
         await execFileAsync(
@@ -465,7 +465,7 @@ export const pathsRouter = router({
         )
         const git = simpleGit(lookup.worktreePath)
         const result = await git.commit(
-          `Backlot: accept hunk ${input.hunkIndex + 1} of ${input.relPath} (${new Date().toISOString()})`,
+          `Lani: accept hunk ${input.hunkIndex + 1} of ${input.relPath} (${new Date().toISOString()})`,
           [input.relPath],
         )
         return { commitHash: result.commit }
@@ -497,7 +497,7 @@ export const pathsRouter = router({
         input.relPath,
         input.hunkIndex,
       )
-      const tmp = join(tmpdir(), `backlot-pathhunk-${randomUUID()}.patch`)
+      const tmp = join(tmpdir(), `lani-pathhunk-${randomUUID()}.patch`)
       await writeFile(tmp, patch, "utf-8")
       try {
         await execFileAsync(

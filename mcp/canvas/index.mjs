@@ -11,13 +11,13 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 
-const DEFAULT_IMAGE_MODEL = process.env.BACKLOT_CANVAS_IMAGE_MODEL || "gpt-image-2"
-const DEFAULT_WORKTREE_ID = process.env.BACKLOT_CANVAS_WORKTREE_ID || process.env.BACKLOT_CANVAS_CHAT_ID || ""
-const DB_PATH = process.env.BACKLOT_DB_PATH || ""
-const DEFAULT_WORKTREE_PATH = process.env.BACKLOT_WORKTREE_PATH || ""
+const DEFAULT_IMAGE_MODEL = process.env.LANI_CANVAS_IMAGE_MODEL || "gpt-image-2"
+const DEFAULT_WORKTREE_ID = process.env.LANI_CANVAS_WORKTREE_ID || process.env.LANI_CANVAS_CHAT_ID || ""
+const DB_PATH = process.env.LANI_DB_PATH || ""
+const DEFAULT_WORKTREE_PATH = process.env.LANI_WORKTREE_PATH || ""
 
 if (!DB_PATH) {
-  console.error("[backlot-canvas-mcp] BACKLOT_DB_PATH is required")
+  console.error("[lani-canvas-mcp] LANI_DB_PATH is required")
   process.exit(1)
 }
 
@@ -40,7 +40,7 @@ function activeWorktreeId(input = {}) {
 
 const DEFAULT_CANVAS_PAGE = "main"
 
-// Pull the target page off the tool args. Each Backlot worktree can hold
+// Pull the target page off the tool args. Each Lani worktree can hold
 // many named canvas pages; if the agent doesn't specify one, we land on
 // the same "main" page the writer's renderer opens by default. The
 // caller can pass it as `page` (preferred) or the legacy `canvasName`.
@@ -818,7 +818,7 @@ const tools = [
   {
     name: "canvas_list_pages",
     description:
-      "List every canvas page on the worktree. Each Backlot worktree can hold many named pages (one graph per page) — the writer's renderer surfaces them as bottom-left tabs. Returns the page name, id, and timestamps; pass the name back as `page` on any other canvas tool to target that page.",
+      "List every canvas page on the worktree. Each Lani worktree can hold many named pages (one graph per page) — the writer's renderer surfaces them as bottom-left tabs. Returns the page name, id, and timestamps; pass the name back as `page` on any other canvas tool to target that page.",
     inputSchema: {
       type: "object",
       properties: { worktreeId: { type: "string" }, chatId: { type: "string" } },
@@ -870,7 +870,7 @@ const tools = [
   {
     name: "canvas_read",
     description:
-      "Read a Backlot canvas page. Returns the page document, every page on the worktree, and the nodes/edges/assets for the requested page. Pass `page` to target a specific page (default: \"main\").",
+      "Read a Lani canvas page. Returns the page document, every page on the worktree, and the nodes/edges/assets for the requested page. Pass `page` to target a specific page (default: \"main\").",
     inputSchema: {
       type: "object",
       properties: {
@@ -1177,7 +1177,7 @@ const tools = [
 ]
 
 const server = new Server(
-  { name: "backlot-canvas", version: "0.0.1" },
+  { name: "lani-canvas", version: "0.0.1" },
   { capabilities: { tools: {} } },
 )
 

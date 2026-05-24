@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
-    <title>Backlot — Sign in</title>
+    <title>Lani — Sign in</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
       :root {
-        /* Backlot palette — Carbon ground, Linen ink, Ember accent. */
+        /* Lani palette — Carbon ground, Linen ink, Ember accent. */
         --bg: #0A0805;            /* Obsidian */
         --bg-soft: #191919;       /* Carbon */
         --ink: #FFF4EA;           /* Linen */
@@ -177,13 +177,13 @@
   <body>
     <main>
       <div>
-        <div class="wordmark">Backlot<span class="dot"></span></div>
+        <div class="wordmark">Lani<span class="dot"></span></div>
         <div class="tagline" style="margin-top:10px">For screenwriters and AI filmmakers.</div>
       </div>
 
       <div class="card">
         <h1>Sign in with your Claude account</h1>
-        <p>Backlot uses your existing Claude subscription. No separate account, no third-party broker — your credentials live in your OS keychain, encrypted by the system.</p>
+        <p>Lani uses your existing Claude subscription. No separate account, no third-party broker — your credentials live in your OS keychain, encrypted by the system.</p>
 
         <button class="login-btn" id="loginBtn">Sign in with Claude</button>
         <div id="status"></div>
@@ -192,12 +192,12 @@
           <summary>Already use Claude Code? Or troubleshooting?</summary>
           <p style="margin-top:10px">If your browser does not open, complete sign-in manually:</p>
           <code>claude /login</code>
-          <p style="margin-top:10px">Backlot watches for credentials in the background and signs you in as soon as they appear.</p>
+          <p style="margin-top:10px">Lani watches for credentials in the background and signs you in as soon as they appear.</p>
         </details>
       </div>
     </main>
 
-    <footer>Backlot · Apache-2.0 · Local · Yours</footer>
+    <footer>Lani · Apache-2.0 · Local · Yours</footer>
 
     <script>
       const btn = document.getElementById('loginBtn');
@@ -248,7 +248,7 @@
 
       btn.addEventListener('click', async () => {
         if (!window.desktopApi || !window.desktopApi.startAuthFlow) {
-          setStatus('Desktop API unavailable — restart Backlot.', false);
+          setStatus('Desktop API unavailable — restart Lani.', false);
           return;
         }
         try {
@@ -271,7 +271,7 @@
       }
 
       // Auto-start polling on load — covers the case where the user already
-      // ran `claude /login` in a terminal before launching Backlot. If creds
+      // ran `claude /login` in a terminal before launching Lani. If creds
       // exist, the main process broadcasts auth:success on first tick.
       checkAuth().then((ok) => {
         if (ok) {

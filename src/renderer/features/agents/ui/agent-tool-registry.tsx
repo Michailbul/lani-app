@@ -76,8 +76,8 @@ export function getDisplayPath(filePath: string, projectPath?: string): string {
       return filePath.slice(prefix.length)
     }
   }
-  // Handle worktree paths: /.backlot/worktrees/{chatId}/{subChatId}/relativePath
-  const worktreeMatch = filePath.match(/\.backlot\/worktrees\/[^/]+\/[^/]+\/(.+)$/)
+  // Handle worktree paths: /.lani/worktrees/{chatId}/{subChatId}/relativePath
+  const worktreeMatch = filePath.match(/\.lani\/worktrees\/[^/]+\/[^/]+\/(.+)$/)
   if (worktreeMatch) {
     return worktreeMatch[1]
   }

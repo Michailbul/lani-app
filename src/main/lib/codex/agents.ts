@@ -12,7 +12,7 @@ import {
   type ParsedAgent,
 } from "../trpc/routers/agent-utils"
 
-const BACKLOT_CODEX_AGENTS_DIR = join(homedir(), ".backlot", "codex-agents")
+const LANI_CODEX_AGENTS_DIR = join(homedir(), ".lani", "codex-agents")
 const USER_CLAUDE_AGENTS_DIR = join(homedir(), ".claude", "agents")
 
 const READ_ONLY_CLAUDE_TOOLS = new Set([
@@ -62,11 +62,11 @@ function hasOnlyReadOnlyTools(tools: string[] | undefined): boolean {
 function withToolPolicy(agent: ParsedAgent): string {
   const policy: string[] = []
   if (agent.tools && agent.tools.length > 0) {
-    policy.push(`Allowed tool policy from Backlot settings: ${agent.tools.join(", ")}.`)
+    policy.push(`Allowed tool policy from Lani settings: ${agent.tools.join(", ")}.`)
   }
   if (agent.disallowedTools && agent.disallowedTools.length > 0) {
     policy.push(
-      `Disallowed tool policy from Backlot settings: ${agent.disallowedTools.join(", ")}.`,
+      `Disallowed tool policy from Lani settings: ${agent.disallowedTools.join(", ")}.`,
     )
   }
   if (policy.length === 0) return agent.prompt
@@ -83,7 +83,7 @@ function toCodexAgentDefinition(agent: ParsedAgent): CodexAgentDefinition | null
     tools: agent.tools,
     disallowedTools: agent.disallowedTools,
     model: agent.model,
-    configFile: join(BACKLOT_CODEX_AGENTS_DIR, `${name}.toml`),
+    configFile: join(LANI_CODEX_AGENTS_DIR, `${name}.toml`),
     ...(hasOnlyReadOnlyTools(agent.tools) ? { sandboxMode: "read-only" as const } : {}),
   }
 }
@@ -110,7 +110,7 @@ async function listPluginAgents(): Promise<FileAgent[]> {
   return pluginAgents.flat()
 }
 
-async function listBacklotAgentDefinitions(cwd?: string): Promise<CodexAgentDefinition[]> {
+async function listLaniAgentDefinitions(cwd?: string): Promise<CodexAgentDefinition[]> {
   const projectAgentsPromise = cwd
     ? scanAgentsDirectory(join(cwd, ".claude", "agents"), "project", cwd)
     : Promise.resolve<FileAgent[]>([])
@@ -140,7 +140,7 @@ async function listBacklotAgentDefinitions(cwd?: string): Promise<CodexAgentDefi
 }
 
 async function writeCodexAgentFile(agent: CodexAgentDefinition): Promise<void> {
-  await mkdir(BACKLOT_CODEX_AGENTS_DIR, { recursive: true })
+  await mkdir(LANI_CODEX_AGENTS_DIR, { recursive: true })
   const body = [
     `name = ${tomlString(agent.name)}`,
     `description = ${tomlString(agent.description)}`,
@@ -183,7 +183,7 @@ export async function buildCodexAgentBridge(params: {
   cwd?: string
   mentionedAgentNames?: string[]
 }): Promise<CodexAgentBridge> {
-  const agents = await listBacklotAgentDefinitions(params.cwd)
+  const agents = await listLaniAgentDefinitions(params.cwd)
   await Promise.all(agents.map(writeCodexAgentFile))
 
   const registeredNames = agents.map((agent) => agent.name)
@@ -231,8 +231,8 @@ export function buildCodexAgentMentionInstruction(input: {
   if (mentioned.length === 0 && missing.length === 0) return ""
 
   const lines = [
-    "[BACKLOT AGENT MENTIONS]",
-    "The user selected Backlot @agent mention(s) in a Codex chat.",
+    "[LANI AGENT MENTIONS]",
+    "The user selected Lani @agent mention(s) in a Codex chat.",
   ]
 
   if (mentioned.length > 0) {
@@ -249,6 +249,6 @@ export function buildCodexAgentMentionInstruction(input: {
     )
   }
 
-  lines.push("[/BACKLOT AGENT MENTIONS]")
+  lines.push("[/LANI AGENT MENTIONS]")
   return lines.join("\n")
 }

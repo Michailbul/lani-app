@@ -1,5 +1,5 @@
 /**
- * PostHog analytics for Backlot - Renderer Process
+ * PostHog analytics for Lani - Renderer Process
  * Uses PostHog JS SDK for client-side tracking
  */
 

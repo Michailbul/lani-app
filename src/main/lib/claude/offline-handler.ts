@@ -1,7 +1,7 @@
 /**
  * Offline-mode handler stub.
  *
- * Backlot is online-only — Ollama fallback and offline mode were stripped
+ * Lani is online-only — Ollama fallback and offline mode were stripped
  * from the upstream substrate. This stub keeps the existing call
  * sites in claude.ts compiling without invasive surgery; every call
  * resolves to "online, use Claude." Dead `isUsingOllama` branches in

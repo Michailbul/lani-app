@@ -53,7 +53,7 @@ export function OpenLocallyDialog({
   // Mutations
   const locateMutation = trpc.projects.locateAndAddProject.useMutation()
 
-  // Backlot: sandboxImport router was stripped — the codesandbox-clone /
+  // Lani: sandboxImport router was stripped — the codesandbox-clone /
   // sandbox-import affordances are dead. Mutations stubbed with toast-only
   // failure to keep this dialog renderable; the dialog will be removed in a
   // follow-up "strip remote-agents UI" pass.
@@ -64,7 +64,7 @@ export function OpenLocallyDialog({
       projectId: string
       chatName: string
     }) => {
-      toast.error("Sandbox import is not available in Backlot.")
+      toast.error("Sandbox import is not available in Lani.")
     },
     isPending: false,
   }
@@ -78,7 +78,7 @@ export function OpenLocallyDialog({
       destinationPath: string
       chatName: string
     }) => {
-      toast.error("Sandbox clone is not available in Backlot.")
+      toast.error("Sandbox clone is not available in Lani.")
     },
     isPending: false,
   } as unknown as { mutate: (args: unknown) => void; isPending: boolean }

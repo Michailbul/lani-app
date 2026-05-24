@@ -9,12 +9,12 @@ import type { VSCodeFullTheme } from "../atoms"
 import { CURSOR_DARK, CURSOR_LIGHT, CURSOR_MIDNIGHT } from "./cursor-themes"
 
 /**
- * Backlot Dark - Default dark theme matching the app's original design
+ * Lani Dark - Default dark theme matching the app's original design
  * Uses the brand blue (#0034FF) as primary/accent color
  */
 const TWENTYFIRST_DARK: VSCodeFullTheme = {
-  id: "backlot-dark",
-  name: "Backlot Dark",
+  id: "lani-dark",
+  name: "Lani Dark",
   type: "dark",
   source: "builtin",
   colors: {
@@ -73,12 +73,12 @@ const TWENTYFIRST_DARK: VSCodeFullTheme = {
 }
 
 /**
- * Backlot Light - Default light theme matching the app's original design
+ * Lani Light - Default light theme matching the app's original design
  * Uses the brand blue (#0034FF) as primary/accent color
  */
 const TWENTYFIRST_LIGHT: VSCodeFullTheme = {
-  id: "backlot-light",
-  name: "Backlot Light",
+  id: "lani-light",
+  name: "Lani Light",
   type: "light",
   source: "builtin",
   colors: {
@@ -912,7 +912,7 @@ const CLAUDE_DARK: VSCodeFullTheme = {
  * All built-in themes
  */
 export const BUILTIN_THEMES: VSCodeFullTheme[] = [
-  // Backlot Default themes (first)
+  // Lani Default themes (first)
   TWENTYFIRST_DARK,
   TWENTYFIRST_LIGHT,
   // Cursor themes
@@ -947,8 +947,8 @@ export function getBuiltinThemesByType(type: "light" | "dark"): VSCodeFullTheme[
 /**
  * Default theme IDs for light/dark modes
  */
-export const DEFAULT_LIGHT_THEME_ID = "backlot-light"
-export const DEFAULT_DARK_THEME_ID = "backlot-dark"
+export const DEFAULT_LIGHT_THEME_ID = "lani-light"
+export const DEFAULT_DARK_THEME_ID = "lani-dark"
 
 /**
  * Set of builtin theme names (lowercase) for filtering discovered themes

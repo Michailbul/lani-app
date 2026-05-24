@@ -90,7 +90,7 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     const porcelain = await git.raw(["status", "--porcelain", "--", relPath])
     if (!porcelain.trim()) return
     await git.add([relPath])
-    await git.commit(`Backlot: update shotlist (${relPath})`, [relPath])
+    await git.commit(`Lani: update shotlist (${relPath})`, [relPath])
   } catch (err) {
     console.warn("[shotlists.write] user edit settlement skipped:", err)
   }
@@ -103,7 +103,7 @@ const rootInput = {
 }
 
 export const shotlistsRouter = router({
-  /** Read a single scene's shotlist file. `relPath` points at shotlist.backlot.json. */
+  /** Read a single scene's shotlist file. `relPath` points at shotlist.lani.json. */
   read: publicProcedure
     .input(z.object({ ...rootInput, relPath: z.string().min(1) }))
     .query(async ({ input }) => {

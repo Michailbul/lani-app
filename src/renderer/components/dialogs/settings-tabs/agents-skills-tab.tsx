@@ -1,9 +1,9 @@
 "use client"
 
 /**
- * AgentsSkillsTab — the Backlot skill library manager.
+ * AgentsSkillsTab — the Lani skill library manager.
  *
- * Backlot's agent draws skills from one directory, `~/.backlot/skills/`.
+ * Lani's agent draws skills from one directory, `~/.lani/skills/`.
  * Factory skills seed it on first launch; the user adds more from their
  * own library and toggles any of them on or off.
  *
@@ -40,7 +40,7 @@ export function AgentsSkillsTab() {
   const remove = trpc.skills.remove.useMutation({
     onSuccess: () => {
       refresh()
-      toast.success("Removed from Backlot")
+      toast.success("Removed from Lani")
     },
     onError: (e) => toast.error(e.message || "Couldn't remove skill"),
   })
@@ -102,7 +102,7 @@ export function AgentsSkillsTab() {
           <h3 className="text-sm font-semibold text-foreground">Skills</h3>
           <p className="text-xs text-muted-foreground">
             The agent's skill library lives in{" "}
-            <code className="text-[11px]">~/.backlot/skills/</code>.
+            <code className="text-[11px]">~/.lani/skills/</code>.
           </p>
         </div>
 
@@ -213,7 +213,7 @@ export function AgentsSkillsTab() {
                   <button
                     type="button"
                     onClick={() => remove.mutate({ slug: skill.slug })}
-                    title="Remove from Backlot"
+                    title="Remove from Lani"
                     className="shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -234,7 +234,7 @@ export function AgentsSkillsTab() {
               text={
                 q
                   ? "No matches"
-                  : "Everything in your library is already in Backlot"
+                  : "Everything in your library is already in Lani"
               }
             />
           ) : (

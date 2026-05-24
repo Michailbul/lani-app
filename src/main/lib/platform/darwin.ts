@@ -64,8 +64,8 @@ export class DarwinPlatformProvider extends BasePlatformProvider {
 
   getCliConfig(): CliConfig {
     return {
-      installPath: "/usr/local/bin/backlot",
-      scriptName: "backlot",
+      installPath: "/usr/local/bin/lani",
+      scriptName: "lani",
       requiresAdmin: true, // /usr/local/bin requires admin on macOS
     }
   }
@@ -159,7 +159,7 @@ export class DarwinPlatformProvider extends BasePlatformProvider {
         `osascript -e 'do shell script "ln -s \\"${sourcePath}\\" ${installPath}" with administrator privileges'`
       )
 
-      console.log("[CLI] Installed backlot command to", installPath)
+      console.log("[CLI] Installed lani command to", installPath)
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =
@@ -183,7 +183,7 @@ export class DarwinPlatformProvider extends BasePlatformProvider {
         `osascript -e 'do shell script "rm -f ${installPath}" with administrator privileges'`
       )
 
-      console.log("[CLI] Uninstalled backlot command")
+      console.log("[CLI] Uninstalled lani command")
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =

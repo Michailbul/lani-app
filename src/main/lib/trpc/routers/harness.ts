@@ -3,7 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { z } from "zod"
 import {
-  BACKLOT_HARNESS_VERSION,
+  LANI_HARNESS_VERSION,
   HARNESS_OVERRIDE_PATH,
   getDefaultHarnessBlock,
 } from "../../claude/harness-prompt"
@@ -14,12 +14,12 @@ import {
 import { publicProcedure, router } from "../index"
 
 /**
- * Harness router — read / write / reset the Backlot system prompt.
+ * Harness router — read / write / reset the Lani system prompt.
  *
  * The system prompt (the "harness block") ships as a default in
  * harness-prompt.ts. The user can override it from Settings → System
- * Prompt; their version persists at ~/.backlot/harness-prompt.md and
- * is picked up by buildBacklotHarnessBlock() on the next agent turn.
+ * Prompt; their version persists at ~/.lani/harness-prompt.md and
+ * is picked up by buildLaniHarnessBlock() on the next agent turn.
  *
  * This router is the only thing that touches the override file from
  * the renderer side.
@@ -51,7 +51,7 @@ export const harnessRouter = router({
       effective,
       default: defaultBlock,
       isCustomized,
-      version: BACKLOT_HARNESS_VERSION,
+      version: LANI_HARNESS_VERSION,
       overridePath: HARNESS_OVERRIDE_PATH,
     }
   }),

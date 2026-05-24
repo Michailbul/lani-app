@@ -25,26 +25,26 @@ import { getLaunchDirectory } from "../../cli"
 const execAsync = promisify(exec)
 
 // ────────────────────────────────────────────────────────────────────────
-// Import: where Backlot stores forked-in projects.
+// Import: where Lani stores forked-in projects.
 //
-//   ~/.backlot/projects/<slug>/    ← imported project (copy of source)
-//   ~/.backlot/worktrees/<slug>/…  ← per-chat worktrees (existing layout)
+//   ~/.lani/projects/<slug>/    ← imported project (copy of source)
+//   ~/.lani/worktrees/<slug>/…  ← per-chat worktrees (existing layout)
 //
 // We copy the source rather than reference it because:
 //   - the source folder may live inside a parent git repo (e.g. a
 //     subfolder of laniameda-hq), which breaks `git worktree add`
 //     semantics — the worktree would mirror the *parent* repo instead.
-//   - Backlot wants its own git history independent of the user's
+//   - Lani wants its own git history independent of the user's
 //     existing repos. Forks, baseline commits, agent commits all live
 //     here and never touch the original.
 // ────────────────────────────────────────────────────────────────────────
 
-const BACKLOT_PROJECTS_DIR = join(homedir(), ".backlot", "projects")
+const LANI_PROJECTS_DIR = join(homedir(), ".lani", "projects")
 
 /**
  * Folder/file names we never copy when importing a source project. Keeps
  * the imported tree clean and avoids dragging dependency caches into
- * Backlot's own git history.
+ * Lani's own git history.
  */
 const IMPORT_EXCLUDE_NAMES = new Set([
   ".git",
@@ -83,15 +83,15 @@ function slugify(input: string): string {
 }
 
 /**
- * Pick a free directory under ~/.backlot/projects/. If `<slug>` is
+ * Pick a free directory under ~/.lani/projects/. If `<slug>` is
  * taken, returns `<slug>-2`, `<slug>-3`, etc. so we never clobber.
  */
 async function resolveImportTarget(slug: string): Promise<string> {
-  await mkdir(BACKLOT_PROJECTS_DIR, { recursive: true })
-  let candidate = join(BACKLOT_PROJECTS_DIR, slug)
+  await mkdir(LANI_PROJECTS_DIR, { recursive: true })
+  let candidate = join(LANI_PROJECTS_DIR, slug)
   if (!existsSync(candidate)) return candidate
   for (let i = 2; i < 1000; i++) {
-    candidate = join(BACKLOT_PROJECTS_DIR, `${slug}-${i}`)
+    candidate = join(LANI_PROJECTS_DIR, `${slug}-${i}`)
     if (!existsSync(candidate)) return candidate
   }
   // Extremely unlikely; surface as error so we don't silently pick a bad path.
@@ -99,7 +99,7 @@ async function resolveImportTarget(slug: string): Promise<string> {
 }
 
 /**
- * Copy a source folder into the Backlot projects dir, excluding the
+ * Copy a source folder into the Lani projects dir, excluding the
  * names listed above. Returns the absolute target path.
  */
 async function copySourceTree(source: string, target: string): Promise<void> {
@@ -150,7 +150,7 @@ async function ensureProjectClaudeMd(
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Global CLAUDE.md template — ~/.backlot/CLAUDE.template.md
+// Global CLAUDE.md template — ~/.lani/CLAUDE.template.md
 //
 // One shared template. New projects are seeded from it verbatim;
 // existing projects whose CLAUDE.md is still an untouched scaffold are
@@ -159,13 +159,13 @@ async function ensureProjectClaudeMd(
 // alone — its accumulated memory is never overwritten.
 // ────────────────────────────────────────────────────────────────────────
 
-const CLAUDE_TEMPLATE_PATH = join(homedir(), ".backlot", "CLAUDE.template.md")
+const CLAUDE_TEMPLATE_PATH = join(homedir(), ".lani", "CLAUDE.template.md")
 const CLAUDE_TEMPLATE_VERSIONS_PATH = join(
   homedir(),
-  ".backlot",
+  ".lani",
   ".claude-template-versions.json",
 )
-const BACKLOT_PROJECTS_ROOT = join(homedir(), ".backlot", "projects")
+const LANI_PROJECTS_ROOT = join(homedir(), ".lani", "projects")
 
 /** The shipped default template — used the first time, before the user
  *  edits it. Generic (no project name) so a project's CLAUDE.md equals
@@ -252,12 +252,12 @@ async function refreshProjectsFromTemplate(template: string): Promise<void> {
   const versionHashes = new Set(await readTemplateVersionHashes())
   let projectDirs: string[]
   try {
-    const entries = await readdir(BACKLOT_PROJECTS_ROOT, {
+    const entries = await readdir(LANI_PROJECTS_ROOT, {
       withFileTypes: true,
     })
     projectDirs = entries
       .filter((e) => e.isDirectory())
-      .map((e) => join(BACKLOT_PROJECTS_ROOT, e.name))
+      .map((e) => join(LANI_PROJECTS_ROOT, e.name))
   } catch {
     return
   }
@@ -295,11 +295,11 @@ async function writeClaudeTemplate(content: string): Promise<void> {
 
 /**
  * Scaffold the empty-project starter tree. Runs only when creating a
- * brand-new Backlot project (not when importing an existing folder),
+ * brand-new Lani project (not when importing an existing folder),
  * so every freshly created project has a recognisable shape on disk
  * the moment the user opens it.
  *
- * Kept intentionally minimal — `brief.md`, `world.md`, `.backlotignore`.
+ * Kept intentionally minimal — `brief.md`, `world.md`, `.laniignore`.
  * The agent and the user create scenes / characters / locations on
  * demand. Pre-creating empty folders just creates phantom rail entries
  * that have to be cleaned up later.
@@ -374,11 +374,11 @@ under \`characters/\` and \`locations/\`.)
     await writeFile(worldPath, worldBody, "utf-8")
   }
 
-  const ignorePath = join(target, ".backlotignore")
+  const ignorePath = join(target, ".laniignore")
   if (!existsSync(ignorePath)) {
     await writeFile(
       ignorePath,
-      `# Files and folders hidden from the Backlot rail.
+      `# Files and folders hidden from the Lani rail.
 # One pattern per line. Glob-style matching against repo-relative paths.
 .DS_Store
 node_modules/
@@ -391,7 +391,7 @@ dist/
 
 /**
  * Initialise a fresh git repo inside the imported project and commit a
- * baseline. The baseline is what every Backlot worktree forks from, so
+ * baseline. The baseline is what every Lani worktree forks from, so
  * we want it to exist before the first chat is created.
  */
 async function initGitBaseline(target: string): Promise<void> {
@@ -406,10 +406,10 @@ async function initGitBaseline(target: string): Promise<void> {
   // this repo, never global. We don't want to assume the user has a
   // git identity configured.
   try {
-    await git.addConfig("user.name", "Backlot", false, "local")
+    await git.addConfig("user.name", "Lani", false, "local")
     await git.addConfig(
       "user.email",
-      "backlot@laniameda.local",
+      "lani@laniameda.local",
       false,
       "local",
     )
@@ -419,7 +419,7 @@ async function initGitBaseline(target: string): Promise<void> {
   await git.add(["-A"])
   // Create the baseline. --allow-empty so an empty source folder still gets a HEAD.
   try {
-    await git.raw(["commit", "--allow-empty", "-m", "Backlot: import baseline"])
+    await git.raw(["commit", "--allow-empty", "-m", "Lani: import baseline"])
   } catch (err) {
     console.warn("[projects.import] baseline commit failed:", err)
   }
@@ -430,7 +430,7 @@ function isInsideDir(child: string, parent: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !rel.startsWith("/"))
 }
 
-async function createBacklotProjectCopy(input: {
+async function createLaniProjectCopy(input: {
   sourcePath: string
   name?: string
 }): Promise<{
@@ -547,7 +547,7 @@ export const projectsRouter = router({
         try {
           const git = simpleGit(project.path)
           await git.add(["CLAUDE.md"])
-          await git.commit("Backlot: update project memory (CLAUDE.md)", [
+          await git.commit("Lani: update project memory (CLAUDE.md)", [
             "CLAUDE.md",
           ])
         } catch (err) {
@@ -578,9 +578,9 @@ export const projectsRouter = router({
     }),
 
   /**
-   * Import a source folder into Backlot.
+   * Import a source folder into Lani.
    *
-   * Copies <sourcePath> to ~/.backlot/projects/<slug>/, excluding noise
+   * Copies <sourcePath> to ~/.lani/projects/<slug>/, excluding noise
    * (.git, node_modules, dist, etc.), runs `git init` + a baseline
    * commit, and inserts a project row pointing at the COPY (never the
    * original). The user's source folder is never touched.
@@ -597,7 +597,7 @@ export const projectsRouter = router({
     )
     .mutation(async ({ input }) => {
       const db = getDatabase()
-      const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+      const { displayName, target, gitInfo } = await createLaniProjectCopy({
         sourcePath: input.sourcePath,
         name: input.name,
       })
@@ -638,7 +638,7 @@ export const projectsRouter = router({
 
     const result = await dialog.showOpenDialog(window, {
       properties: ["openDirectory"],
-      title: "Import a project into Backlot",
+      title: "Import a project into Lani",
       buttonLabel: "Import",
     })
 
@@ -647,7 +647,7 @@ export const projectsRouter = router({
     }
 
     const db = getDatabase()
-    const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+    const { displayName, target, gitInfo } = await createLaniProjectCopy({
       sourcePath: result.filePaths[0]!,
     })
     const newProject = db
@@ -672,10 +672,10 @@ export const projectsRouter = router({
   }),
 
   /**
-   * Create a brand-new Backlot project from scratch.
+   * Create a brand-new Lani project from scratch.
    *
-   * Scaffolds `~/.backlot/projects/<slug>/` with a starter tree
-   * (`brief.md`, `world.md`, `CLAUDE.md`, `.backlotignore`), runs
+   * Scaffolds `~/.lani/projects/<slug>/` with a starter tree
+   * (`brief.md`, `world.md`, `CLAUDE.md`, `.laniignore`), runs
    * `git init` + a baseline commit, and inserts the project row.
    * No source folder, no fork — the user names it and starts writing.
    */
@@ -753,7 +753,7 @@ export const projectsRouter = router({
     }
 
     const db = getDatabase()
-    const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+    const { displayName, target, gitInfo } = await createLaniProjectCopy({
       sourcePath: result.filePaths[0]!,
     })
 
@@ -786,7 +786,7 @@ export const projectsRouter = router({
     .input(z.object({ path: z.string(), name: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = getDatabase()
-      const { displayName, target, gitInfo } = await createBacklotProjectCopy({
+      const { displayName, target, gitInfo } = await createLaniProjectCopy({
         sourcePath: input.path,
         name: input.name,
       })
@@ -807,12 +807,12 @@ export const projectsRouter = router({
 
   /**
    * Repair an older project row whose path points at a source folder
-   * outside Backlot, or at a subfolder inside a parent git repo. The
-   * normalized project becomes a self-contained Backlot-owned repo under
-   * ~/.backlot/projects/<slug>/, which is the only safe base for future
+   * outside Lani, or at a subfolder inside a parent git repo. The
+   * normalized project becomes a self-contained Lani-owned repo under
+   * ~/.lani/projects/<slug>/, which is the only safe base for future
    * git worktrees.
    */
-  normalizeForBacklot: publicProcedure
+  normalizeForLani: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = getDatabase()
@@ -826,15 +826,15 @@ export const projectsRouter = router({
         throw new Error(`Project folder does not exist: ${project.path}`)
       }
 
-      await mkdir(BACKLOT_PROJECTS_DIR, { recursive: true })
-      const [realProjectPath, realBacklotProjects] = await Promise.all([
+      await mkdir(LANI_PROJECTS_DIR, { recursive: true })
+      const [realProjectPath, realLaniProjects] = await Promise.all([
         fsRealpath(project.path),
-        fsRealpath(BACKLOT_PROJECTS_DIR),
+        fsRealpath(LANI_PROJECTS_DIR),
       ])
-      const alreadyBacklotOwned = isInsideDir(realProjectPath, realBacklotProjects)
+      const alreadyLaniOwned = isInsideDir(realProjectPath, realLaniProjects)
       const exactRepoRoot = await isExactGitRepoRoot(realProjectPath)
 
-      if (alreadyBacklotOwned && exactRepoRoot) {
+      if (alreadyLaniOwned && exactRepoRoot) {
         const gitInfo = await getGitRemoteInfo(realProjectPath)
         return db
           .update(projects)
@@ -852,7 +852,7 @@ export const projectsRouter = router({
       }
 
       const oldPath = project.path
-      const { target, gitInfo } = await createBacklotProjectCopy({
+      const { target, gitInfo } = await createLaniProjectCopy({
         sourcePath: realProjectPath,
         name: project.name,
       })
@@ -998,9 +998,9 @@ export const projectsRouter = router({
         throw new Error("Invalid GitHub URL or repo format")
       }
 
-      // Clone to ~/.backlot/repos/{owner}/{repo}
+      // Clone to ~/.lani/repos/{owner}/{repo}
       const homePath = app.getPath("home")
-      const reposDir = join(homePath, ".backlot", "repos", owner)
+      const reposDir = join(homePath, ".lani", "repos", owner)
       const clonePath = join(reposDir, repo)
 
       // Check if already cloned
@@ -1187,9 +1187,9 @@ export const projectsRouter = router({
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
-      // Default to ~/.backlot/repos/
+      // Default to ~/.lani/repos/
       const homePath = app.getPath("home")
-      const defaultPath = join(homePath, ".backlot", "repos")
+      const defaultPath = join(homePath, ".lani", "repos")
       await mkdir(defaultPath, { recursive: true })
 
       const result = await dialog.showOpenDialog(window, {

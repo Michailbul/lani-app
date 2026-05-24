@@ -1,14 +1,14 @@
 "use client"
 
 /**
- * SelectRepoPage — Backlot's front cover.
+ * SelectRepoPage — Lani's front cover.
  *
  * The first thing the user sees when no project is selected. Three ways
  * in:
  *
  *   1. Resume a recent project (most common — one click)
  *   2. Start a new project from scratch (named, scaffolded fresh)
- *   3. Import an existing folder from disk (copied into ~/.backlot)
+ *   3. Import an existing folder from disk (copied into ~/.lani)
  *
  * Cloning from GitHub stays accessible as a quiet tertiary link so the
  * the legacy flow doesn't disappear. Visual register: editorial — the
@@ -73,8 +73,8 @@ function formatRelative(input: string | Date | null | undefined): string {
 /** Replace the user's home prefix with `~` and middle-truncate. */
 function prettyPath(p: string): string {
   if (typeof window === "undefined") return p
-  // Match anything up to "/.backlot/projects/..." — that's the canonical Backlot layout.
-  const idx = p.indexOf("/.backlot/projects/")
+  // Match anything up to "/.lani/projects/..." — that's the canonical Lani layout.
+  const idx = p.indexOf("/.lani/projects/")
   if (idx >= 0) return `~${p.slice(idx)}`
   return p
 }
@@ -391,7 +391,7 @@ export function SelectRepoPage() {
             </div>
             <div className="space-y-1.5">
               <h1 className="font-display text-[2.65rem] font-bold tracking-[-0.03em] leading-[0.95]">
-                Backlot
+                Lani
               </h1>
               <p className="text-[12.5px] text-muted-foreground font-mono uppercase tracking-[0.2em]">
                 The screenplay meets the shot
@@ -415,7 +415,7 @@ export function SelectRepoPage() {
               tone="muted"
               icon={<FolderInput className="h-4 w-4" />}
               title="Import a folder"
-              description="Pick a folder on disk. Backlot works on its copy."
+              description="Pick a folder on disk. Lani works on its copy."
               shortcut={["⌘", "O"]}
               onClick={() => pickAndImport.mutate()}
               disabled={isBusy}
@@ -543,7 +543,7 @@ export function SelectRepoPage() {
                 </DialogTitle>
                 <DialogDescription className="text-[12px] text-muted-foreground/85 leading-snug">
                   We'll create a working project under{" "}
-                  <span className="font-mono text-[11px]">~/.backlot/projects/</span>
+                  <span className="font-mono text-[11px]">~/.lani/projects/</span>
                   .
                 </DialogDescription>
               </div>

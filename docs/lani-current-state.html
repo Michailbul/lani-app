@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Backlot — How it works right now</title>
+<title>Lani — How it works right now</title>
 <style>
   :root {
     --bg: #0d0b09;
@@ -208,8 +208,8 @@
 <div class="wrap">
 
   <header>
-    <div class="kicker">Backlot · architecture snapshot</div>
-    <h1>How Backlot works <em>right now</em></h1>
+    <div class="kicker">Lani · architecture snapshot</div>
+    <h1>How Lani works <em>right now</em></h1>
     <p class="sub">Current state of project setup, working directory, skills, memory, and
       subagents — for both the Claude and Codex backends. Verified against the codebase, not the spec.</p>
     <div class="legend">
@@ -228,25 +228,25 @@
         <h2>Starting a project — copy, not worktree</h2>
         <span class="pill works">works</span>
       </div>
-      <p class="lead">When you import a folder or create a project, Backlot <strong>copies</strong> the
+      <p class="lead">When you import a folder or create a project, Lani <strong>copies</strong> the
         source into its own space. It never works against your original folder in place.</p>
       <div class="flow">
         <div class="step"><span class="t">you pick</span><span class="v">any source folder</span></div>
         <span class="arrow">→</span>
         <div class="step"><span class="t">copy</span><span class="v">excludes .git, node_modules, build caches</span></div>
         <span class="arrow">→</span>
-        <div class="step"><span class="t">lands at</span><span class="v">~/.backlot/projects/&lt;slug&gt;/</span></div>
+        <div class="step"><span class="t">lands at</span><span class="v">~/.lani/projects/&lt;slug&gt;/</span></div>
         <span class="arrow">→</span>
         <div class="step"><span class="t">then</span><span class="v">git init · baseline commit · starter CLAUDE.md</span></div>
       </div>
       <h3>Where projects live</h3>
-      <p>Every project is a folder under <span class="path">~/.backlot/projects/&lt;slug&gt;/</span> with its
-        own fresh git repo. The copy is deliberate: Backlot's git history stays independent and the
+      <p>Every project is a folder under <span class="path">~/.lani/projects/&lt;slug&gt;/</span> with its
+        own fresh git repo. The copy is deliberate: Lani's git history stays independent and the
         original is never touched.</p>
       <h3>Worktrees / forking — removed</h3>
       <p>The old <strong>Directions</strong> feature forked a project into extra git worktrees under
-        <code>~/.backlot/worktrees/</code>. That is gone. <strong>One project = one folder.</strong>
-        No new worktrees are created; <code>~/.backlot/worktrees/</code> only holds stale leftovers
+        <code>~/.lani/worktrees/</code>. That is gone. <strong>One project = one folder.</strong>
+        No new worktrees are created; <code>~/.lani/worktrees/</code> only holds stale leftovers
         from before the removal.</p>
     </div>
   </section>
@@ -264,7 +264,7 @@
       <pre><span class="c">// chats.ts — createChat</span>
 db.update(chats).set({ worktreePath: project.path })
 <span class="c">// → the agent process spawns with:</span>
-cwd = ~/.backlot/projects/&lt;slug&gt;/</pre>
+cwd = ~/.lani/projects/&lt;slug&gt;/</pre>
       <p class="muted">The DB column is still called <code>worktreePath</code> for legacy reasons, but it
         now always equals the project path. Every chat in a project shares the same cwd — there is no
         per-chat isolation anymore.</p>
@@ -300,7 +300,7 @@ settingSources: [<span class="s">"project"</span>]   <span class="c">← "user" 
         what 1code uses. One line.
       </div>
       <h3>The Skills settings tab</h3>
-      <p>The tab writes a filter to <span class="path">~/.backlot/skills-filter.json</span> — but
+      <p>The tab writes a filter to <span class="path">~/.lani/skills-filter.json</span> — but
         <code>resolveActiveSkillNames()</code>, the function meant to apply it, <strong>has zero callers.</strong>
         Nothing reads the filter when a session starts. The tab currently controls nothing.</p>
     </div>
@@ -317,7 +317,7 @@ settingSources: [<span class="s">"project"</span>]   <span class="c">← "user" 
       <p class="lead"><code>codex.ts</code> has <strong>no skill wiring whatsoever</strong> — no skill
         discovery, no <code>SKILL.md</code> scan, no <code>settingSources</code>, no symlink.</p>
       <p>Agent Skills are an Anthropic feature of the Claude Agent SDK. Codex has no equivalent
-        primitive. A Codex session in Backlot runs on the harness alone. (1code is the same — its
+        primitive. A Codex session in Lani runs on the harness alone. (1code is the same — its
         Codex path also has zero skills.)</p>
     </div>
   </section>
@@ -330,10 +330,10 @@ settingSources: [<span class="s">"project"</span>]   <span class="c">← "user" 
         <h2>How Claude is <em>supposed</em> to see skills</h2>
         <span class="pill broken">broken</span>
       </div>
-      <p class="lead">Backlot builds an isolated config dir per session and symlinks your skills into
+      <p class="lead">Lani builds an isolated config dir per session and symlinks your skills into
         it. The plumbing is there — but it is bypassed by the <code>settingSources</code> bug above.</p>
       <pre><span class="c">// per session, claude.ts:</span>
-CLAUDE_CONFIG_DIR = ~/Library/Application Support/backlot/
+CLAUDE_CONFIG_DIR = ~/Library/Application Support/lani/
                     claude-sessions/&lt;subChatId&gt;/
 
 symlink  ~/.claude/skills  →  $CLAUDE_CONFIG_DIR/skills
@@ -363,16 +363,16 @@ symlink  ~/.claude/agents  →  $CLAUDE_CONFIG_DIR/agents</pre>
       </div>
       <h3>Project memory</h3>
       <p>Because <code>settingSources</code> includes <code>"project"</code>, the SDK loads the
-        <strong>project's</strong> <code>CLAUDE.md</code> — <span class="path">~/.backlot/projects/&lt;slug&gt;/CLAUDE.md</span>.
+        <strong>project's</strong> <code>CLAUDE.md</code> — <span class="path">~/.lani/projects/&lt;slug&gt;/CLAUDE.md</span>.
         That is the per-project memory the agent reads every turn.</p>
       <h3>Your global CLAUDE.md</h3>
       <p>Your personal <span class="path">~/.claude/CLAUDE.md</span> (the Laniameda studio doc) is
-        <strong>not loaded</strong> — <code>"user"</code> is off, and Backlot deliberately never
+        <strong>not loaded</strong> — <code>"user"</code> is off, and Lani deliberately never
         symlinks <code>CLAUDE.md</code> into the config dir. That isolation is intentional and should
         survive the skills fix: when <code>"user"</code> is restored for skills, <code>CLAUDE.md</code>
         still must not be symlinked, so user skills load without the studio doc bleeding in.</p>
       <h3>The harness</h3>
-      <p>The Backlot harness (<code>harness-prompt.ts</code>) is separate from any <code>CLAUDE.md</code>.
+      <p>The Lani harness (<code>harness-prompt.ts</code>) is separate from any <code>CLAUDE.md</code>.
         It is appended to the system prompt via <code>systemPrompt.append</code> for Claude, and passed
         as <code>system</code> for Codex. Same text for every project.</p>
     </div>
@@ -427,7 +427,7 @@ symlink  ~/.claude/agents  →  $CLAUDE_CONFIG_DIR/agents</pre>
       <p>Subagents are passed explicitly to the SDK through <code>options.agents</code>:</p>
       <pre><span class="c">// claude.ts</span>
 agentsOption = { ...builtinAgents, ...mentionedAgents }
-<span class="c">// builtinAgents  — Backlot's own subagents (e.g. director-verifier),</span>
+<span class="c">// builtinAgents  — Lani's own subagents (e.g. director-verifier),</span>
 <span class="c">//                  minus any disabled in Settings</span>
 <span class="c">// mentionedAgents — agents the user @-mentions in the prompt</span>
 options.agents = agentsOption   <span class="c">// only when non-empty</span></pre>
@@ -440,7 +440,7 @@ options.agents = agentsOption   <span class="c">// only when non-empty</span></p
           config dir, but <strong>dead for the same reason as skills</strong>: <code>"user"</code> is off.</li>
       </ul>
       <p class="muted">The SDK's per-subagent definition also has a <code>skills: string[]</code> field —
-        a subagent can preload specific skills. Backlot does not use it yet.</p>
+        a subagent can preload specific skills. Lani does not use it yet.</p>
       <h3>Codex</h3>
       <p>No subagents. Codex has no equivalent.</p>
     </div>
@@ -454,7 +454,7 @@ options.agents = agentsOption   <span class="c">// only when non-empty</span></p
         <h2>The state in one glance</h2>
       </div>
       <div class="summary">
-        <div class="row"><span class="pill works">works</span><span>Project = a copied folder at <code>~/.backlot/projects/&lt;slug&gt;</code></span></div>
+        <div class="row"><span class="pill works">works</span><span>Project = a copied folder at <code>~/.lani/projects/&lt;slug&gt;</code></span></div>
         <div class="row"><span class="pill works">works</span><span>cwd = the project folder; no worktrees</span></div>
         <div class="row"><span class="pill works">works</span><span>Project <code>CLAUDE.md</code> + harness reach the agent</span></div>
         <div class="row"><span class="pill works">works</span><span>Claude built-in subagents register</span></div>
@@ -467,7 +467,7 @@ options.agents = agentsOption   <span class="c">// only when non-empty</span></p
   </section>
 
   <footer>
-    <span>Backlot · current-state snapshot</span>
+    <span>Lani · current-state snapshot</span>
     <span>generated 2026-05-16 · verified against source</span>
   </footer>
 

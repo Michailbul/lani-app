@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * MultishotSurface — Backlot's "Multishot" workflow mode.
+ * MultishotSurface — Lani's "Multishot" workflow mode.
  *
  * A file-backed sibling of the Shotlist surface. Where a Shotlist cuts a
  * scene into many Parts each with its own prompt, a Multishot keeps the
@@ -22,7 +22,7 @@
  *   │  └───────────────────────┴──────────────────────────────────────┘  │
  *   └────────────────────────────────────────────────────────────────────┘
  *
- * One scene = one `multishot.backlot.json` next to its `scene.fountain`.
+ * One scene = one `multishot.lani.json` next to its `scene.fountain`.
  * Edits autosave (debounced) through the `multishots` tRPC router, which
  * checkpoints each settled edit into git.
  */
@@ -99,7 +99,7 @@ const GLASS_THUMB =
 
 // ── Prompt / screenplay split — a single persisted fraction ───────────────
 
-const PROMPT_FRACTION_KEY = "backlot:multishot:prompt-fraction:v1"
+const PROMPT_FRACTION_KEY = "lani:multishot:prompt-fraction:v1"
 const PROMPT_MIN = 0.4
 const PROMPT_MAX = 0.72
 const PROMPT_DEFAULT = 0.54
@@ -146,7 +146,7 @@ function usePromptFraction() {
 
 // ── Screenplay panel — collapsible, its open state persisted ──────────────
 
-const SCREENPLAY_OPEN_KEY = "backlot:multishot:screenplay-open:v1"
+const SCREENPLAY_OPEN_KEY = "lani:multishot:screenplay-open:v1"
 
 /** Whether the screenplay division panel is shown. Persisted. */
 function useScreenplayOpen() {
@@ -170,14 +170,14 @@ function useScreenplayOpen() {
   }
 }
 
-/** Stream a project file to the renderer over the backlot-asset:// scheme. */
+/** Stream a project file to the renderer over the lani-asset:// scheme. */
 function assetUrl(absPath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+  return `lani-asset://asset/?p=${encodeURIComponent(absPath)}`
 }
 
 /** A scene's multishot file sits next to its scene.fountain. */
 function multishotPathForScene(scriptPath: string): string {
-  return scriptPath.replace(/[^/]+$/, "multishot.backlot.json")
+  return scriptPath.replace(/[^/]+$/, "multishot.lani.json")
 }
 
 /** Resolve which scene the active project-tree entity points at, if any. */
@@ -189,7 +189,7 @@ function sceneFromActive<T extends { id: string; scriptPath: string }>(
   if (active.kind === "scene") {
     return scenes.find((s) => s.id === active.id) ?? null
   }
-  // A clicked multishot.backlot.json — resolve back to its scene.
+  // A clicked multishot.lani.json — resolve back to its scene.
   if (active.kind === "multishot") {
     const scenePath = active.path.replace(/[^/]+$/, "scene.fountain")
     return (
@@ -260,7 +260,7 @@ function MultishotWorkspace({
   const lastActivePathRef = useRef<string | null>(active?.path ?? null)
 
   // Follow the project tree: when the active entity *changes* to one that
-  // resolves to a scene (a scene file, or a multishot.backlot.json), jump
+  // resolves to a scene (a scene file, or a multishot.lani.json), jump
   // the surface to it. A change only — a stable `active` never overrides
   // the writer's own pick from the scene selector.
   useEffect(() => {

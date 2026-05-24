@@ -95,7 +95,7 @@ async function settleQueueEdit(
     const porcelain = await git.raw(["status", "--porcelain", "--", ...paths])
     if (!porcelain.trim()) return
     await git.add(paths)
-    await git.commit("Backlot: update queue", paths)
+    await git.commit("Lani: update queue", paths)
   } catch (err) {
     console.warn("[queue] edit settlement skipped:", err)
   }
@@ -163,7 +163,7 @@ function stamp<T extends SubmissionQueue>(queue: T): T {
 
 /**
  * One-time migration: earlier builds kept archived items inside
- * `queue.backlot.json` with an `archivedAt` field. Move any such stray
+ * `queue.lani.json` with an `archivedAt` field. Move any such stray
  * items into the archive file so the two documents are clean. Idempotent
  * — a no-op once the split has happened.
  */

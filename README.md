@@ -1,4 +1,4 @@
-# Backlot
+# Lani
 
 > A local desktop app for screenwriters and AI filmmakers who write with AI but refuse to hand the keyboard over.
 

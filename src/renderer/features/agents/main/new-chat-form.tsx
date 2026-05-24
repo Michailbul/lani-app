@@ -141,7 +141,7 @@ const CodexIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-// Hook to get available models. Backlot: Ollama integration stripped, so the
+// Hook to get available models. Lani: Ollama integration stripped, so the
 // offline-models branch is unreachable. Kept structurally to minimise diff against
 // the upstream useAvailableModels hook.
 function useAvailableModels() {
@@ -992,9 +992,9 @@ export function NewChatForm({
     await openFolder.mutateAsync()
   }
 
-  // Backlot-style import: copies the picked folder to ~/.backlot/projects/<slug>/,
+  // Lani-style import: copies the picked folder to ~/.lani/projects/<slug>/,
   // inits a fresh git repo + baseline commit, and selects the resulting
-  // project so chats work against Backlot's canonical project copy. The user's
+  // project so chats work against Lani's canonical project copy. The user's
   // original folder is never touched.
   const pickAndImport = trpc.projects.pickAndImport.useMutation({
     onSuccess: (project) => {
@@ -1618,13 +1618,13 @@ export function NewChatForm({
             </div>
           )}
 
-          {/* Input Area or Backlot project landing */}
+          {/* Input Area or Lani project landing */}
           {!validatedProject ? (
-            // No project selected - show Backlot's projects landing.
-            // Imported projects live under ~/.backlot/projects/<slug>/;
+            // No project selected - show Lani's projects landing.
+            // Imported projects live under ~/.lani/projects/<slug>/;
             // their original sources are never modified. Forks branch
             // from the imported tree, not from the user's source folder.
-            <BacklotProjectLanding
+            <LaniProjectLanding
               projects={projectsList ?? []}
               isLoading={isLoadingProjects}
               onPick={handlePickProject}
@@ -2349,26 +2349,26 @@ export function NewChatForm({
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Backlot project landing
+// Lani project landing
 //
 // The first thing the user sees when no project is selected. Editorial
-// not utilitarian — Backlot is the writer's workspace, the entry
+// not utilitarian — Lani is the writer's workspace, the entry
 // point should feel that way.
 //
 //   "Pick up where you left off"
 //   ┌──────────────────────────────────────┐
 //   │ Daddy Issues                         │
-//   │ ~/.backlot/projects/daddy-issues     │
+//   │ ~/.lani/projects/daddy-issues     │
 //   │ touched 4h ago                       │
 //   ├──────────────────────────────────────┤
 //   │ ...                                  │
 //   └──────────────────────────────────────┘
 //   + Import a project
 //
-// "Import" copies the picked folder into ~/.backlot/projects/<slug>/
+// "Import" copies the picked folder into ~/.lani/projects/<slug>/
 // and inits a fresh git baseline. The source folder stays untouched.
 // ─────────────────────────────────────────────────────────────────────
-function BacklotProjectLanding({
+function LaniProjectLanding({
   projects,
   isLoading,
   onPick,
@@ -2415,7 +2415,7 @@ function BacklotProjectLanding({
             className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground/75"
             style={{ fontFamily: "var(--font-mono)" }}
           >
-            Backlot · Projects
+            Lani · Projects
           </span>
         </div>
         <h1
@@ -2424,15 +2424,15 @@ function BacklotProjectLanding({
         >
           {hasProjects
             ? "Pick up where you left off."
-            : "Bring a project into Backlot."}
+            : "Bring a project into Lani."}
         </h1>
         <p
           className="text-[15px] leading-[1.6] text-muted-foreground/85 max-w-[520px]"
           style={{ fontFamily: "var(--font-body)" }}
         >
           {hasProjects
-            ? "Choose a project to open, or import a new one. Backlot works from its own project copy so the original folder stays untouched."
-            : "Backlot copies your folder into its own workspace, then lets chats work directly in that project draft."}
+            ? "Choose a project to open, or import a new one. Lani works from its own project copy so the original folder stays untouched."
+            : "Lani copies your folder into its own workspace, then lets chats work directly in that project draft."}
         </p>
       </div>
 

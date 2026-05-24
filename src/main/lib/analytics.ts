@@ -1,5 +1,5 @@
 /**
- * PostHog analytics for Backlot - Main Process
+ * PostHog analytics for Lani - Main Process
  * Uses PostHog Node.js SDK for server-side tracking
  */
 

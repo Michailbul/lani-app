@@ -73,7 +73,7 @@ const GLASS_THUMB =
 
 // ── Prompt / screenplay split — a single persisted fraction ───────────────
 
-const PROMPT_FRACTION_KEY = "backlot:shotlist:prompt-fraction:v1"
+const PROMPT_FRACTION_KEY = "lani:shotlist:prompt-fraction:v1"
 const PROMPT_MIN = 0.4
 const PROMPT_MAX = 0.72
 const PROMPT_DEFAULT = 0.54
@@ -146,12 +146,12 @@ function versionPatch(versions: string[], active: number): Partial<ShotPrompt> {
 
 /** A scene's shotlist file sits next to its scene.fountain. */
 function shotlistPathForScene(scriptPath: string): string {
-  return scriptPath.replace(/[^/]+$/, "shotlist.backlot.json")
+  return scriptPath.replace(/[^/]+$/, "shotlist.lani.json")
 }
 
 function scriptPathForShotlist(path: string): string {
   return path
-    .replace(/\/shotlist\/shotlist\.backlot\.json$/i, "/scene.fountain")
+    .replace(/\/shotlist\/shotlist\.lani\.json$/i, "/scene.fountain")
     .replace(/[^/]+$/, "scene.fountain")
 }
 
@@ -164,7 +164,7 @@ function sceneFromActive<T extends { id: string; scriptPath: string }>(
   if (active.kind === "scene") {
     return scenes.find((s) => s.id === active.id) ?? null
   }
-  // A clicked shotlist.backlot.json — resolve back to its scene.
+  // A clicked shotlist.lani.json — resolve back to its scene.
   if (active.kind === "shotlist") {
     const activeScriptPath = scriptPathForShotlist(active.path)
     return (
@@ -191,9 +191,9 @@ function renumber(shots: ShotPrompt[]): ShotPrompt[] {
   )
 }
 
-/** Stream a project file to the renderer over the backlot-asset:// scheme. */
+/** Stream a project file to the renderer over the lani-asset:// scheme. */
 function assetUrl(absPath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+  return `lani-asset://asset/?p=${encodeURIComponent(absPath)}`
 }
 
 /** A fresh, empty Part — its screenplay slice may be seeded by the caller. */
@@ -264,7 +264,7 @@ function ShotlistWorkspace({
   const activeShotlistPath = active?.kind === "shotlist" ? active.path : null
 
   // Follow the project tree: when the active entity *changes* to one that
-  // resolves to a scene (a scene file, or a shotlist.backlot.json), jump
+  // resolves to a scene (a scene file, or a shotlist.lani.json), jump
   // the surface to it. A change only — a stable `active` never overrides
   // the writer's own pick from the scene selector.
   useEffect(() => {
@@ -707,7 +707,7 @@ function SceneShotlistView({
       english,
     ].join("\n")
     window.dispatchEvent(
-      new CustomEvent("backlot-chat-compose", { detail: { text: message } }),
+      new CustomEvent("lani-chat-compose", { detail: { text: message } }),
     )
     toast.success("Translation request added to chat — review and send")
   }
@@ -836,7 +836,7 @@ function SceneShotlistView({
 
 // ── Raw JSON view — the shotlist file, plain ──────────────────────────────
 
-/** Read-only dump of the shotlist's underlying `.backlot.json` file. */
+/** Read-only dump of the shotlist's underlying `.lani.json` file. */
 function RawJsonView({ doc }: { doc: SceneShotlist }) {
   const json = useMemo(() => JSON.stringify(doc, null, 2), [doc])
   const [copied, setCopied] = useState(false)

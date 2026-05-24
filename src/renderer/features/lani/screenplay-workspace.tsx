@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * ScreenplayWorkspace — Backlot's two-column desktop layout.
+ * ScreenplayWorkspace — Lani's two-column desktop layout.
  *
  * Replaces the upstream "single-column chat" arrangement with the
  * screenwriter shape: the screenplay artifact dominates the canvas,
@@ -266,10 +266,10 @@ function ModeAwareCenter({ chatId }: ModeAwareCenterProps) {
   // The workflow dock is the primary navigation. Clicking a stage always
   // lands on that stage's surface — it is never overridden by whichever
   // entity happens to be open. Each generation surface carries its own
-  // scene selector, so it stands up on its own even when no `.backlot`
+  // scene selector, so it stands up on its own even when no `.lani`
   // file was opened first.
   //
-  // Opening a `.backlot` file in the project tree sets the matching mode
+  // Opening a `.lani` file in the project tree sets the matching mode
   // (see project-file-tree's handleOpen), so the file and the mode never
   // disagree in practice.
   if (mode === "skill") {
@@ -327,9 +327,9 @@ function fallbackColor(chatId: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// ThreadSwitcher — sub-chat picker for the Backlot rail.
+// ThreadSwitcher — sub-chat picker for the Lani rail.
 //
-// In Backlot lingo: a workspace ("Direction") owns many sub-chats
+// In Lani lingo: a workspace ("Direction") owns many sub-chats
 // ("threads"). Messages live inside a sub-chat. The screenwriter layout
 // hides the upstream sub-chat tab strip, so without this control the
 // user has no in-rail affordance to switch threads. The visible symptom
@@ -662,7 +662,7 @@ export function AppTopBar({ workspace = false }: { workspace?: boolean }) {
       {/* Centre — the project title, native-window-title style. */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <div className="flex items-center gap-1.5 text-[12px]">
-          <span className="text-muted-foreground/70">Backlot</span>
+          <span className="text-muted-foreground/70">Lani</span>
           {project?.name && (
             <>
               <span className="text-muted-foreground/40">/</span>

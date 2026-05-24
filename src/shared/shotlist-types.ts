@@ -1,14 +1,14 @@
 /**
  * Per-scene shotlist model.
  *
- * One scene = one shotlist file at `<scene folder>/shotlist.backlot.json`,
+ * One scene = one shotlist file at `<scene folder>/shotlist.lani.json`,
  * sitting next to that scene's `scene.fountain`. A shotlist is an ordered
  * list of Parts; each Part owns a slice of the scene's director-screenwriter
  * screenplay plus the generation prompt that covers that slice.
  *
  * The screenplay lives in the shotlist itself: each Part's `scriptRef` is a
  * contiguous slice, and the slices joined in order reconstruct the full
- * scene screenplay, including visible `SHOT A:` Backlot shot headings when
+ * scene screenplay, including visible `SHOT A:` Lani shot headings when
  * present. A divider is simply the boundary between two Parts.
  * This is a writer's working copy of the screenplay — it is seeded from
  * `scene.fountain` but is not kept in sync with it. No hashing, no drift
@@ -100,7 +100,7 @@ export interface SceneShotlist {
 }
 
 /**
- * Coerce raw `shotlist.backlot.json` into a well-formed `SceneShotlist`.
+ * Coerce raw `shotlist.lani.json` into a well-formed `SceneShotlist`.
  *
  * The agent authors this file directly with the Write tool, so a read
  * can hit a near-miss shape: a Part missing an `id`, an unknown status,

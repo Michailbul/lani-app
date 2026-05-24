@@ -182,7 +182,7 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
   
   // Theme sync.
   //
-  // Backlot's brand chrome — canvas, surfaces, the lime accent — is owned
+  // Lani's brand chrome — canvas, surfaces, the lime accent — is owned
   // entirely by globals.css. The VS Code theme must NOT override those
   // tokens: doing so repaints the whole app in the editor theme's colours
   // (this is exactly what was turning the lime accent blue). So we no

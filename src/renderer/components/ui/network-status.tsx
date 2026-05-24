@@ -17,7 +17,7 @@ const LightningIcon = ({ className }: { className?: string }) => (
 
 export function NetworkStatus() {
   const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  // Backlot: ollama integration stripped — assume online, no offline indicator.
+  // Lani: ollama integration stripped — assume online, no offline indicator.
   const data: undefined | { internet: { online: boolean } } = undefined
   const online = data?.internet.online ?? true
 

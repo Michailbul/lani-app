@@ -19,7 +19,7 @@ import {
 } from "../db"
 
 export const DEFAULT_CANVAS_NAME = "main"
-export const DEFAULT_IMAGE_MODEL = process.env.BACKLOT_CANVAS_IMAGE_MODEL || "gpt-image-2"
+export const DEFAULT_IMAGE_MODEL = process.env.LANI_CANVAS_IMAGE_MODEL || "gpt-image-2"
 
 // `prompt` is a legacy node type — new prompts land as `textBlock`.
 // Kept in the union so existing rows in the DB still type-check on read.
@@ -35,7 +35,7 @@ export type CanvasAssetKind = "imported" | "generated" | "stitched" | "cropped"
 export interface CanvasDocumentSnapshot {
   document: CanvasDocument
   // Absolute worktree path — the renderer joins it with an asset's
-  // projectRelativePath to build a `backlot-asset://` preview URL.
+  // projectRelativePath to build a `lani-asset://` preview URL.
   worktreePath: string | null
   nodes: Array<CanvasNode & { dataJson: Record<string, unknown> }>
   edges: CanvasEdge[]

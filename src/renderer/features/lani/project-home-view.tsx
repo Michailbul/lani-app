@@ -4,7 +4,7 @@
  * ProjectHomeView — what the user sees after picking a project but
  * before opening (or starting) a chat.
  *
- * Backlot's "open a project" gesture should never *force* the user to
+ * Lani's "open a project" gesture should never *force* the user to
  * write an initial message. Most of the time they want to:
  *
  *   1. Resume a chat they left half-finished, or
@@ -56,7 +56,7 @@ function formatRelative(input: string | Date | null | undefined): string {
 }
 
 function prettyPath(p: string): string {
-  const idx = p.indexOf("/.backlot/projects/")
+  const idx = p.indexOf("/.lani/projects/")
   if (idx >= 0) return `~${p.slice(idx)}`
   return p
 }

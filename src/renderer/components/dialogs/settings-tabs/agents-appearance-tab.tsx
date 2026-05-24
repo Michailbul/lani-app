@@ -236,7 +236,7 @@ export function AgentsAppearanceTab() {
 
   // Apply theme based on current settings.
   //
-  // Backlot's brand chrome is owned entirely by globals.css. We must NOT
+  // Lani's brand chrome is owned entirely by globals.css. We must NOT
   // paint VS Code theme colours onto the root element — doing so overrides
   // the brand tokens and repaints the app in the editor theme (the bug
   // where the lime accent went blue/white). We only set the theme atoms

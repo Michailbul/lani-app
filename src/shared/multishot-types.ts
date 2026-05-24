@@ -1,7 +1,7 @@
 /**
  * Per-scene multishot model.
  *
- * One scene = one multishot file at `<scene folder>/multishot.backlot.json`,
+ * One scene = one multishot file at `<scene folder>/multishot.lani.json`,
  * sitting next to that scene's `scene.fountain`. A multishot pairs the
  * scene's screenplay with a single multi-shot generation prompt — the
  * "MULTI-SHOT, 12s — Shot 1… Shot 2…" form, where one clip covers several
@@ -102,7 +102,7 @@ function normalizeVersion(
 }
 
 /**
- * Coerce raw `multishot.backlot.json` into a well-formed `SceneMultishot`.
+ * Coerce raw `multishot.lani.json` into a well-formed `SceneMultishot`.
  *
  * The agent can author this file directly with the Write tool, so a read
  * may hit a near-miss shape. This is the read-side safety net; it fills

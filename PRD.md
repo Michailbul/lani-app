@@ -1,4 +1,4 @@
-# Backlot — v1 PRD
+# Lani — v1 PRD
 
 > Last updated 2026-05-05. Owner: Michael. Status: scoping → execution.
 
@@ -20,7 +20,7 @@ A local desktop app for screenwriters and AI filmmakers. The center pane is your
 | Editor library | CodeMirror 6 with a custom Fountain mode. Lighter than Monaco, code-feel typewriter surface. |
 | Auto-commit on agent edit | Yes. One commit per accepted edit. Branches are disposable, history is cheap, revert is free. |
 | Scope | Single-window, multi-project, macOS first. No mobile, no Windows/Linux v1. |
-| App name | Backlot. |
+| App name | Lani. |
 
 ## 3. Foundation: what 1code already provides
 

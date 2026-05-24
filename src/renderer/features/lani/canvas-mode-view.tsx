@@ -41,10 +41,10 @@ import { CANVAS_DROP_MIME, isImagePath } from "./entity-kind"
 // plus the gap-1.5 (6px) between label and card.
 const NODE_HEADER_HEIGHT = 26
 
-// Builds a `backlot-asset://` URL for a worktree-relative media path so
+// Builds a `lani-asset://` URL for a worktree-relative media path so
 // the renderer can preview it without a `file://` web-security violation.
 function assetUrl(worktreePath: string, projectRelativePath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(
+  return `lani-asset://asset/?p=${encodeURIComponent(
     `${worktreePath}/${projectRelativePath}`,
   )}`
 }
@@ -154,7 +154,7 @@ const DEFAULT_CANVAS_PAGE = "main"
 // localStorage key for the writer's last active page on a given worktree —
 // so reopening the canvas lands on the page they were just working in.
 const activePageStorageKey = (worktreeId: string | null) =>
-  worktreeId ? `backlot:canvas-page:${worktreeId}` : null
+  worktreeId ? `lani:canvas-page:${worktreeId}` : null
 
 // The Lime brand accent, resolved at runtime from the theme token so the
 // SVG edge stroke tracks light/dark with the rest of the canvas.

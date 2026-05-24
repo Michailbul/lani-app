@@ -1380,7 +1380,7 @@ export function getDetectedFrameworkIcon(
     }
   }
 
-  // Return Backlot logo as final fallback
+  // Return Lani logo as final fallback
   return <CodeIcon className={className} />
 }
 
@@ -1475,7 +1475,7 @@ export function PDFIcon({ className }: FrameworkIconProps) {
   )
 }
 
-// Default/Unknown - Backlot logo (same as canvas sidebar placeholder)
+// Default/Unknown - Lani logo (same as canvas sidebar placeholder)
 export function CodeIcon({ className }: FrameworkIconProps) {
   return (
     <svg
@@ -1483,7 +1483,7 @@ export function CodeIcon({ className }: FrameworkIconProps) {
       className={cn("w-4 h-4 text-muted-foreground", className)}
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="Backlot Logo"
+      aria-label="Lani Logo"
     >
       <path
         fillRule="evenodd"

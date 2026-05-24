@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * LibrarySurface — Backlot's "Library" workflow mode.
+ * LibrarySurface — Lani's "Library" workflow mode.
  *
  * A per-project bookshelf of reusable workflows, character-sheet
  * templates and saved generation prompts. The writer (or the agent)
@@ -20,7 +20,7 @@
  * the entry opens a modal with the prompt templates, full reference
  * carousel, edit / delete actions and a one-click Copy button.
  *
- * Backing storage is `library.backlot.json` at the project root —
+ * Backing storage is `library.lani.json` at the project root —
  * read/written by the `library` tRPC router, edited in place by the
  * in-app agent. Reference images live under `library-media/<itemId>/`.
  * Every write is settled as a git commit, so the library has the
@@ -151,9 +151,9 @@ const KIND_META: Record<LibraryItemKind, KindMeta> = {
 
 const KIND_ORDER: LibraryItemKind[] = ["workflow", "character-sheet", "prompt"]
 
-/** Stream a project file to the renderer over the backlot-asset:// scheme. */
+/** Stream a project file to the renderer over the lani-asset:// scheme. */
 function assetUrl(absPath: string): string {
-  return `backlot-asset://asset/?p=${encodeURIComponent(absPath)}`
+  return `lani-asset://asset/?p=${encodeURIComponent(absPath)}`
 }
 
 /** Resolve the absolute path of a file dragged in from Finder. */
@@ -274,7 +274,7 @@ function LibraryWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
     onError: (err) =>
       toast.error(err.message || "Couldn't promote to a skill"),
     onSuccess: (r) => {
-      toast.success(`Skill ready at ~/.backlot/skills/${r.skillName}/`)
+      toast.success(`Skill ready at ~/.lani/skills/${r.skillName}/`)
     },
   })
 
@@ -360,7 +360,7 @@ function LibraryWorkspace({ entityRoot }: { entityRoot: EntityRoot }) {
         title="Couldn't load the library"
         message={
           list.error?.message ||
-          "The library couldn't be scanned. Restart Backlot and try again."
+          "The library couldn't be scanned. Restart Lani and try again."
         }
       />
     )
@@ -795,7 +795,7 @@ function RotatingThumb({
   // Build the rotation list — cover image first, then the rest, capped.
   // De-duplicated so a cover that also appears in references doesn't
   // get a double-tick. The router gave us a folder path and bare
-  // filenames; the browser fetches each via the backlot-asset://
+  // filenames; the browser fetches each via the lani-asset://
   // scheme without any tRPC round-trip.
   const urls = useMemo(() => {
     const seen = new Set<string>()
@@ -1294,7 +1294,7 @@ function LibraryDetail({
           type="button"
           onClick={onPromoteToSkill}
           disabled={promotePending}
-          title="Copy this entry into ~/.backlot/skills/ so the agent treats it as a callable skill."
+          title="Copy this entry into ~/.lani/skills/ so the agent treats it as a callable skill."
           className="press inline-flex h-7 items-center gap-1.5 rounded-lg bg-foreground/[0.06] px-2.5 text-[11px] font-medium text-foreground hover:bg-foreground/[0.1] disabled:opacity-50"
         >
           {promotePending ? (
@@ -1374,7 +1374,7 @@ function stripFrontmatter(content: string): string {
  * Raw agent view — renders the two files the agent reads when it
  * picks up this library entry, exactly as they sit on disk:
  *
- *   1. The JSON record inside `library.backlot.json` (the index
+ *   1. The JSON record inside `library.lani.json` (the index
  *      entry) — metadata, kind, paths.
  *   2. The `workflow.md` file body — frontmatter + prose sections.
  *

@@ -1,11 +1,11 @@
 /**
- * Backlot library — the bookshelf of reusable workflows, character
+ * Lani library — the bookshelf of reusable workflows, character
  * sheet templates and saved generation prompts the user collects
  * across films.
  *
  * Two tiers:
  *
- *   1. **Studio** (`~/.backlot/library/<id>/`) — universal recipes,
+ *   1. **Studio** (`~/.lani/library/<id>/`) — universal recipes,
  *      project-agnostic. Editable from any project. Survives moving
  *      projects, switching machines (with sync), etc.
  *
@@ -51,7 +51,7 @@ export type LibraryItemKind = "workflow" | "character-sheet" | "prompt"
  * `coverImage` and `referenceImages` carry plain **filenames**
  * relative to the entry's folder — the router knows the folder's
  * absolute path and the renderer streams images via the
- * `backlot-asset://` scheme using that path.
+ * `lani-asset://` scheme using that path.
  */
 export interface LibraryItem {
   /** Which tier this entry lives in. */
@@ -74,7 +74,7 @@ export interface LibraryItem {
   /**
    * Filenames of every image inside this entry's folder, in stable
    * (sorted) order. The renderer resolves each to a
-   * `backlot-asset://` URL using `folderPath`.
+   * `lani-asset://` URL using `folderPath`.
    */
   referenceImages: string[]
   /** Absolute filesystem path of the entry's folder. */
@@ -189,7 +189,7 @@ export function buildLibraryClipboard(
 
 /**
  * Parse YAML frontmatter from a markdown body and split out the
- * pure-body remainder. Kept tiny — Backlot's frontmatter is always
+ * pure-body remainder. Kept tiny — Lani's frontmatter is always
  * a small flat dictionary, so a custom mini-parser keeps the file
  * dependency-free (gray-matter lives in the main process; this
  * helper runs on shared/renderer code too).

@@ -11,8 +11,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 
 const REQUEST_PATH =
-  process.env.BACKLOT_HARNESS_REQUEST_PATH ||
-  join(homedir(), ".backlot", "harness-open-request.json")
+  process.env.LANI_HARNESS_REQUEST_PATH ||
+  join(homedir(), ".lani", "harness-open-request.json")
 
 function cleanString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null
@@ -36,7 +36,7 @@ async function openHarnessEditor(args = {}) {
     opened: true,
     requestId: request.id,
     message:
-      "Backlot opened the Harness editor. The user must review and save any proposed change; it applies on the next agent turn.",
+      "Lani opened the Harness editor. The user must review and save any proposed change; it applies on the next agent turn.",
   }
 }
 
@@ -44,7 +44,7 @@ const tools = [
   {
     name: "harness_open_editor",
     description:
-      "Open Backlot's Harness editor in the app so the user can review harness/system-prompt changes. Use this when the user asks to update, inspect, or revise the harness. Do not edit ~/.backlot/harness-prompt.md directly.",
+      "Open Lani's Harness editor in the app so the user can review harness/system-prompt changes. Use this when the user asks to update, inspect, or revise the harness. Do not edit ~/.lani/harness-prompt.md directly.",
     inputSchema: {
       type: "object",
       properties: {
@@ -68,7 +68,7 @@ const tools = [
 ]
 
 const server = new Server(
-  { name: "backlot-harness", version: "0.0.1" },
+  { name: "lani-harness", version: "0.0.1" },
   { capabilities: { tools: {} } },
 )
 

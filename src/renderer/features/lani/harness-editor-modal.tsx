@@ -8,7 +8,7 @@
  *
  *   - see a diff of the agent's proposed harness vs. the current one
  *   - edit the proposal inline before accepting
- *   - approve (save) → ~/.backlot/harness-prompt.md is written
+ *   - approve (save) → ~/.lani/harness-prompt.md is written
  *   - cancel / close → nothing changes
  *
  * No navigation away from whatever the writer was doing.
@@ -211,7 +211,7 @@ export function HarnessEditorModal() {
                 "outline-none border-0",
                 "selection:bg-primary/25 caret-primary",
               )}
-              placeholder="The Backlot harness prompt…"
+              placeholder="The Lani harness prompt…"
             />
           ) : dirty ? (
             <div className="h-full overflow-auto">
@@ -245,7 +245,7 @@ export function HarnessEditorModal() {
         {/* Actions */}
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border bg-muted/30">
           <span className="text-[11px] text-muted-foreground">
-            Saves to <code className="font-mono">~/.backlot/harness-prompt.md</code>. Applies on the next agent turn.
+            Saves to <code className="font-mono">~/.lani/harness-prompt.md</code>. Applies on the next agent turn.
           </span>
           <div className="flex items-center gap-2">
             <button

@@ -26,7 +26,7 @@ import { chats, getDatabase, projects } from "../../db"
 import { publicProcedure, router } from "../index"
 
 /**
- * Entities router — the backbone of Backlot's project hierarchy.
+ * Entities router — the backbone of Lani's project hierarchy.
  *
  * The "AI Screenwriter Super-Weapon" model (see docs/PRD-screenwriter-super-weapon.md):
  *
@@ -65,7 +65,7 @@ export const ENTITY_PATHS = {
   // The writer's canonical full screenplay. Edited over time. Independent
   // of any per-scene breakdown — the user can keep both, or just one.
   mainScript: "main-script.fountain",
-  // Backwards compat: older Backlot projects used screenplay.fountain.
+  // Backwards compat: older Lani projects used screenplay.fountain.
   // Walker reads either.
   legacyMainScript: "screenplay.fountain",
   charactersDir: "characters",
@@ -251,7 +251,7 @@ function lookupWorktree(chatId: string): WorktreeLookup | null {
  *      Default mode while a chat is active.
  *
  *   2. **Project-scoped** (`projectId`) — the canonical project at
- *      `~/.backlot/projects/<slug>/`. Used when no chat has been
+ *      `~/.lani/projects/<slug>/`. Used when no chat has been
  *      started yet (the user is browsing the project home view) and
  *      we still want the file tree + editor to work. Edits land
  *      directly on the canonical project.
@@ -338,7 +338,7 @@ async function settleUserEdit(root: string, relPath: string): Promise<void> {
     if (!porcelain.trim()) return
 
     await git.add([relPath])
-    await git.commit(`Backlot: save user edit to ${relPath}`, [relPath])
+    await git.commit(`Lani: save user edit to ${relPath}`, [relPath])
   } catch (err) {
     console.warn("[entities.write] user edit settlement skipped:", err)
   }
@@ -374,7 +374,7 @@ async function settleUserRename(
     const porcelain = await git.raw(["status", "--porcelain"])
     if (!porcelain.trim()) return
 
-    await git.commit(`Backlot: rename ${fromRel} → ${toRel}`)
+    await git.commit(`Lani: rename ${fromRel} → ${toRel}`)
   } catch (err) {
     console.warn("[entities.rename] settlement skipped:", err)
   }
@@ -808,7 +808,7 @@ export const entitiesRouter = router({
                 "commit",
                 "--allow-empty",
                 "-m",
-                "Backlot: bootstrap project hierarchy",
+                "Lani: bootstrap project hierarchy",
               ])
             } catch (err) {
               console.warn("[entities.bootstrap] commit failed:", err)
@@ -855,7 +855,7 @@ export const entitiesRouter = router({
 
   /**
    * Resolve an entity's relative path to its absolute filesystem path.
-   * The renderer needs this to build a `backlot-asset://` URL for media
+   * The renderer needs this to build a `lani-asset://` URL for media
    * previews (images / video), which must point at a real file on disk.
    */
   resolvePath: publicProcedure

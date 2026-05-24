@@ -32,7 +32,7 @@ import {
   selectedSceneIdAtom,
   shotlistSubmodeAtom,
   viewModeAtom,
-} from "../../backlot/atoms"
+} from "../../lani/atoms"
 
 /**
  * Active focus payload sent with each turn so the agent always knows
@@ -40,7 +40,7 @@ import {
  * the renderer's jotai store; null when no entity is selected.
  *
  * Kept in this file (not in agents/atoms) because it bridges the
- * backlot feature into the agents transport — no other consumer.
+ * lani feature into the agents transport — no other consumer.
  */
 function getActiveFocus(): {
   path: string
