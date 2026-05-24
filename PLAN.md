@@ -6,6 +6,14 @@
 
 v1 scope locked: **UI in place, auth in place, chat in the UI of Backlot.** Ship the screenwriter-specific surface (Fountain editor, preview, direction tree, MCP tools) in v1.5+.
 
+2026-05-24 session note:
+- Changed Canvas page switching from a horizontally scrolling tab strip to a compact top-left page picker. The trigger shows the active page and opens a dropdown-style popover listing every page vertically; selecting a page still resets page-local state, and create/rename/delete remain wired to the existing canvas page mutations.
+- Verified `git diff --check` and `bun run build` pass. Direct `tsc --noEmit` still reports the existing repo-wide baseline TypeScript errors outside `src/renderer/features/backlot/canvas-mode-view.tsx`; no touched-file TypeScript error was reported.
+- Fixed Shotlist screenplay Part selection so a single click on a Part now creates a real CodeMirror selection across that Part's `scriptRef` slice, not just the visual active-region wash. Cmd+C now copies the selected Part text after that click; a second click inside an already-selected Part still places the caret for editing/splitting.
+- Added a Screenplay header Copy button that copies the active Part text directly and also selects that Part in the editor, so the visible selection, clipboard button, and keyboard copy path all agree.
+- Replaced the duplicate root `AGENTS.md` file with a relative symlink to `CLAUDE.md`, keeping both agent instruction entry points identical.
+- Verified `git diff --check` and `./node_modules/.bin/electron-vite build` pass. Repo-wide `./node_modules/.bin/tsc --noEmit --pretty false` still fails on existing baseline errors outside the shotlist component.
+
 2026-05-20 session note:
 - Added Canvas grouping as the first concrete support for Storyboard preset handoffs. Canvas now has a `group` node kind rendered as a visible dashed container behind normal nodes; selected Canvas nodes can be grouped from the UI, and group deletion clears stale child membership. The `backlot-canvas` MCP server gained `canvas_add_group`, `canvas_group_nodes`, and `canvas_ungroup`, plus `groupId`/`groupLabel` support when adding prompt, text, image, and generation nodes. Updated the Backlot harness to v1.14 so storyboard work creates a group whose label matches the storyboard thread/task title, e.g. `STORYBOARD ALPHA - SCENE 3 - SHOTS 4-7`.
 - Preset handoff decision: the source thread agent should assemble the seed prompt/context first, then call the future app-control tool that asks the user whether to branch into a new thread or continue in place. If the user chooses a new thread, Backlot creates/focuses the new tab and sends that already-built seed prompt as the first request.
