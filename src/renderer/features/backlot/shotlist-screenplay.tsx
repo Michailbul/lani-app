@@ -36,7 +36,7 @@ import {
   keymap,
 } from "@codemirror/view"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
-import { Scissors } from "lucide-react"
+import { Check, Copy, Scissors } from "lucide-react"
 import { fountainDecorations } from "./fountain-decorations"
 import { cn } from "../../lib/utils"
 
@@ -87,6 +87,20 @@ function regionAt(dividers: number[], pos: number): number {
   let n = 0
   for (const d of dividers) if (d <= pos) n++
   return n
+}
+
+function partBounds(
+  dividers: number[],
+  docLength: number,
+  index: number,
+): { from: number; to: number } {
+  const from = index > 0 ? (dividers[index - 1] ?? docLength) : 0
+  const to =
+    index < dividers.length ? (dividers[index] ?? docLength) : docLength
+  return {
+    from: Math.max(0, Math.min(from, docLength)),
+    to: Math.max(0, Math.min(to, docLength)),
+  }
 }
 
 function sameNumbers(a: number[], b: number[]): boolean {
@@ -317,6 +331,7 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(
     null,
   )
+  const [copied, setCopied] = useState(false)
 
   // Latest props reachable from the long-lived editor without rebuilding it.
   const partsRef = useRef(parts)
@@ -335,6 +350,28 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
   const lastRegionRef = useRef(-1)
   const splitActionRef = useRef<SplitAction | null>(null)
   const prevPartCountRef = useRef(parts.length)
+  const mouseDownPartRef = useRef<{
+    region: number
+    wasWholePart: boolean
+  } | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const selectPartRange = (view: EditorView, index: number) => {
+    const dividers = view.state.field(dividerField)
+    const { from, to } = partBounds(dividers, view.state.doc.length, index)
+    view.dispatch({
+      selection: { anchor: to, head: from },
+      scrollIntoView: true,
+    })
+    view.focus()
+  }
+
+  const selectionCoversPart = (view: EditorView, index: number): boolean => {
+    const dividers = view.state.field(dividerField)
+    const { from, to } = partBounds(dividers, view.state.doc.length, index)
+    const sel = view.state.selection.main
+    return !sel.empty && sel.from === from && sel.to === to
+  }
 
   const performSplitAction = () => {
     const action = splitActionRef.current
@@ -347,6 +384,18 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
   }
   const performSplitActionRef = useRef(performSplitAction)
   performSplitActionRef.current = performSplitAction
+
+  const copyActivePart = () => {
+    const part = partsRef.current[activeIndex]
+    const text = part?.scriptRef ?? ""
+    if (!text.trim()) return
+    const view = viewRef.current
+    if (view) selectPartRange(view, activeIndex)
+    void navigator.clipboard.writeText(text)
+    setCopied(true)
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = setTimeout(() => setCopied(false), 1600)
+  }
 
   // Mount once. The editor is a long-lived imperative object.
   useEffect(() => {
@@ -464,6 +513,82 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
           }),
           // Keep the Isolate popup pinned to the selection as it scrolls.
           EditorView.domEventHandlers({
+            mousedown: (event, view) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.altKey ||
+                event.shiftKey
+              ) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const target = event.target as Element | null
+              if (target?.closest(".cm-shotlist-divider")) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const pos = view.posAtCoords({
+                x: event.clientX,
+                y: event.clientY,
+              })
+              if (pos == null) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const region = regionAt(view.state.field(dividerField), pos)
+              mouseDownPartRef.current = {
+                region,
+                wasWholePart: selectionCoversPart(view, region),
+              }
+              return false
+            },
+            click: (event, view) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.altKey ||
+                event.shiftKey
+              ) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const target = event.target as Element | null
+              if (target?.closest(".cm-shotlist-divider")) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const pos = view.posAtCoords({
+                x: event.clientX,
+                y: event.clientY,
+              })
+              if (pos == null) {
+                mouseDownPartRef.current = null
+                return false
+              }
+              const region = regionAt(view.state.field(dividerField), pos)
+              const mouseDownPart = mouseDownPartRef.current
+              mouseDownPartRef.current = null
+
+              if (
+                mouseDownPart?.region === region &&
+                mouseDownPart.wasWholePart
+              ) {
+                return false
+              }
+
+              const sel = view.state.selection.main
+              if (!sel.empty && !selectionCoversPart(view, region)) {
+                return false
+              }
+
+              selectPartRange(view, region)
+              const part = partsRef.current[region]
+              if (part) onSelectRef.current(part.id)
+              return true
+            },
             scroll: (_event, view) => {
               if (splitActionRef.current?.kind !== "carve") return false
               const sel = view.state.selection.main
@@ -480,6 +605,7 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
     return () => {
       view.destroy()
       viewRef.current = null
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
     }
     // Mount-only — initial state is captured intentionally.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -554,6 +680,27 @@ export const ShotlistScreenplay = memo(function ShotlistScreenplay({
         >
           <Scissors className="h-3 w-3" />
           Split here
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={copyActivePart}
+          disabled={!parts[activeIndex]?.scriptRef?.trim()}
+          title="Copy the selected part text"
+          className={cn(
+            "press inline-flex h-6 items-center gap-1 rounded-md px-2",
+            "font-mono text-[9px] uppercase tracking-[0.12em] transition-colors",
+            parts[activeIndex]?.scriptRef?.trim()
+              ? "bg-foreground/[0.06] text-muted-foreground/75 hover:bg-foreground/[0.1] hover:text-foreground"
+              : "cursor-not-allowed text-muted-foreground/30",
+          )}
+        >
+          {copied ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+          {copied ? "Copied" : "Copy"}
         </button>
         {headerSlot}
       </div>
