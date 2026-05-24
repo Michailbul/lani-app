@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react"
 import type { CSSProperties, DragEvent, PointerEvent, ReactNode } from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { GlassFilter } from "../../components/ui/liquid-glass-filter"
 import { trpc } from "../../lib/trpc"
@@ -116,6 +116,11 @@ interface Viewport {
   zoom: number
 }
 
+interface ViewportSize {
+  width: number
+  height: number
+}
+
 interface PendingConnection {
   nodeId: string
   handle: "text" | "image"
@@ -135,6 +140,7 @@ const MIN_ZOOM = 0.25
 // At 6x a 1024×1024 image fills a 6000px wall, plenty to nudge a crop
 // rect to the pixel.
 const MAX_ZOOM = 6
+const VIEWPORT_CULL_PADDING = 900
 
 const DEFAULT_CANVAS_PAGE = "main"
 
@@ -156,7 +162,12 @@ const liquidGlassStyle: CSSProperties = {
 
 export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const viewportStateRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 })
+  const viewportFrameRef = useRef<number | null>(null)
+  const pointerWorldFrameRef = useRef<number | null>(null)
+  const pointerWorldRef = useRef<{ x: number; y: number } | null>(null)
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
+  const [viewportSize, setViewportSize] = useState<ViewportSize | null>(null)
   const [pendingConnection, setPendingConnection] =
     useState<PendingConnection | null>(null)
   const [pointerWorld, setPointerWorld] = useState<{ x: number; y: number } | null>(null)
@@ -259,6 +270,65 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     },
   )
   const utils = trpc.useUtils()
+
+  useEffect(() => {
+    viewportStateRef.current = viewport
+  }, [viewport])
+
+  useEffect(() => {
+    const element = viewportRef.current
+    if (!element) return
+
+    const updateSize = () => {
+      setViewportSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      })
+    }
+
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (viewportFrameRef.current !== null) {
+        cancelAnimationFrame(viewportFrameRef.current)
+      }
+      if (pointerWorldFrameRef.current !== null) {
+        cancelAnimationFrame(pointerWorldFrameRef.current)
+      }
+    }
+  }, [])
+
+  const scheduleViewport = useCallback((next: Viewport) => {
+    viewportStateRef.current = next
+    if (viewportFrameRef.current !== null) return
+    viewportFrameRef.current = requestAnimationFrame(() => {
+      viewportFrameRef.current = null
+      setViewport(viewportStateRef.current)
+    })
+  }, [])
+
+  const setViewportNow = useCallback((next: Viewport) => {
+    viewportStateRef.current = next
+    if (viewportFrameRef.current !== null) {
+      cancelAnimationFrame(viewportFrameRef.current)
+      viewportFrameRef.current = null
+    }
+    setViewport(next)
+  }, [])
+
+  const schedulePointerWorld = useCallback((next: { x: number; y: number }) => {
+    pointerWorldRef.current = next
+    if (pointerWorldFrameRef.current !== null) return
+    pointerWorldFrameRef.current = requestAnimationFrame(() => {
+      pointerWorldFrameRef.current = null
+      setPointerWorld(pointerWorldRef.current)
+    })
+  }, [])
 
   const refresh = () => {
     if (!worktreeId) return
@@ -473,17 +543,36 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   const worktreePath = canvas.data?.worktreePath ?? null
   const nodes = (canvas.data?.nodes ?? []) as CanvasNodeView[]
   const edges = (canvas.data?.edges ?? []) as CanvasEdgeView[]
-  const canvasGroupNodes = useMemo(
-    () => nodes.filter((node) => node.type === "group"),
-    [nodes],
-  )
-  const canvasContentNodes = useMemo(
-    () => nodes.filter((node) => node.type !== "group"),
-    [nodes],
-  )
   const nodesById = useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
+  )
+  const visibleNodes = useMemo(
+    () => cullNodesToViewport(nodes, viewport, viewportSize),
+    [nodes, viewport, viewportSize],
+  )
+  const visibleNodeIds = useMemo(
+    () => new Set(visibleNodes.map((node) => node.id)),
+    [visibleNodes],
+  )
+  const visibleCanvasGroupNodes = useMemo(
+    () => visibleNodes.filter((node) => node.type === "group"),
+    [visibleNodes],
+  )
+  const visibleCanvasContentNodes = useMemo(
+    () => visibleNodes.filter((node) => node.type !== "group"),
+    [visibleNodes],
+  )
+  const visibleEdges = useMemo(
+    () =>
+      viewportSize
+        ? edges.filter(
+            (edge) =>
+              visibleNodeIds.has(edge.sourceNodeId) ||
+              visibleNodeIds.has(edge.targetNodeId),
+          )
+        : edges,
+    [edges, viewportSize, visibleNodeIds],
   )
 
   // The image nodes inside the current selection — the stitch operates
@@ -615,7 +704,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
 
   const addDescription = () => {
     if (!worktreeId) return
-    const world = screenToWorld({ x: 84, y: 96 }, viewport)
+    const world = screenToWorld({ x: 84, y: 96 }, viewportStateRef.current)
     pushUndo()
     createNode.mutate({
       worktreeId,
@@ -638,7 +727,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
 
   const addGeneration = () => {
     if (!worktreeId) return
-    const world = screenToWorld({ x: 700, y: 116 }, viewport)
+    const world = screenToWorld({ x: 700, y: 116 }, viewportStateRef.current)
     pushUndo()
     createNode.mutate({
       worktreeId,
@@ -654,7 +743,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
 
   const addTextBlock = () => {
     if (!worktreeId) return
-    const world = screenToWorld({ x: 280, y: 160 }, viewport)
+    const world = screenToWorld({ x: 280, y: 160 }, viewportStateRef.current)
     pushUndo()
     createNode.mutate({
       worktreeId,
@@ -670,7 +759,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
 
   const addImages = () => {
     if (!worktreeId) return
-    const world = screenToWorld({ x: 120, y: 220 }, viewport)
+    const world = screenToWorld({ x: 120, y: 220 }, viewportStateRef.current)
     pushUndo()
     pickImages.mutate({
       worktreeId,
@@ -689,7 +778,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     const point = rect
       ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
       : { x: 0, y: 0 }
-    return screenToWorld(point, viewport)
+    return screenToWorld(point, viewportStateRef.current)
   }
 
   const onCanvasDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -779,11 +868,37 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   }
 
   const zoomBy = (delta: number) => {
-    setViewport((current) => ({
-      ...current,
-      zoom: clampZoom(current.zoom + delta),
-    }))
+    setViewportNow({
+      ...viewportStateRef.current,
+      zoom: clampZoom(viewportStateRef.current.zoom + delta),
+    })
   }
+
+  const zoomTowardPoint = useCallback(
+    (mouse: { x: number; y: number }, nextZoom: number) => {
+      const current = viewportStateRef.current
+      if (nextZoom === current.zoom) return
+      const before = screenToWorld(mouse, current)
+      scheduleViewport({
+        zoom: nextZoom,
+        x: mouse.x - before.x * nextZoom,
+        y: mouse.y - before.y * nextZoom,
+      })
+    },
+    [scheduleViewport],
+  )
+
+  const panViewport = useCallback(
+    (deltaX: number, deltaY: number) => {
+      const current = viewportStateRef.current
+      scheduleViewport({
+        ...current,
+        x: current.x + deltaX,
+        y: current.y + deltaY,
+      })
+    },
+    [scheduleViewport],
+  )
 
   // Walk a list of ids, and for every group in it add the group's children
   // too. A group is treated as a unit on the canvas — selecting it should
@@ -1106,21 +1221,13 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
         const factor = event.ctrlKey ? 0.01 : 0.0015
-        setViewport((current) => {
-          const nextZoom = clampZoom(current.zoom - event.deltaY * factor)
-          if (nextZoom === current.zoom) return current
-          const rect = el.getBoundingClientRect()
-          const mouse = {
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
-          }
-          const before = screenToWorld(mouse, current)
-          return {
-            zoom: nextZoom,
-            x: mouse.x - before.x * nextZoom,
-            y: mouse.y - before.y * nextZoom,
-          }
-        })
+        const current = viewportStateRef.current
+        const nextZoom = clampZoom(current.zoom - event.deltaY * factor)
+        const rect = el.getBoundingClientRect()
+        zoomTowardPoint(
+          { x: event.clientX - rect.left, y: event.clientY - rect.top },
+          nextZoom,
+        )
         return
       }
 
@@ -1140,16 +1247,12 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       }
 
       event.preventDefault()
-      setViewport((current) => ({
-        ...current,
-        x: current.x - event.deltaX,
-        y: current.y - event.deltaY,
-      }))
+      panViewport(-event.deltaX, -event.deltaY)
     }
 
     el.addEventListener("wheel", onWheelNative, { passive: false })
     return () => el.removeEventListener("wheel", onWheelNative)
-  }, [])
+  }, [panViewport, zoomTowardPoint])
 
   // Delete / Backspace removes the selection; Escape clears it; Cmd/Ctrl+Z
   // undoes the last canvas step and Cmd/Ctrl+Shift+Z redoes it. The
@@ -1215,10 +1318,10 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     if (!pendingConnection) return
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
-    setPointerWorld(
+    schedulePointerWorld(
       screenToWorld(
         { x: event.clientX - rect.left, y: event.clientY - rect.top },
-        viewport,
+        viewportStateRef.current,
       ),
     )
   }
@@ -1238,19 +1341,20 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     // Middle-button drag still pans, a convenience for mouse users — the
     // trackpad handles panning for everyone else.
     if (event.button === 1) {
+      const startViewport = viewportStateRef.current
       const start = {
         x: event.clientX,
         y: event.clientY,
-        vx: viewport.x,
-        vy: viewport.y,
+        vx: startViewport.x,
+        vy: startViewport.y,
       }
       element.setPointerCapture(event.pointerId)
       const onMove = (moveEvent: PointerEvent<HTMLDivElement>) => {
-        setViewport((current) => ({
-          ...current,
+        scheduleViewport({
+          ...viewportStateRef.current,
           x: start.vx + moveEvent.clientX - start.x,
           y: start.vy + moveEvent.clientY - start.y,
-        }))
+        })
       }
       const onUp = () => {
         element.releasePointerCapture(event.pointerId)
@@ -1647,7 +1751,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         </IconButton>
         <button
           type="button"
-          onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })}
+          onClick={() => setViewportNow({ x: 0, y: 0, zoom: 1 })}
           className="press h-6 rounded-md px-1.5 text-[11px] font-medium tabular-nums text-foreground/75 hover:bg-foreground/[0.06] hover:text-foreground"
         >
           {Math.round(viewport.zoom * 100)}%
@@ -1797,9 +1901,10 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         className="absolute left-0 top-0 h-[4000px] w-[4000px] origin-top-left"
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+          willChange: "transform",
         }}
       >
-        {canvasGroupNodes.map((node) => (
+        {visibleCanvasGroupNodes.map((node) => (
           <CanvasNodeShell
             key={node.id}
             worktreeId={worktreeId}
@@ -1822,12 +1927,12 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
           />
         ))}
         <CanvasEdges
-          edges={edges}
+          edges={visibleEdges}
           nodesById={nodesById}
           pendingConnection={pendingConnection}
           pointerWorld={pointerWorld}
         />
-        {canvasContentNodes.map((node) => (
+        {visibleCanvasContentNodes.map((node) => (
           <CanvasNodeShell
             key={node.id}
             worktreeId={worktreeId}
@@ -2141,7 +2246,7 @@ function StitchRangeSlider({
   )
 }
 
-function CanvasNodeShell({
+const CanvasNodeShell = memo(function CanvasNodeShell({
   worktreeId,
   worktreePath,
   node,
@@ -2855,7 +2960,7 @@ function CanvasNodeShell({
       </div>
     </div>
   )
-}
+})
 
 // TextBlockNodeBody — the unified text-box body. It reads as plain text
 // on the canvas; a tap on the body drops into an editable textarea, and the
@@ -3459,7 +3564,7 @@ function CanvasHandle({
   )
 }
 
-function CanvasEdges({
+const CanvasEdges = memo(function CanvasEdges({
   edges,
   nodesById,
   pendingConnection,
@@ -3507,7 +3612,7 @@ function CanvasEdges({
       )}
     </svg>
   )
-}
+})
 
 function outputPoint(node: CanvasNodeView): { x: number; y: number } {
   return { x: node.x + node.width, y: node.y + node.height / 2 }
@@ -3541,4 +3646,30 @@ function screenToWorld(
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(2))))
+}
+
+function cullNodesToViewport(
+  nodes: CanvasNodeView[],
+  viewport: Viewport,
+  viewportSize: ViewportSize | null,
+): CanvasNodeView[] {
+  if (!viewportSize) return nodes
+
+  const left = -viewport.x / viewport.zoom - VIEWPORT_CULL_PADDING
+  const top = -viewport.y / viewport.zoom - VIEWPORT_CULL_PADDING
+  const right =
+    (viewportSize.width - viewport.x) / viewport.zoom + VIEWPORT_CULL_PADDING
+  const bottom =
+    (viewportSize.height - viewport.y) / viewport.zoom + VIEWPORT_CULL_PADDING
+
+  return nodes.filter((node) => {
+    const nodeRight = node.x + node.width
+    const nodeBottom = node.y + node.height
+    return (
+      nodeRight >= left &&
+      node.x <= right &&
+      nodeBottom >= top &&
+      node.y <= bottom
+    )
+  })
 }
