@@ -3,6 +3,8 @@
 import {
   AlignLeft,
   Bold,
+  Check,
+  ChevronDown,
   Combine,
   Crop as CropIcon,
   Highlighter,
@@ -10,16 +12,21 @@ import {
   Italic,
   LayoutGrid,
   Minus,
+  PencilLine,
   Pilcrow,
   Plus,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-react"
 import type { CSSProperties, DragEvent, PointerEvent, ReactNode } from "react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { GlassFilter } from "../../components/ui/liquid-glass-filter"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { InCanvasCropOverlay, type CropRect } from "./canvas-crop-overlay"
@@ -238,8 +245,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   // selection out and leaves the rest at original dimensions so the user
   // can drop a replacement image over the hole and stitch the two.
   const [cropMode, setCropMode] = useState<"keep" | "cutout">("keep")
-  // Inline-rename state for the page selector pill — keyed by the
-  // current page name so submitting commits the rename in one trip.
+  // Rename state for the page picker — keyed by the current page name
+  // so submitting commits the rename in one trip.
+  const [pagePickerOpen, setPagePickerOpen] = useState(false)
   const [renamingPage, setRenamingPage] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
 
@@ -480,7 +488,10 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
   // over: undo/redo stacks (snapshots are page-local), selection (ids
   // refer to nodes on the old page), pending connection, crop, stitch.
   const goToPage = (name: string) => {
-    if (name === activePage) return
+    if (name === activePage) {
+      setPagePickerOpen(false)
+      return
+    }
     undoStackRef.current = []
     redoStackRef.current = []
     setSelectedIds(new Set())
@@ -488,7 +499,29 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     setCroppingNodeId(null)
     setCropRect(null)
     setStitchOpen(false)
+    setRenamingPage(null)
+    setRenameDraft("")
+    setPagePickerOpen(false)
     setActivePage(name)
+  }
+
+  const startPageRename = (name: string) => {
+    setRenamingPage(name)
+    setRenameDraft(name)
+  }
+
+  const cancelPageRename = () => {
+    setRenamingPage(null)
+    setRenameDraft("")
+  }
+
+  const commitPageRename = (oldName = renamingPage) => {
+    if (!oldName) return
+    const next = renameDraft.trim()
+    setRenamingPage(null)
+    setRenameDraft("")
+    if (!next || next === oldName) return
+    void renamePage(oldName, next)
   }
 
   // Generate a "Page N" label that doesn't collide with any existing
@@ -505,6 +538,11 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     const name = nextPageName()
     try {
       const page = await createPageMutation.mutateAsync({ worktreeId, name })
+      utils.canvas.listPages.setData({ worktreeId }, (pages) => {
+        const next = pages ?? []
+        if (next.some((existing) => existing.id === page.id)) return next
+        return [...next, page]
+      })
       goToPage(page.name)
     } catch (error) {
       toast.error(
@@ -518,11 +556,16 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     const trimmed = newName.trim()
     if (!trimmed || trimmed === oldName) return
     try {
-      await renamePageMutation.mutateAsync({
+      const page = await renamePageMutation.mutateAsync({
         worktreeId,
         name: oldName,
         newName: trimmed,
       })
+      utils.canvas.listPages.setData({ worktreeId }, (pages) =>
+        pages?.map((existing) =>
+          existing.id === page.id || existing.name === oldName ? page : existing,
+        ) ?? [page],
+      )
       if (activePage === oldName) setActivePage(trimmed)
     } catch (error) {
       toast.error(
@@ -540,6 +583,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
     }
     try {
       const result = await deletePageMutation.mutateAsync({ worktreeId, name })
+      utils.canvas.listPages.setData({ worktreeId }, (pages) =>
+        pages?.filter((page) => page.name !== name) ?? [],
+      )
       if (name === activePage) {
         const fallback =
           result.remainingPages[0] ?? DEFAULT_CANVAS_PAGE
@@ -1801,111 +1847,143 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
 
       {/* Page selector — top-left, symmetric with the zoom controls
           at top-right. Each canvas page is a fully independent graph;
-          the selector tab-strips them like a Figma file's pages.
-          Click to switch, double-click the active tab to rename
-          inline, hover and click × to delete (with a confirm since
-          deletion is not in the per-page undo stack). Appears once
-          the first page exists (the "Open Canvas" placeholder
-          handles the empty state). */}
+          the compact trigger opens a picker instead of turning the
+          top-left chrome into a horizontally-scrolling tab strip. */}
       {worktreeId && (pagesQuery.data ?? []).length > 0 && (
         <div
           data-canvas-ui
-          className="bl-liquid-glass absolute left-4 top-4 z-30 flex max-w-[calc(50%-13rem)] @max-4xl/canvas:max-w-[calc(50%-7rem)] items-center gap-0.5 rounded-lg p-1"
+          className="bl-liquid-glass absolute left-4 top-4 z-30 rounded-lg p-1"
           style={liquidGlassStyle}
         >
-          <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
-            {(pagesQuery.data ?? []).map((page) => {
-              const isActive = page.name === activePage
-              const isRenaming = renamingPage === page.name
-              const commitRename = () => {
-                const next = renameDraft.trim()
-                setRenamingPage(null)
-                if (!next || next === page.name) return
-                void renamePage(page.name, next)
-              }
-              return (
-                <div
-                  key={page.id}
-                  className={cn(
-                    "group flex h-6 shrink-0 items-center rounded-md pl-2 pr-1 text-[11.5px] font-medium transition-colors",
-                    isActive
-                      ? "bg-background/85 text-foreground shadow-sm"
-                      : "text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground",
-                  )}
-                >
-                  {isRenaming ? (
-                    <input
-                      autoFocus
-                      value={renameDraft}
-                      onChange={(event) => setRenameDraft(event.target.value)}
-                      onBlur={commitRename}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault()
-                          commitRename()
-                        } else if (event.key === "Escape") {
-                          event.preventDefault()
-                          setRenamingPage(null)
-                        }
-                      }}
-                      className="h-5 w-28 rounded bg-background/80 px-1.5 text-[11.5px] font-medium text-foreground outline-none ring-1 ring-primary/40"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => goToPage(page.name)}
-                      onDoubleClick={() => {
-                        setRenamingPage(page.name)
-                        setRenameDraft(page.name)
-                      }}
-                      className="press max-w-[140px] @max-4xl/canvas:max-w-[88px] truncate text-left"
-                      title={
-                        isActive
-                          ? "Double-click to rename"
-                          : `Switch to ${page.name}`
-                      }
-                    >
-                      {page.name}
-                    </button>
-                  )}
-                  {(pagesQuery.data ?? []).length > 1 && !isRenaming && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        if (
-                          window.confirm(
-                            `Delete page "${page.name}"? Its nodes and edges go with it.`,
-                          )
-                        ) {
-                          void deletePage(page.name)
-                        }
-                      }}
-                      className={cn(
-                        "press ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100",
-                        isActive && "opacity-60 hover:opacity-100",
-                      )}
-                      title={`Delete ${page.name}`}
-                      aria-label={`Delete page ${page.name}`}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <span aria-hidden className="mx-1 h-3 w-px shrink-0 bg-foreground/12" />
-          <button
-            type="button"
-            onClick={() => void createPage()}
-            disabled={createPageMutation.isPending}
-            className="press flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40"
-            title="New page"
-            aria-label="New page"
+          <Popover
+            open={pagePickerOpen}
+            onOpenChange={(open) => {
+              if (!open) cancelPageRename()
+              setPagePickerOpen(open)
+            }}
           >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="press flex h-6 max-w-[180px] items-center gap-1.5 rounded-md pl-2 pr-1.5 text-[11.5px] font-medium text-foreground hover:bg-foreground/[0.06]"
+                title="Choose canvas page"
+                aria-label="Choose canvas page"
+              >
+                <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+                <span className="min-w-0 truncate">{activePage}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              data-canvas-ui
+              align="start"
+              sideOffset={8}
+              forceDark={false}
+              className="w-72 overflow-hidden rounded-xl border-border/70 bg-background/95 p-1 shadow-2xl"
+              style={liquidGlassStyle}
+            >
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+                  Pages
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void createPage()}
+                  disabled={createPageMutation.isPending}
+                  className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40"
+                  title="New page"
+                  aria-label="New page"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="max-h-72 overflow-y-auto py-0.5">
+                {(pagesQuery.data ?? []).map((page) => {
+                  const isActive = page.name === activePage
+                  const isRenaming = renamingPage === page.name
+                  return (
+                    <div
+                      key={page.id}
+                      className={cn(
+                        "group flex min-h-8 items-center gap-1 rounded-lg px-1 py-0.5",
+                        isActive && "bg-primary/[0.08]",
+                      )}
+                    >
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          onBlur={() => commitPageRename(page.name)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              commitPageRename(page.name)
+                            } else if (event.key === "Escape") {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              cancelPageRename()
+                            }
+                          }}
+                          className="h-7 min-w-0 flex-1 rounded-md bg-background/80 px-2 text-[12px] font-medium text-foreground outline-none ring-1 ring-primary/40"
+                        />
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => goToPage(page.name)}
+                            className={cn(
+                              "press flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-[12px] font-medium",
+                              isActive
+                                ? "text-foreground"
+                                : "text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground",
+                            )}
+                            title={`Switch to ${page.name}`}
+                          >
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0 text-primary",
+                                isActive ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <span className="min-w-0 truncate">{page.name}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startPageRename(page.name)}
+                            className="press flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-foreground/[0.06] hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                            title={`Rename ${page.name}`}
+                            aria-label={`Rename page ${page.name}`}
+                          >
+                            <PencilLine className="h-3.5 w-3.5" />
+                          </button>
+                          {(pagesQuery.data ?? []).length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Delete page "${page.name}"? Its nodes and edges go with it.`,
+                                  )
+                                ) {
+                                  void deletePage(page.name)
+                                }
+                              }}
+                              className="press flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus:opacity-100 group-hover:opacity-100"
+                              title={`Delete ${page.name}`}
+                              aria-label={`Delete page ${page.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       )}
 
