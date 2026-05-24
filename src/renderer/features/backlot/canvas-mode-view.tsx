@@ -1405,13 +1405,14 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         </div>
       )}
 
-      {/* Build toolbar — liquid-glass island, top-centre. The
-          three-zone top chrome reads left→right as scope → actions →
-          viewport (page selector top-left, this toolbar middle, zoom
-          controls top-right) so each corner has a clear purpose. */}
+      {/* Build toolbar — liquid-glass island, top-centre. The three-zone
+          top chrome reads left→right as scope → actions → viewport (page
+          selector top-left, this toolbar middle, zoom controls top-right)
+          so each corner has a clear purpose. Icon-only — labels live in
+          the tooltip; the row stays narrow and reads as a thin pill. */}
       <div
         data-canvas-ui
-        className="bl-liquid-glass absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded-xl p-1"
+        className="bl-liquid-glass absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded-lg p-1"
         style={liquidGlassStyle}
       >
         <CanvasToolButton
@@ -1438,9 +1439,8 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
           disabled={!worktreeId || pickImages.isPending}
           onClick={addImages}
         />
-        {/* Divider — visually separates "add" tools from tools that
-            transform something already on the canvas. */}
-        <span aria-hidden className="mx-0.5 h-4 w-px bg-foreground/10" />
+        {/* Hairline divider — separates "add" tools from "transform". */}
+        <span aria-hidden className="mx-1 h-3 w-px bg-foreground/12" />
         <CanvasToolButton
           icon={<CropIcon className="h-3.5 w-3.5" />}
           label="Crop"
@@ -1473,13 +1473,13 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       {selectedIds.size > 0 && !croppingNode && (
         <div
           data-canvas-ui
-          className="bl-liquid-glass absolute left-1/2 bottom-20 z-30 flex -translate-x-1/2 items-center gap-1 rounded-xl py-1 pl-3 pr-1"
+          className="bl-liquid-glass absolute left-1/2 bottom-20 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded-lg py-1 pl-2 pr-1"
           style={liquidGlassStyle}
         >
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] tabular-nums text-muted-foreground/75">
-            {selectedIds.size} selected
+          <span className="px-1 text-[11px] tabular-nums text-muted-foreground/70">
+            {selectedIds.size}
           </span>
-          <span aria-hidden className="mx-1 h-3.5 w-px bg-foreground/15" />
+          <span aria-hidden className="mx-1 h-3 w-px bg-foreground/12" />
           {selectedImageNodes.length >= 2 && (
             <button
               type="button"
@@ -1488,15 +1488,17 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
                 setStitchOpen((open) => !open)
               }}
               className={cn(
-                "press inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5",
-                "font-mono text-[10px] font-semibold uppercase tracking-[0.1em]",
+                "press inline-flex h-6 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-[11.5px] font-medium",
                 "bg-primary text-primary-foreground hover:bg-primary/90",
                 stitchOpen && "ring-1 ring-inset ring-primary-foreground/35",
               )}
               title="Stitch selected images into one"
             >
               <Combine className="h-3.5 w-3.5" />
-              Stitch {selectedImageNodes.length}
+              Stitch
+              <span className="text-primary-foreground/70 tabular-nums">
+                {selectedImageNodes.length}
+              </span>
             </button>
           )}
           {selectedGroupableNodes.length > 0 && (
@@ -1505,9 +1507,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
               onClick={groupSelected}
               disabled={groupNodesMutation.isPending}
               className={cn(
-                "press inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium",
-                "text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
-                "disabled:opacity-50 disabled:hover:bg-transparent",
+                "press inline-flex h-6 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-[11.5px] font-medium",
+                "text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground",
+                "disabled:opacity-40 disabled:hover:bg-transparent",
               )}
               title="Group selected nodes"
             >
@@ -1519,13 +1521,13 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             type="button"
             onClick={deleteSelected}
             className={cn(
-              "press inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium",
-              "text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
+              "press inline-flex h-6 w-6 items-center justify-center rounded-md",
+              "text-muted-foreground/85 hover:bg-destructive/10 hover:text-destructive",
             )}
             title="Delete selected (⌫)"
+            aria-label="Delete selected"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
           </button>
         </div>
       )}
@@ -1538,20 +1540,20 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       {croppingNode && (
         <div
           data-canvas-ui
-          className="bl-liquid-glass absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-xl py-1 pl-3 pr-1"
+          className="bl-liquid-glass absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg py-1 pl-2 pr-1"
           style={liquidGlassStyle}
         >
-          <CropIcon className="h-3.5 w-3.5 text-primary" />
-          <div className="flex h-7 items-center gap-0.5 rounded-lg bg-foreground/[0.06] p-0.5">
+          <CropIcon className="h-3.5 w-3.5 text-primary/80" />
+          <div className="flex h-6 items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5">
             <button
               type="button"
               onClick={() => setCropMode("keep")}
               disabled={cropping}
               className={cn(
-                "press inline-flex h-6 items-center rounded-md px-2 text-[11px] font-medium disabled:opacity-50",
+                "press inline-flex h-5 items-center rounded-[5px] px-2 text-[11px] font-medium disabled:opacity-40",
                 cropMode === "keep"
                   ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground/75 hover:text-foreground",
+                  : "text-muted-foreground/70 hover:text-foreground",
               )}
               title="Keep the selected region"
             >
@@ -1562,10 +1564,10 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
               onClick={() => setCropMode("cutout")}
               disabled={cropping}
               className={cn(
-                "press inline-flex h-6 items-center rounded-md px-2 text-[11px] font-medium disabled:opacity-50",
+                "press inline-flex h-5 items-center rounded-[5px] px-2 text-[11px] font-medium disabled:opacity-40",
                 cropMode === "cutout"
                   ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground/75 hover:text-foreground",
+                  : "text-muted-foreground/70 hover:text-foreground",
               )}
               title="Cut the selected region out — leaves a transparent hole the rest of the image still surrounds"
             >
@@ -1580,9 +1582,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             onClick={cancelCrop}
             disabled={cropping}
             className={cn(
-              "press inline-flex h-7 items-center rounded-lg px-2.5 text-[11.5px] font-medium",
-              "text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
-              "disabled:opacity-50 disabled:hover:bg-transparent",
+              "press inline-flex h-6 items-center rounded-md px-2 text-[11.5px] font-medium",
+              "text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground",
+              "disabled:opacity-40 disabled:hover:bg-transparent",
             )}
             title="Cancel crop (Esc)"
           >
@@ -1593,10 +1595,9 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
             onClick={() => void applyCrop()}
             disabled={cropping || !cropRect}
             className={cn(
-              "press inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5",
-              "font-mono text-[10px] font-semibold uppercase tracking-[0.1em]",
+              "press inline-flex h-6 items-center rounded-md px-2.5 text-[11.5px] font-medium",
               "bg-primary text-primary-foreground hover:bg-primary/90",
-              "disabled:opacity-60 disabled:hover:bg-primary",
+              "disabled:opacity-50 disabled:hover:bg-primary",
             )}
             title={
               cropMode === "cutout"
@@ -1608,7 +1609,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
               ? "Applying…"
               : cropMode === "cutout"
                 ? "Cut out"
-                : "Apply crop"}
+                : "Apply"}
           </button>
         </div>
       )}
@@ -1634,12 +1635,11 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         />
       )}
 
-      {/* Zoom controls — liquid-glass island, top-right. Slimmer pill
-          (h-7 children inside p-1) so it pairs with the page selector
-          at the symmetric top-left corner. */}
+      {/* Zoom controls — liquid-glass island, top-right. Slim pill paired
+          with the page selector at the symmetric top-left corner. */}
       <div
         data-canvas-ui
-        className="bl-liquid-glass absolute right-4 top-4 z-30 flex items-center gap-0.5 rounded-xl p-1"
+        className="bl-liquid-glass absolute right-4 top-4 z-30 flex items-center gap-0.5 rounded-lg p-1"
         style={liquidGlassStyle}
       >
         <IconButton label="Zoom out" onClick={() => zoomBy(-0.1)}>
@@ -1648,7 +1648,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
         <button
           type="button"
           onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })}
-          className="press h-7 rounded-lg px-2 text-[11px] font-medium tabular-nums text-foreground/80 hover:bg-foreground/[0.07] hover:text-foreground"
+          className="press h-6 rounded-md px-1.5 text-[11px] font-medium tabular-nums text-foreground/75 hover:bg-foreground/[0.06] hover:text-foreground"
         >
           {Math.round(viewport.zoom * 100)}%
         </button>
@@ -1678,7 +1678,7 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
       {worktreeId && (pagesQuery.data ?? []).length > 0 && (
         <div
           data-canvas-ui
-          className="bl-liquid-glass absolute left-4 top-4 z-30 flex max-w-[calc(50%-13rem)] @max-4xl/canvas:max-w-[calc(50%-7rem)] items-center gap-0.5 rounded-xl p-1"
+          className="bl-liquid-glass absolute left-4 top-4 z-30 flex max-w-[calc(50%-13rem)] @max-4xl/canvas:max-w-[calc(50%-7rem)] items-center gap-0.5 rounded-lg p-1"
           style={liquidGlassStyle}
         >
           <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
@@ -1695,10 +1695,10 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
                 <div
                   key={page.id}
                   className={cn(
-                    "group flex h-7 shrink-0 items-center rounded-lg pl-2 pr-1 text-[11.5px] font-medium transition-colors",
+                    "group flex h-6 shrink-0 items-center rounded-md pl-2 pr-1 text-[11.5px] font-medium transition-colors",
                     isActive
                       ? "bg-background/85 text-foreground shadow-sm"
-                      : "text-muted-foreground/75 hover:bg-foreground/[0.07] hover:text-foreground",
+                      : "text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground",
                   )}
                 >
                   {isRenaming ? (
@@ -1763,17 +1763,16 @@ export function CanvasModeView({ worktreeId }: CanvasModeViewProps) {
               )
             })}
           </div>
-          <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-foreground/10" />
+          <span aria-hidden className="mx-1 h-3 w-px shrink-0 bg-foreground/12" />
           <button
             type="button"
             onClick={() => void createPage()}
             disabled={createPageMutation.isPending}
-            className="press flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 @max-4xl/canvas:px-1.5 text-[11.5px] font-medium text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground disabled:opacity-50"
+            className="press flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40"
             title="New page"
             aria-label="New page"
           >
-            <Plus className="h-3 w-3" />
-            <span className="@max-4xl/canvas:hidden">New page</span>
+            <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
@@ -1883,15 +1882,14 @@ function CanvasToolButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "press flex h-7 items-center gap-1.5 rounded-lg px-2 @max-4xl/canvas:px-1.5 text-[11.5px] font-medium",
-        "text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
-        "disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 disabled:hover:bg-transparent",
+        "press flex h-6 w-6 items-center justify-center rounded-md",
+        "text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground",
+        "disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 disabled:hover:bg-transparent",
       )}
       title={label}
       aria-label={label}
     >
       {icon}
-      <span className="@max-4xl/canvas:hidden">{label}</span>
     </button>
   )
 }
@@ -1909,7 +1907,7 @@ function IconButton({
     <button
       type="button"
       onClick={onClick}
-      className="press flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground"
+      className="press flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground"
       title={label}
       aria-label={label}
     >
@@ -1963,34 +1961,37 @@ function StitchPanel({
   return (
     <div
       data-canvas-ui
-      className="bl-island absolute left-1/2 top-[4.25rem] z-30 w-72 -translate-x-1/2 rounded-2xl p-3"
+      className="bl-island absolute left-1/2 top-[3.75rem] z-30 w-72 -translate-x-1/2 rounded-xl p-2.5"
     >
-      <div className="mb-2.5 flex items-center gap-1.5 px-0.5">
-        <Combine className="h-3.5 w-3.5 text-primary" />
-        <span className="text-[12px] font-semibold text-foreground">
-          Stitch {imageCount} images
+      <div className="mb-2 flex items-center gap-1.5 px-0.5">
+        <Combine className="h-3 w-3 text-primary/80" />
+        <span className="text-[11.5px] font-semibold text-foreground">
+          Stitch
+        </span>
+        <span className="text-[11px] tabular-nums text-muted-foreground/70">
+          {imageCount} images
         </span>
       </div>
 
       {/* Arrangement mode */}
-      <div className="mb-2.5 flex h-7 gap-0.5 rounded-lg bg-foreground/[0.06] p-0.5">
+      <div className="mb-2 flex h-6 gap-0.5 rounded-md bg-foreground/[0.05] p-0.5">
         {(["auto", "manual"] as const).map((value) => (
           <button
             key={value}
             type="button"
             onClick={() => onModeChange(value)}
             className={cn(
-              "press inline-flex h-6 flex-1 items-center justify-center rounded-md px-2 text-[11px] font-medium capitalize",
+              "press inline-flex h-5 flex-1 items-center justify-center rounded-[5px] px-2 text-[11px] font-medium capitalize",
               mode === value
                 ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground/75 hover:text-foreground",
+                : "text-muted-foreground/70 hover:text-foreground",
             )}
           >
             {value}
           </button>
         ))}
       </div>
-      <p className="mb-2.5 px-0.5 text-[10px] leading-snug text-muted-foreground">
+      <p className="mb-2.5 px-0.5 text-[10.5px] leading-snug text-muted-foreground/80">
         {mode === "auto"
           ? "Previewing on the canvas — tweak row height or spacing to restitch."
           : "Composites the images where they sit on the canvas."}
@@ -2029,8 +2030,8 @@ function StitchPanel({
       )}
 
       {/* Background fill */}
-      <div className="mb-3">
-        <span className="mb-1 block px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mb-2.5">
+        <span className="mb-1 block px-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
           Background
         </span>
         <div className="flex gap-1">
@@ -2040,10 +2041,10 @@ function StitchPanel({
               type="button"
               onClick={() => onBackgroundChange(option.value)}
               className={cn(
-                "press inline-flex h-7 flex-1 items-center justify-center rounded-lg border px-2 text-[11px] font-medium",
+                "press inline-flex h-6 flex-1 items-center justify-center rounded-md border px-2 text-[11px] font-medium",
                 background === option.value
-                  ? "border-primary/55 bg-primary/[0.10] text-foreground"
-                  : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground",
+                  ? "border-primary/50 bg-primary/[0.08] text-foreground"
+                  : "border-border/50 text-muted-foreground/85 hover:border-border hover:text-foreground",
               )}
             >
               {option.label}
@@ -2053,20 +2054,20 @@ function StitchPanel({
       </div>
 
       {error && (
-        <p className="mb-2.5 rounded-lg bg-destructive/10 px-2 py-1.5 text-[10px] leading-snug text-destructive">
+        <p className="mb-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[10.5px] leading-snug text-destructive">
           {error}
         </p>
       )}
 
-      <div className="flex gap-1.5">
+      <div className="flex gap-1">
         <button
           type="button"
           onClick={onCancel}
           disabled={stitching}
           className={cn(
-            "press inline-flex h-7 flex-1 items-center justify-center rounded-lg px-2.5 text-[11.5px] font-medium",
-            "text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
-            "disabled:opacity-50 disabled:hover:bg-transparent",
+            "press inline-flex h-6 flex-1 items-center justify-center rounded-md px-2 text-[11.5px] font-medium",
+            "text-muted-foreground/85 hover:bg-foreground/[0.06] hover:text-foreground",
+            "disabled:opacity-40 disabled:hover:bg-transparent",
           )}
         >
           Cancel
@@ -2076,17 +2077,21 @@ function StitchPanel({
           onClick={onStitch}
           disabled={stitching}
           className={cn(
-            "press inline-flex h-7 flex-[1.4] items-center justify-center rounded-lg px-3",
-            "font-mono text-[10px] font-semibold uppercase tracking-[0.1em]",
+            "press inline-flex h-6 flex-[1.4] items-center justify-center gap-1.5 rounded-md px-2.5 text-[11.5px] font-medium",
             "bg-primary text-primary-foreground hover:bg-primary/90",
-            "disabled:opacity-60 disabled:hover:bg-primary",
+            "disabled:opacity-50 disabled:hover:bg-primary",
           )}
         >
-          {stitching
-            ? "Stitching…"
-            : mode === "auto"
-              ? `Apply ${imageCount}`
-              : `Stitch ${imageCount}`}
+          {stitching ? (
+            "Stitching…"
+          ) : (
+            <>
+              {mode === "auto" ? "Apply" : "Stitch"}
+              <span className="text-primary-foreground/70 tabular-nums">
+                {imageCount}
+              </span>
+            </>
+          )}
         </button>
       </div>
     </div>
