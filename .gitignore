@@ -6,11 +6,15 @@ node_modules/
 
 # Build outputs
 dist/
-build/
 out/
 release/
 release-*/
 *.tsbuildinfo
+
+# electron-builder buildResources lives in build/ — keep tracked sources
+# (icon.png, icon.icns, entitlements) and ignore generated artifacts.
+build/icon.iconset/
+build/*.tmp
 
 # Env
 .env
