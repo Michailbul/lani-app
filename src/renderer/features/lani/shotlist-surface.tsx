@@ -42,7 +42,10 @@ import {
   selectedSceneIdAtom,
   type ActiveEntity,
 } from "./atoms"
-import { ShotlistScreenplay } from "./shotlist-screenplay"
+import {
+  ShotlistScreenplay,
+  useStableScreenplayParts,
+} from "./shotlist-screenplay"
 import { ShotlistSubmodeToggle } from "./shotlist-submode-toggle"
 
 const AUTOSAVE_MS = 600
@@ -1006,6 +1009,11 @@ function WorkArea({
     window.addEventListener("pointerup", onUp)
   }
 
+  // Slim, content-stable slice for the screenplay editor. Prevents the
+  // CodeMirror reseed effect from firing when only prompt/status fields
+  // changed and the screenplay text is byte-identical.
+  const screenplayParts = useStableScreenplayParts(shots)
+
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 px-6 pb-5 pt-3">
       <div
@@ -1027,7 +1035,7 @@ function WorkArea({
       <PanelResizer onResize={beginColResize} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ShotlistScreenplay
-          parts={shots}
+          parts={screenplayParts}
           activeIndex={selectedIndex}
           onSelect={onSelect}
           onEditSlices={onEditSlices}

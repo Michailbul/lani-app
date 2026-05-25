@@ -50,6 +50,40 @@ export interface ScreenplayPart {
   scriptRef: string
 }
 
+/**
+ * Stabilize the `parts` prop fed to `ShotlistScreenplay` so the CodeMirror
+ * reseed effect only fires when the screenplay actually changes.
+ *
+ * Both surfaces (Shotlist + Multishot) derive parts from a doc that the
+ * renderer re-fetches every 1.5s. The incoming array reference is fresh on
+ * every poll even when content is byte-identical, which churns the reseed.
+ *
+ * Returns the *previous* array reference when every `(id, scriptRef)` pair
+ * matches the incoming parts — so React's dependency check short-circuits.
+ * Allocates a new array only on a real change (don't pay for `.map(...)` on
+ * idle polls).
+ */
+export function useStableScreenplayParts(
+  parts: readonly ScreenplayPart[],
+): ScreenplayPart[] {
+  const stableRef = useRef<ScreenplayPart[]>([])
+  const prev = stableRef.current
+  if (
+    prev.length === parts.length &&
+    prev.every(
+      (p, i) => p.id === parts[i]!.id && p.scriptRef === parts[i]!.scriptRef,
+    )
+  ) {
+    return prev
+  }
+  const next: ScreenplayPart[] = parts.map((p) => ({
+    id: p.id,
+    scriptRef: p.scriptRef,
+  }))
+  stableRef.current = next
+  return next
+}
+
 /** The selection-isolate shortcut, rendered for the platform. */
 const ISOLATE_HOTKEY =
   typeof navigator !== "undefined" &&

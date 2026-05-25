@@ -69,7 +69,11 @@ import {
   selectedSceneIdAtom,
   type ActiveEntity,
 } from "./atoms"
-import { ShotlistScreenplay } from "./shotlist-screenplay"
+import {
+  type ScreenplayPart,
+  ShotlistScreenplay,
+  useStableScreenplayParts,
+} from "./shotlist-screenplay"
 import { ShotlistSubmodeToggle } from "./shotlist-submode-toggle"
 
 const AUTOSAVE_MS = 600
@@ -211,11 +215,6 @@ function emptyVersion(scriptParts: string[]): MultishotVersion {
 type EntityRoot =
   | { chatId: string; projectId?: undefined }
   | { chatId?: undefined; projectId: string }
-
-interface ScreenplayPart {
-  id: string
-  scriptRef: string
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -675,15 +674,16 @@ function SceneMultishotView({
   }
 
   // Ephemeral "parts" for the divider editor — index-keyed slices of the
-  // active version's screenplay. Memoised so the editor only re-seeds when
-  // the split actually changes.
-  const screenplayParts: ScreenplayPart[] = useMemo(
-    () =>
-      (activeVersion?.scriptParts ?? [""]).map((text, i) => ({
-        id: String(i),
-        scriptRef: text,
-      })),
-    [activeVersion?.scriptParts],
+  // active version's screenplay. Stabilized by content (id + scriptRef)
+  // so a fresh `scriptParts` array with identical text doesn't re-seed
+  // the CodeMirror editor. The .map allocates per render, but the hook
+  // returns the prior reference when content matches, so the downstream
+  // reseed effect's dep check short-circuits.
+  const screenplayParts: ScreenplayPart[] = useStableScreenplayParts(
+    (activeVersion?.scriptParts ?? [""]).map((text, i) => ({
+      id: String(i),
+      scriptRef: text,
+    })),
   )
 
   return (

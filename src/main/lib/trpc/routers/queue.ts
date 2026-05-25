@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs"
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import {
+  invalidateCachedNormalizedJson,
+  readCachedNormalizedJson,
+} from "../../lani-json-cache"
+import {
   basename,
   dirname,
   extname,
@@ -110,8 +114,14 @@ const rootInput = {
 
 const EMPTY_QUEUE: SubmissionQueue = { schemaVersion: 1, items: [], updatedAt: "" }
 
-/** Read + normalize one queue file; an empty queue if it is absent. */
-async function loadQueueFile(
+/**
+ * Read + normalize one queue file; an empty queue if it is absent.
+ * Always reads fresh from disk — use this for mutation paths that load
+ * the queue, modify it in place, and persist it via `persistQueueFiles`.
+ * Returning a cached (shared) reference there would let one mutation
+ * see another mutation's edits through the cache.
+ */
+async function loadQueueFileFresh(
   root: string,
   relPath: string,
 ): Promise<SubmissionQueue> {
@@ -120,6 +130,28 @@ async function loadQueueFile(
   try {
     const raw = await readFile(fullPath, "utf-8")
     return normalizeQueue(JSON.parse(raw))
+  } catch {
+    return { ...EMPTY_QUEUE }
+  }
+}
+
+/**
+ * Same shape, but routed through the `(mtimeMs, size)` cache. Use this for
+ * pure read procedures (`queue.read`, `queue.readArchive`) that send the
+ * result straight back to the renderer via tRPC — the response is
+ * serialized over IPC, so the renderer never holds the cached reference
+ * and can't mutate it. Do NOT use this in mutation paths.
+ */
+async function loadQueueFileCached(
+  root: string,
+  relPath: string,
+): Promise<SubmissionQueue> {
+  const fullPath = resolveInside(root, relPath)
+  if (!existsSync(fullPath)) return { ...EMPTY_QUEUE }
+  try {
+    return await readCachedNormalizedJson(fullPath, (raw) =>
+      normalizeQueue(raw),
+    )
   } catch {
     return { ...EMPTY_QUEUE }
   }
@@ -147,6 +179,10 @@ async function persistQueueFiles(
       JSON.stringify(w.queue, null, 2) + "\n",
       "utf-8",
     )
+    // Every queue mutation flows through here, so a single eviction at
+    // the write boundary covers write / writeArchive / addItem / refs /
+    // videos / archive-restore / remove without touching each procedure.
+    invalidateCachedNormalizedJson(fullPath)
   }
   if (cleanPaths.length > 0) {
     await settleQueueEdit(root, [...cleanPaths, ...extraPaths])
@@ -168,10 +204,10 @@ function stamp<T extends SubmissionQueue>(queue: T): T {
  * — a no-op once the split has happened.
  */
 async function ensureSplit(root: string): Promise<void> {
-  const active = await loadQueueFile(root, QUEUE_FILE_RELPATH)
+  const active = await loadQueueFileFresh(root, QUEUE_FILE_RELPATH)
   const strays = active.items.filter((i) => i.archivedAt)
   if (strays.length === 0) return
-  const archive = await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH)
+  const archive = await loadQueueFileFresh(root, QUEUE_ARCHIVE_RELPATH)
   await persistQueueFiles(root, [
     {
       relPath: QUEUE_FILE_RELPATH,
@@ -254,7 +290,7 @@ export const queueRouter = router({
       }
       return {
         exists: true as const,
-        queue: await loadQueueFile(root, QUEUE_FILE_RELPATH),
+        queue: await loadQueueFileCached(root, QUEUE_FILE_RELPATH),
       }
     }),
 
@@ -265,7 +301,7 @@ export const queueRouter = router({
       const { root } = resolveRoot(input)
       if (!root) return { queue: null as SubmissionQueue | null }
       await ensureSplit(root)
-      return { queue: await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH) }
+      return { queue: await loadQueueFileCached(root, QUEUE_ARCHIVE_RELPATH) }
     }),
 
   /** Persist the active queue after an in-place edit. */
@@ -320,8 +356,8 @@ export const queueRouter = router({
 
       // Load both queue files up front so id minting can dedupe across
       // active + archive (a restored item could collide with a re-queue).
-      const queue = await loadQueueFile(root, QUEUE_FILE_RELPATH)
-      const archive = await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH)
+      const queue = await loadQueueFileFresh(root, QUEUE_FILE_RELPATH)
+      const archive = await loadQueueFileFresh(root, QUEUE_ARCHIVE_RELPATH)
       const takenIds = new Set<string>([
         ...queue.items.map((i) => i.id),
         ...archive.items.map((i) => i.id),
@@ -443,8 +479,8 @@ export const queueRouter = router({
       const { root } = resolveRoot(input)
       if (!root) throw new Error("No project root or worktree resolved.")
 
-      const queue = await loadQueueFile(root, QUEUE_FILE_RELPATH)
-      const archive = await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH)
+      const queue = await loadQueueFileFresh(root, QUEUE_FILE_RELPATH)
+      const archive = await loadQueueFileFresh(root, QUEUE_ARCHIVE_RELPATH)
       const takenIds = new Set<string>([
         ...queue.items.map((i) => i.id),
         ...archive.items.map((i) => i.id),
@@ -490,10 +526,10 @@ export const queueRouter = router({
       const { root } = resolveRoot(input)
       if (!root) throw new Error("No project root or worktree resolved.")
 
-      const active = await loadQueueFile(root, QUEUE_FILE_RELPATH)
+      const active = await loadQueueFileFresh(root, QUEUE_FILE_RELPATH)
       const item = active.items.find((i) => i.id === input.itemId)
       if (!item) return { archived: false as const }
-      const archive = await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH)
+      const archive = await loadQueueFileFresh(root, QUEUE_ARCHIVE_RELPATH)
 
       await persistQueueFiles(root, [
         {
@@ -524,10 +560,10 @@ export const queueRouter = router({
       const { root } = resolveRoot(input)
       if (!root) throw new Error("No project root or worktree resolved.")
 
-      const archive = await loadQueueFile(root, QUEUE_ARCHIVE_RELPATH)
+      const archive = await loadQueueFileFresh(root, QUEUE_ARCHIVE_RELPATH)
       const item = archive.items.find((i) => i.id === input.itemId)
       if (!item) return { restored: false as const }
-      const active = await loadQueueFile(root, QUEUE_FILE_RELPATH)
+      const active = await loadQueueFileFresh(root, QUEUE_FILE_RELPATH)
 
       const restored = { ...item }
       delete restored.archivedAt
@@ -568,7 +604,7 @@ export const queueRouter = router({
       if (!root) throw new Error("No project root or worktree resolved.")
 
       const relPath = fileFor(input.archived)
-      const queue = await loadQueueFile(root, relPath)
+      const queue = await loadQueueFileFresh(root, relPath)
       const item = queue.items.find((i) => i.id === input.itemId)
       if (!item) throw new Error("Queue item not found.")
 
@@ -610,7 +646,7 @@ export const queueRouter = router({
       if (!root) throw new Error("No project root or worktree resolved.")
 
       const relPath = fileFor(input.archived)
-      const queue = await loadQueueFile(root, relPath)
+      const queue = await loadQueueFileFresh(root, relPath)
       const item = queue.items.find((i) => i.id === input.itemId)
       if (!item || !item.referenceImages.includes(input.path)) {
         return { removed: false as const }
@@ -658,7 +694,7 @@ export const queueRouter = router({
       }
 
       const relPath = fileFor(input.archived)
-      const queue = await loadQueueFile(root, relPath)
+      const queue = await loadQueueFileFresh(root, relPath)
       const item = queue.items.find((i) => i.id === input.itemId)
       if (!item) throw new Error("Queue item not found.")
 
@@ -703,7 +739,7 @@ export const queueRouter = router({
       if (!root) throw new Error("No project root or worktree resolved.")
 
       const relPath = fileFor(input.archived)
-      const queue = await loadQueueFile(root, relPath)
+      const queue = await loadQueueFileFresh(root, relPath)
       const item = queue.items.find((i) => i.id === input.itemId)
       if (!item || !item.resultVideo) return { cleared: false as const }
 
@@ -735,7 +771,7 @@ export const queueRouter = router({
       if (!root) throw new Error("No project root or worktree resolved.")
 
       const relPath = fileFor(input.archived)
-      const queue = await loadQueueFile(root, relPath)
+      const queue = await loadQueueFileFresh(root, relPath)
       const next = queue.items.filter((i) => i.id !== input.itemId)
       if (next.length === queue.items.length) {
         return { removed: false as const }

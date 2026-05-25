@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs"
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import {
+  invalidateCachedNormalizedJson,
+  readCachedNormalizedJson,
+} from "../../lani-json-cache"
+import {
   basename,
   dirname,
   extname,
@@ -134,14 +138,14 @@ export const multishotsRouter = router({
         return { exists: false as const, multishot: null }
       }
       try {
-        const raw = await readFile(fullPath, "utf-8")
         // The agent can author this file directly with the Write tool, so
         // normalize on read — fill missing versions/status/schemaVersion so
         // a near-miss write still renders. Invalid JSON still fails here.
-        return {
-          exists: true as const,
-          multishot: normalizeMultishot(JSON.parse(raw)),
-        }
+        // Cached by (mtimeMs, size) so idle polls don't re-parse.
+        const multishot = await readCachedNormalizedJson(fullPath, (raw) =>
+          normalizeMultishot(raw),
+        )
+        return { exists: true as const, multishot }
       } catch {
         return { exists: false as const, multishot: null }
       }
@@ -170,6 +174,7 @@ export const multishotsRouter = router({
         JSON.stringify(input.multishot, null, 2) + "\n",
         "utf-8",
       )
+      invalidateCachedNormalizedJson(fullPath)
       if (shouldSettle) {
         await settleUserEdit(root, input.relPath)
       }
