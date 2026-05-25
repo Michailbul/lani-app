@@ -4,8 +4,9 @@
     {
       "name": "backlot-landing",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd ../backlot-landing && bun run dev"],
-      "port": 3000
+      "runtimeArgs": ["-c", "cd ../backlot-landing && bun run dev --port $PORT"],
+      "port": 3000,
+      "autoPort": true
     },
     {
       "name": "backlot",
