@@ -908,6 +908,17 @@ export const claudeRouter = router({
               finalPrompt = `${finalPrompt}\n\nUse the "${skillMentions.join('", "')}" skill(s) for this task.`
             }
 
+            // Harness + active focus — built early because we inject
+            // activeFocus into the *user* prompt (not the system prompt's
+            // `append`) so the harness portion of the system prompt stays
+            // stable across turns and entity switches. A stable system
+            // prompt is what lets Anthropic's prompt cache hit on the
+            // ~50KB harness. See claude.ts notes near systemPromptConfig.
+            const laniHarnessBlock = buildLaniHarnessBlock()
+            const activeFocusBlock = buildActiveFocusBlock(
+              input.activeFocus ?? null,
+            )
+
             const shouldEmbedLocalHistory =
               !existingSessionId && existingMessages.length > 0
             if (shouldEmbedLocalHistory) {
@@ -918,6 +929,13 @@ export const claudeRouter = router({
               if (localHistoryContext) {
                 finalPrompt = `${localHistoryContext}${finalPrompt}`
               }
+            }
+
+            // Prepend per-turn active focus to the user prompt. Kept OUT
+            // of systemPrompt.append so the cached system-prompt prefix
+            // doesn't churn when the user switches active entity/mode.
+            if (activeFocusBlock) {
+              finalPrompt = `${activeFocusBlock}\n\n${finalPrompt}`
             }
 
             // Build prompt: if there are images, create an AsyncIterable<SDKUserMessage>
@@ -1325,23 +1343,10 @@ export const claudeRouter = router({
               })
             }
 
-            // Lani harness — universal system-prompt block describing
-            // the canonical project schema, file conventions, and how the
-            // agent should work inside Lani. Versioned in
-            // src/main/lib/claude/harness-prompt.ts. Same content shipped
-            // to every project; project-specific creative direction lives
-            // in the project's own files (brief.md, world.md, etc.) which
-            // the agent reads on demand. We deliberately do NOT read
-            // AGENTS.md or per-project CLAUDE.md here — Lani has one
-            // universal harness, not per-project agent docs.
-            const laniHarnessBlock = buildLaniHarnessBlock()
-
-            // Active focus — what the user has open in the app right now.
-            // Composed per-turn from the renderer's active entity so the
-            // agent always knows the file the user is exploring.
-            const activeFocusBlock = buildActiveFocusBlock(
-              input.activeFocus ?? null,
-            )
+            // laniHarnessBlock + activeFocusBlock are built above
+            // (right after parseMentions) so activeFocus can be prepended
+            // to the user prompt. The harness goes into systemPrompt's
+            // `append` so it stays in the cacheable system-prompt prefix.
 
             // For Ollama: embed context AND history directly in prompt
             // Ollama doesn't have server-side sessions, so we must include full history
@@ -1443,7 +1448,7 @@ IMPORTANT: When using tools, use these EXACT parameter names:
 - Bash: use "command"
 [/CONTEXT]
 
-${laniHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}
+${laniHarnessBlock}
 
 ${historyText}[CURRENT REQUEST]
 ${prompt}
@@ -1454,21 +1459,24 @@ ${prompt}
 
             // System prompt config — Anthropic's `claude_code` preset
             // plus the Lani harness block (see harness-prompt.ts).
-            // The harness describes the canonical project schema,
-            // file conventions, and how the agent should work inside
-            // Lani. Same content for every project.
             //
-            // We deliberately removed the legacy `ensurePrimaryArtifact`
-            // seed + screenplay-artifact note here: the new harness
-            // describes the entire canonical schema (brief, world,
-            // characters, locations, scenes, prompts, queue, etc.),
-            // not a single magic file. Auto-seeding screenplay.fountain
-            // for new projects is no longer correct — projects may not
-            // have a top-level screenplay at all (just per-scene fountain).
+            // Two cache-related choices live here:
+            //   1. `excludeDynamicSections: true` strips the preset's
+            //      per-session prefix (cwd, git status, OS, shell,
+            //      auto-memory paths) out of the system prompt and
+            //      re-injects it as the first user message. Without
+            //      this flag, every Direction/worktree gets a unique
+            //      system prompt and zero cross-session cache hits on
+            //      our ~50KB harness.
+            //   2. The active-focus block lives in the *user* prompt,
+            //      not in `append`. Otherwise switching the active
+            //      entity would mutate the system-prompt suffix every
+            //      turn and bust the cached harness prefix.
             const systemPromptConfig = {
               type: "preset" as const,
               preset: "claude_code" as const,
-              append: `\n\n${laniHarnessBlock}${activeFocusBlock ? `\n\n${activeFocusBlock}` : ""}`,
+              append: `\n\n${laniHarnessBlock}`,
+              excludeDynamicSections: true,
             }
 
             const queryOptions = {
