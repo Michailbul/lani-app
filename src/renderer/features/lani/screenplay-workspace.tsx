@@ -80,6 +80,7 @@ import {
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu"
 import { GlassFilter } from "../../components/ui/liquid-glass-filter"
+import { WEBP_DISPLACEMENT_MAP as DOCK_THUMB_DISPLACEMENT_MAP } from "../../components/ui/apple-tahoe-liquid-glass-button"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 
@@ -176,6 +177,32 @@ function ModeDock() {
       style={{ right: rightInset }}
     >
       <GlassFilter />
+      {/* Apple Tahoe liquid-glass displacement filter — refracts the
+          canvas behind the active dock thumb through a WebP normal map. */}
+      <svg
+        className="absolute w-0 h-0 overflow-hidden pointer-events-none"
+        aria-hidden="true"
+      >
+        <filter id="bl-dock-thumb-glass" primitiveUnits="objectBoundingBox">
+          <feImage
+            result="map"
+            width="100%"
+            height="100%"
+            x="0"
+            y="0"
+            href={DOCK_THUMB_DISPLACEMENT_MAP}
+            preserveAspectRatio="none"
+          />
+          <feGaussianBlur in="SourceGraphic" stdDeviation="0.01" result="blur" />
+          <feDisplacementMap
+            in="blur"
+            in2="map"
+            scale="0.5"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </svg>
       <div
         className={cn(
           "pointer-events-auto relative grid grid-cols-6 h-11 p-1 rounded-2xl",
@@ -188,12 +215,14 @@ function ModeDock() {
           WebkitBackdropFilter: "url(#bl-glass-displace) blur(3px) saturate(150%)",
         }}
       >
-        {/* Sliding glass-button thumb — the raised liquid-glass switch.
-            Shares the .bl-glass-button surface with the active thread tab. */}
+        {/* Sliding liquid-glass thumb — Apple Tahoe lens treatment.
+            The empty lens div lets backdrop-filter refract the canvas
+            cleanly through the SVG displacement map; the inset/outset
+            shadow stack carves the bevel and outer drop. */}
         <span
           aria-hidden
           className={cn(
-            "absolute inset-y-1 left-1 rounded-xl bg-primary bl-glass-button bl-glass-accent",
+            "bl-dock-thumb absolute inset-y-1 left-1 rounded-xl",
             "transition-transform duration-300 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{
